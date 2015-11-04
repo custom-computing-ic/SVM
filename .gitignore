@@ -1,0 +1,12 @@
+# git ignore setting
+
+# object files
+*.o
+*.obj
+*.class
+
+# data files
+*.txt
+
+# build folder
+

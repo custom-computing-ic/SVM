@@ -1,5 +1,8 @@
 # git ignore setting
 
+# gedit backup files
+*~
+
 # object files
 *.o
 *.obj
@@ -9,4 +12,4 @@
 *.txt
 
 # build folder
-
+Demo_*

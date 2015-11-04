@@ -1,2 +1,2 @@
-# Maxeler-Project-Template
-A template of Maxeler Project - courtesy of Dr. Thomas C P Chau
+# Incremental Support Vector Machine
+Train the SVM incrementally on FPGA.

@@ -19,7 +19,7 @@
 #define RSize 		5
 
 // precision
-#define eps		1e-7
+#define eps		1e-6
 
 // type of input data X
 typedef double DataType;
@@ -39,7 +39,7 @@ static inline CalcType Kernel(DataType *X1, DataType*X2, const CalcType sigma_sq
 
 
 // Calculating h(Xi) - Assuming Q is full matrix
-CalcType hCalc(			const size_t ID,
+CalcType hCalc(	const size_t ID,
 				const size_t CurSize,
 				char *Group,
 				DataType *dataY,
@@ -50,18 +50,46 @@ CalcType hCalc(			const size_t ID,
 	// Compute f(Xi)
 	CalcType fXi = *b;
 	for (size_t i=0; i<CurSize; ++i) {
-		if (Group[i]=='E' || Group[i]=='S') fXi += theta[i] * Q[ID*DataSize+i];
+		fXi += theta[i] * Q[ID*DataSize+i];
 	}
 
 	// Compute h(Xi) = f(Xi) - Yi
 	return fXi - dataY[ID];
 }
 
+CalcType objCalc(	const size_t CurSize,
+					CalcType *dataY,
+					char *Group,
+					CalcType *theta,
+					CalcType *Q,
+					CalcType *b,
+					const CalcType C,
+					const CalcType ep){
+
+	// Calculate the first term
+	CalcType temp1 = 0;
+	for (size_t i=0; i<CurSize; ++i) {
+		// Calculate the first term
+		for (size_t j=0; j<CurSize; ++j) {
+			temp1 += theta[i] * theta[j] * Q[i*DataSize+j] / 2;
+		}
+	}
+
+	// Calculate the second term
+	CalcType temp2 = 0;
+	for (size_t i=0; i<CurSize; ++i) {
+		CalcType hXi = hCalc(i, CurSize, Group, dataY, Q, theta, b);
+		temp2 += (fabs(hXi)>ep) ? C*(fabs(hXi)-ep) : 0;
+	}
+
+	return temp1+temp2;
+}
+
 
 ////////////////////// SVM Functions //////////////////////
 
 // SVM regression
-CalcType regSVM(		DataType *X_IN,
+CalcType regSVM(	DataType *X_IN,
 				DataType *dataX,
 				const size_t CurSize,
 				char *Group,
@@ -71,14 +99,15 @@ CalcType regSVM(		DataType *X_IN,
 
 	CalcType f = *b;
 	for (size_t i=0; i<CurSize; ++i) {
-		if (Group[i]=='E' || Group[i]=='S') f += theta[i] * Kernel(X_IN, &(dataX[i*DataDim]), sigma_sq);
+		//if (Group[i]=='E' || Group[i]=='S') f += theta[i] * Kernel(X_IN, &(dataX[i*DataDim]), sigma_sq);
+		f += theta[i] * Kernel(X_IN, &(dataX[i*DataDim]), sigma_sq);
 	}
 
 	return f;
 }
 
 // SVM initialisation
-void initSVM(			DataType *X1,
+void initSVM(		DataType *X1,
 				CalcType Y1,
 				DataType *X2,
 				CalcType Y2,
@@ -187,7 +216,7 @@ void initSVM(			DataType *X1,
 }
 
 // incremental learning
-int incSVM(			DataType *Xc,
+int incSVM(		DataType *Xc,
 				CalcType Yc,
 				DataType *dataX,
 				CalcType *dataY,
@@ -231,13 +260,13 @@ int incSVM(			DataType *Xc,
 	// Update Q - optimisable
 	for (size_t i=0; i<CurSize; ++i) Q[CurSize*DataSize+i] = Kernel(Xc, &(dataX[i*DataDim]), sigma_sq);
 	for (size_t i=0; i<CurSize; ++i) Q[i*DataSize+CurSize] = Q[CurSize*DataSize+i];
-	Q[CurSize*DataSize+CurSize] = 1;
+	Q[CurSize*DataSize+CurSize] = Kernel(Xc, Xc, sigma_sq);
 
 	// Compute h(Xc)
 	hXi[CurSize] = hCalc(CurSize, CurSize, Group, dataY, Q, theta, b);
 
 	// non-support vector => Xc joins 'R' and terminate, without changing b
-	if (abs(hXi[CurSize])<=ep) {
+	if (fabs(hXi[CurSize])<=ep) {
 		Group[CurSize] = 'R';
 		NMask[NSize] = CurSize;
 		(*_NSize)++;
@@ -248,11 +277,12 @@ int incSVM(			DataType *Xc,
 	// non-support vector => Xc joins 'R' after changing b
 	// This could only happen when set S is empty
 	if (SSize==0) {
-		CalcType delta_b = (hXi[CurSize]>ep)? ep - hXi[CurSize] : -ep - hXi[CurSize];
+		//CalcType delta_b = (hXi[CurSize]>ep)? ep - hXi[CurSize] : -ep - hXi[CurSize];
+		CalcType delta_b = - hXi[CurSize];
 		int isValid = 1;
 		for (size_t i=0; i<NSize; ++i) {
 			size_t cur = NMask[i];
-			if (Group[cur]=='R' && abs(hXi[cur]+delta_b)>ep) {isValid = 0; break;}
+			if (Group[cur]=='R' && fabs(hXi[cur]+delta_b)>ep) {isValid = 0; break;}
 			else if (Group[cur]=='E' && theta[cur]>0 && (hXi[cur]+delta_b)>-ep) {isValid = 0; break;}
 			else if (Group[cur]=='E' && theta[cur]<0 && (hXi[cur]+delta_b)<ep) {isValid = 0; break;}
 		}
@@ -317,8 +347,8 @@ int incSVM(			DataType *Xc,
 	// Calculate Lc1 - Case 1
 	CalcType Lc1 = INFINITY;
 	CalcType qrc = q*gamma_c;
-	if (qrc>0 && hXi[CurSize]<-ep) Lc1 = (-hXi[CurSize]-q*ep)/gamma_c;
-	else if (qrc<0 && hXi[CurSize]>ep) Lc1 = (-hXi[CurSize]-q*ep)/gamma_c;
+	if (qrc>0 && hXi[CurSize]<-ep) Lc1 = (-ep-hXi[CurSize])/gamma_c;
+	else if (qrc<0 && hXi[CurSize]>ep) Lc1 = (ep-hXi[CurSize])/gamma_c;
 	Lc1 = fabs(Lc1);
 
 	// Calculate Lc2 - Case 2
@@ -331,8 +361,8 @@ int incSVM(			DataType *Xc,
 		CalcType curLiS = INFINITY;
 		CalcType qbi = q*beta[i+1];
 		if (qbi>0 && theta[SMask[i]]>=0) curLiS = (C-theta[SMask[i]])/beta[i+1];
-		else if (qbi>0 && theta[SMask[i]]<0) curLiS = -theta[SMask[i]]/beta[i+1];
-		else if (qbi<0 && theta[SMask[i]]>0) curLiS = -theta[SMask[i]]/beta[i+1];
+		else if (qbi>0 && theta[SMask[i]]<0) curLiS = theta[SMask[i]]/beta[i+1];
+		else if (qbi<0 && theta[SMask[i]]>0) curLiS = theta[SMask[i]]/beta[i+1];
 		else if (qbi<0 && theta[SMask[i]]<=0) curLiS = (-C-theta[SMask[i]])/beta[i+1];
 		curLiS = fabs(curLiS);
 		if (curLiS<LiS) {
@@ -373,7 +403,6 @@ int incSVM(			DataType *Xc,
 	}
 
 	// Calculate delta theta_c
-	// TODO: ties?
 	CalcType L[5] = {Lc1, Lc2, LiS, LiE, LiR};
 	size_t key[5] = {CurSize, CurSize, keyS, keyE, keyR};
 	CalcType minL = Lc1;
@@ -388,7 +417,7 @@ int incSVM(			DataType *Xc,
 	}
 	CalcType d_theta_c = q*minL;
 
-	printf("[CurSize=%zu->%zu] <q=%f> Lc1=%f, Lc2=%f, LiS=%f, LiE=%f, LiR=%f. \n", CurSize, CurSize+1, q, Lc1, Lc2, LiS, LiE, LiR);
+	printf("[Adding item #%zu] <q=%1.0f> Lc1=%f, Lc2=%f, LiS=%f, LiE=%f, LiR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", CurSize+1, q, Lc1, Lc2, LiS, LiE, LiR, flag, minkey, SSize);
 
 
 	///////////////////////////// Updating coefficients /////////////////////////////
@@ -433,7 +462,7 @@ int incSVM(			DataType *Xc,
 					R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_c;
 				}
 				else {
-					R[0] = -1;
+					R[0] = -Kernel(Xc, Xc, sigma_sq);
 					R[1] = 1;
 					R[RSize] = 1;
 					R[RSize+1] = 0;
@@ -477,33 +506,30 @@ int incSVM(			DataType *Xc,
 				}
 				// move Xl to R
 				size_t k = SMask[minkey];
-				if (abs(theta[k])<eps) {
+				if (fabs(theta[k])<eps) {
 					Group[k] = 'R';
 					NMask[NSize++] = k;
-					hXi[k] = hCalc(k, CurSize, Group, dataY, Q, theta, b);
+					hXi[k] = hCalc(k, CurSize+1, Group, dataY, Q, theta, b);
 					for (size_t i=minkey; i<SSize-1; ++i) {
 						SMask[i] = SMask[i+1];
 					}
 					SSize--;
 					(*_SSize)--;
 					(*_NSize)++;
+					theta[k] = 0;  // for numerical stability
 				}
 				// move Xl to E
-				else if (abs(abs(theta[k])-C)<eps){
+				else if (fabs(fabs(theta[k])-C)<eps){
 					Group[k] = 'E';
 					NMask[NSize++] = k;
-					hXi[k] = hCalc(k, CurSize, Group, dataY, Q, theta, b);
+					hXi[k] = hCalc(k, CurSize+1, Group, dataY, Q, theta, b);
 					for (size_t i=minkey; i<SSize-1; ++i) {
 						SMask[i] = SMask[i+1];
 					}
 					SSize--;
 					(*_SSize)--;
 					(*_NSize)++;
-				}
-				else {
-					// ERROR!
-					fprintf(stderr, "[ERROR] Numerical Error: theta[SMask[%zu]]=%f. \n", minkey, theta[SMask[minkey]]);
-					return -1;
+					theta[k] = theta[k]>0 ? C : -C;
 				}
 				break;
 			}
@@ -546,7 +572,7 @@ int incSVM(			DataType *Xc,
 				// move Xl to S
 				Group[k] = 'S';
 				SMask[SSize++] = k;
-				// Update theta[k]
+				// TODO: Update theta[k]
 				CalcType temp = 0;
 				for (size_t i=0; i<=CurSize; ++i) {
 					if (i!=k) temp += theta[i];
@@ -599,7 +625,7 @@ int incSVM(			DataType *Xc,
 				// move Xl to S
 				Group[k] = 'S';
 				SMask[SSize++] = k;
-				// Update theta[k]
+				// TODO: Update theta[k]
 				CalcType temp = 0;
 				for (size_t i=0; i<=CurSize; ++i) {
 					if (i!=k) temp += theta[i];
@@ -630,9 +656,10 @@ int incSVM(			DataType *Xc,
 
 	}
 
+	return -1;
 }
 
-
+/*
 int DemoKernel() {
 
 	const int inSize = 384;
@@ -665,7 +692,7 @@ int DemoKernel() {
 	printf("Test passed!\n");
 	return 0;
 }
-
+*/
 
 int main(){
 
@@ -759,6 +786,9 @@ int main(){
 	// initialise SVM using 2 data points
 	initSVM(&X_IN[0*DataDim], Y_IN[0], &X_IN[1*DataDim], Y_IN[1], dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, &CurSize, &SSize, &NSize, ep, C, sigma_sq);
 
+	// Calculate Objective Function Value
+	CalcType init_obj = objCalc(CurSize, dataY, Group, theta, Q, &b, C, ep);
+	printf("[SVM]CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
 
 	/////////////////////////// Incremental Training ///////////////////////////
 
@@ -778,6 +808,7 @@ int main(){
 
 		// train SVM incrementally
 		int isTrainingSuccessful = incSVM(Xc, Yc, dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, &CurSize, &SSize, &NSize, ep, C, sigma_sq);
+
 		if (isTrainingSuccessful!=0) {
 			free(X_IN); free(Y_IN); free(dataX); free(dataY); free(Ypredict);
 			free(Group); free(SMask); free(NMask);
@@ -786,6 +817,11 @@ int main(){
 			free(hXi);
 			fprintf(stderr, "[ERROR] Incremental SVM training failed at data[%zu]. \n", i);
 		}
+
+		// Calculate Objective Function Value
+		CalcType init_obj = objCalc(CurSize, dataY, Group, theta, Q, &b, C, ep);
+		printf("[SVM]CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
+		printf("----------------------------------------------------\n");
 
 	}
 
@@ -816,7 +852,7 @@ int main(){
 
 
 	// Demo Kernel
-	int Result = DemoKernel();
+//	int Result = DemoKernel();
 
 	return 0;
 }

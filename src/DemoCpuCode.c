@@ -265,40 +265,13 @@ int incSVM(		DataType *Xc,
 	// Compute h(Xc)
 	hXi[CurSize] = hCalc(CurSize, CurSize, Group, dataY, Q, theta, b);
 
-	// non-support vector => Xc joins 'R' and terminate, without changing b
+	// non-support vector => Xc joins 'R' and terminate, without changing theta or b
 	if (fabs(hXi[CurSize])<=ep) {
 		Group[CurSize] = 'R';
 		NMask[NSize] = CurSize;
 		(*_NSize)++;
 		(*_CurSize)++;
 		return 0;
-	}
-
-	// non-support vector => Xc joins 'R' after changing b
-	// This could only happen when set S is empty
-	if (SSize==0) {
-		//CalcType delta_b = (hXi[CurSize]>ep)? ep - hXi[CurSize] : -ep - hXi[CurSize];
-		CalcType delta_b = - hXi[CurSize];
-		int isValid = 1;
-		for (size_t i=0; i<NSize; ++i) {
-			size_t cur = NMask[i];
-			if (Group[cur]=='R' && fabs(hXi[cur]+delta_b)>ep) {isValid = 0; break;}
-			else if (Group[cur]=='E' && theta[cur]>0 && (hXi[cur]+delta_b)>-ep) {isValid = 0; break;}
-			else if (Group[cur]=='E' && theta[cur]<0 && (hXi[cur]+delta_b)<ep) {isValid = 0; break;}
-		}
-		if (isValid==1) {
-			// Update b
-			*b += delta_b;
-			// Update Group
-			Group[CurSize] = 'R';
-			NMask[NSize] = CurSize;
-			(*_NSize)++;
-			(*_CurSize)++;
-			// Update hXi
-			for (size_t i=0; i<NSize+1; ++i) hXi[NMask[i]] += delta_b;
-			// Return
-			return 0;
-		}
 	}
 
 
@@ -315,346 +288,460 @@ int incSVM(		DataType *Xc,
 
 	while(1) {
 
-	// Calculate beta - intensive, optimisable
-	// this beta is the relation between Xc and theta of set S, offset b
-	for (size_t i=0; i<SSize+1; ++i) {
-		CalcType temp = -R[i*RSize];
-		for (size_t j=0; j<SSize; ++j) {
-			temp -= R[i*RSize+j+1] * Q[CurSize*DataSize+SMask[j]];
-		}
-		beta[i] = temp;
-	}
+		if(SSize==0){
+			// Calculate bC - Case 1
+			CalcType bC = fabs(hXi[CurSize] + q*ep);
 
-	// Calculate gamma - intensive, optimisable
-	// this gamma is the relation between Xc and hXi of set E, set R
-	for (size_t i=0; i<NSize; ++i) {
-		CalcType temp1 = Q[CurSize*DataSize+NMask[i]];
-		CalcType temp2 = beta[0];
-		for (size_t j=0; j<SSize; ++j) {
-			temp2 += Q[NMask[i]*DataSize+SMask[j]] * beta[j+1];
-		}
-		gamma[i] = temp1 + temp2;
-	}
-
-	// Calculate gamma_c
-	CalcType gamma_c = Q[CurSize*DataSize+CurSize] + beta[0];
-	for (size_t i=0; i<SSize; ++i) {
-		gamma_c += Q[CurSize*DataSize+SMask[i]] * beta[i+1];
-	}
-
-	///////////////////////////// Bookkeeping /////////////////////////////
-
-	// Calculate Lc1 - Case 1
-	CalcType Lc1 = INFINITY;
-	CalcType qrc = q*gamma_c;
-	if (qrc>0 && hXi[CurSize]<-ep) Lc1 = (-ep-hXi[CurSize])/gamma_c;
-	else if (qrc<0 && hXi[CurSize]>ep) Lc1 = (ep-hXi[CurSize])/gamma_c;
-	Lc1 = fabs(Lc1);
-
-	// Calculate Lc2 - Case 2
-	CalcType Lc2 = fabs(q*C - theta[CurSize]);
-
-	// Calculate LiS - Case 3
-	CalcType LiS = INFINITY;
-	size_t keyS = 0;
-	for (size_t i=0; i<SSize; ++i) {
-		CalcType curLiS = INFINITY;
-		CalcType qbi = q*beta[i+1];
-		if (qbi>0 && theta[SMask[i]]>=0) curLiS = (C-theta[SMask[i]])/beta[i+1];
-		else if (qbi>0 && theta[SMask[i]]<0) curLiS = theta[SMask[i]]/beta[i+1];
-		else if (qbi<0 && theta[SMask[i]]>0) curLiS = theta[SMask[i]]/beta[i+1];
-		else if (qbi<0 && theta[SMask[i]]<=0) curLiS = (-C-theta[SMask[i]])/beta[i+1];
-		curLiS = fabs(curLiS);
-		if (curLiS<LiS) {
-			LiS = curLiS;
-			keyS = i;
-		}
-	}
-
-	// Calculate LiE - Case 4
-	// Calculate LiR - Case 5
-	CalcType LiE = INFINITY;
-	size_t keyE = 0;
-	CalcType LiR = INFINITY;
-	size_t keyR = 0;
-	for (size_t i=0; i<NSize; ++i) {
-		CalcType hX = hXi[NMask[i]];
-		CalcType qri = q*gamma[i];
-		if (Group[NMask[i]]=='E') {
-			CalcType curLiE = INFINITY;
-			if (qri>0 && hX<-ep) curLiE = (-hX-ep)/gamma[i];
-			else if (qri<0 && hX>ep) curLiE = (-hX+ep)/gamma[i];
-			curLiE = fabs(curLiE);
-			if (curLiE<LiE) {
-				LiE = curLiE;
-				keyE = i;
+			// Calculate bE,bR - Case 2&3
+			CalcType bE = INFINITY;
+			CalcType bR = INFINITY;
+			size_t keyE = 0;
+			size_t keyR = 0;
+			for (size_t i=0; i<NSize; ++i) {
+				CalcType hX = hXi[NMask[i]];
+				if (Group[NMask[i]]=='E') {
+					CalcType curbE = INFINITY;
+					if ((q>0 && hX<-ep)||(q<0 && hX>ep)) curbE = fabs(hX + q*ep);
+					if (curbE<bE) {
+						bE = curbE;
+						keyE = i;
+					}
+				}
+				else if (Group[NMask[i]]=='R') {
+					CalcType curbR = fabs(-hX + q*ep);
+					if (curbR<bR) {
+						bR = curbR;
+						keyR = i;
+					}
+				}
 			}
-		}
-		else if (Group[NMask[i]]=='R') {
-			CalcType curLiR = INFINITY;
-			if (qri>0) curLiR = (-hX+ep)/gamma[i];
-			else if (qri<0) curLiR = (-hX-ep)/gamma[i];
-			curLiR = fabs(curLiR);
-			if (curLiR<LiR) {
-				LiR = curLiR;
-				keyR = i;
+
+			// Calculate delta_b
+			CalcType L[3] = {bC, bE, bR};
+			size_t key[3] = {CurSize, keyE, keyR};
+			CalcType minL = bC;
+			size_t minkey = CurSize;
+			size_t flag = 0;
+			for (size_t i=1; i<3; ++i) {
+				if (L[i]<minL) {
+					minL = L[i];
+					minkey = key[i];
+					flag = i;
+				}
 			}
-		}
-	}
+			CalcType delta_b = q*minL;
 
-	// Calculate delta theta_c
-	CalcType L[5] = {Lc1, Lc2, LiS, LiE, LiR};
-	size_t key[5] = {CurSize, CurSize, keyS, keyE, keyR};
-	CalcType minL = Lc1;
-	size_t minkey = CurSize;
-	size_t flag = 0;
-	for (size_t i=1; i<5; ++i) {
-		if (L[i]<minL) {
-			minL = L[i];
-			minkey = key[i];
-			flag = i;
-		}
-	}
-	CalcType d_theta_c = q*minL;
+			printf("[Adding item #%zu] <q=%1.0f> bC=%f, bE=%f, bR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", CurSize+1, q, bC, bE, bR, flag, minkey, SSize);
 
-	printf("[Adding item #%zu] <q=%1.0f> Lc1=%f, Lc2=%f, LiS=%f, LiE=%f, LiR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", CurSize+1, q, Lc1, Lc2, LiS, LiE, LiR, flag, minkey, SSize);
+			///////////////////////////// Updating coefficients /////////////////////////////
+
+			// Update b
+			*b += delta_b;
+
+			// Update hXi - for set E, set R
+			for (size_t i=0; i<NSize; ++i) {
+				hXi[NMask[i]] += delta_b;
+			}
+
+			// Update hXi - for Xc
+			hXi[CurSize] += delta_b;
 
 
-	///////////////////////////// Updating coefficients /////////////////////////////
+			///////////////////////////// Moving data items /////////////////////////////
 
-	// Update theta_c
-	theta[CurSize] += d_theta_c;
+			if (minL<INFINITY) {
+				switch (flag) {
+					// Xc joins R
+					case 0: {
+						// Xc joins R and terminate
+						Group[CurSize] = 'R';
+						NMask[NSize] = CurSize;
+						(*_NSize)++;
+						(*_CurSize)++;
+						return 0;
+					}
+					// Xi moves from E to S
+					case 1: {
+						size_t k = NMask[minkey];
+						// Update Matrix R
+						R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), sigma_sq);
+						R[1] = 1;
+						R[RSize] = 1;
+						R[RSize+1] = 0;
 
-	// Update b
-	*b += beta[0] * d_theta_c;
+						// move Xl to S
+						Group[k] = 'S';
+						SMask[SSize++] = k;
 
-	// Update theta_S
-	for (size_t i=0; i<SSize; ++i) {
-		theta[SMask[i]] += beta[i+1] * d_theta_c;
-	}
-
-	// Update hXi - for set E, set R
-	for (size_t i=0; i<NSize; ++i) {
-		hXi[NMask[i]] += gamma[i] * d_theta_c;
-	}
-
-	// Update hXi - for Xc
-	hXi[CurSize] += gamma_c * d_theta_c;
-
-
-	///////////////////////////// Moving data items /////////////////////////////
-
-	if (minL<INFINITY) {
-		switch (flag) {
-			// Xc joins S
-			case 0: {
-				// Update Matrix R - enlarge
-				if (SSize!=0) {
-					for (size_t i=0; i<SSize+1; ++i) {
-						for (size_t j=0; j<SSize+1; ++j) {
-							R[i*RSize+j] += beta[i] * beta[j] / gamma_c;
+						// Update NMask
+						for (size_t i=minkey; i<NSize-1; ++i) {
+							NMask[i] = NMask[i+1];
 						}
-						R[i*RSize+SSize+1] = beta[i] / gamma_c;
+						NSize--;
+						(*_NSize)--;
+						(*_SSize)++;
+						break;
 					}
-					for (size_t j=0; j<SSize+1; ++j) {
-						R[(SSize+1)*RSize+j] = beta[j] / gamma_c;
-					}
-					R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_c;
-				}
-				else {
-					R[0] = -Kernel(Xc, Xc, sigma_sq);
-					R[1] = 1;
-					R[RSize] = 1;
-					R[RSize+1] = 0;
-				}
-				// Xc joins S and terminate
-				Group[CurSize] = 'S';
-				SMask[SSize] = CurSize;
-				(*_SSize)++;
-				(*_CurSize)++;
-				return 0;
-			}
-			// Xc joins E
-			case 1: {
-				// Xc joins E and terminate
-				Group[CurSize] = 'E';
-				NMask[NSize] = CurSize;
-				(*_NSize)++;
-				(*_CurSize)++;
-				return 0;
-			}
-			// Xl moves from S to R or E
-			case 2: {
-				// Update Matrix R - shrink
-				if (SSize>1) {
-					size_t k = minkey + 1;
-					for (size_t i=0; i<SSize+1; ++i) {
-						for (size_t j=0; j<SSize+1; ++j) {
-							if (i==k || j==k) continue;
-							else R[i*RSize+j] -= R[i*RSize+k] * R[k*RSize+j] / R[k*RSize+k];
+					// Xi moves from R to S
+					case 2: {
+						size_t k = NMask[minkey];
+						// Update Matrix R
+						R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), sigma_sq);
+						R[1] = 1;
+						R[RSize] = 1;
+						R[RSize+1] = 0;
+
+						// move Xl to S
+						Group[k] = 'S';
+						SMask[SSize++] = k;
+
+						// Update NMask
+						for (size_t i=minkey; i<NSize-1; ++i) {
+							NMask[i] = NMask[i+1];
 						}
+						NSize--;
+						(*_NSize)--;
+						(*_SSize)++;
+						break;
 					}
-					for (size_t i=0; i<SSize+1; ++i) {
-						for (size_t j=k; j<SSize; ++j) R[i*RSize+j] = R[i*RSize+j+1];
+					default: {
+						// ERROR!
+						fprintf(stderr, "[ERROR] minL(%f) is smaller than INF, but flag(%zu) is invalid. \n", minL, flag);
+						return -1;
 					}
-					for (size_t i=k; i<SSize; ++i) {
-						for (size_t j=0; j<SSize; ++j) R[i*RSize+j] = R[(i+1)*RSize+j];
-					}
-				}
-				else {
-					R[0] = 0;
-				}
-				// move Xl to R
-				size_t k = SMask[minkey];
-				if (fabs(theta[k])<eps) {
-					Group[k] = 'R';
-					NMask[NSize++] = k;
-					hXi[k] = hCalc(k, CurSize+1, Group, dataY, Q, theta, b);
-					for (size_t i=minkey; i<SSize-1; ++i) {
-						SMask[i] = SMask[i+1];
-					}
-					SSize--;
-					(*_SSize)--;
-					(*_NSize)++;
-					theta[k] = 0;  // for numerical stability
-				}
-				// move Xl to E
-				else if (fabs(fabs(theta[k])-C)<eps){
-					Group[k] = 'E';
-					NMask[NSize++] = k;
-					hXi[k] = hCalc(k, CurSize+1, Group, dataY, Q, theta, b);
-					for (size_t i=minkey; i<SSize-1; ++i) {
-						SMask[i] = SMask[i+1];
-					}
-					SSize--;
-					(*_SSize)--;
-					(*_NSize)++;
-					theta[k] = theta[k]>0 ? C : -C;
-				}
-				break;
-			}
-			// Xl joins S
-			case 3: {
-				size_t k = NMask[minkey];
-				// Update beta - intensive, optimisable
-				// this beta is the relation between Xl and coeff b and set S
-				for (size_t i=0; i<SSize+1; ++i) {
-					CalcType temp = -R[i*RSize];
-					for (size_t j=0; j<SSize; ++j) {
-						temp -= R[i*RSize+j+1] * Q[k*DataSize+SMask[j]];
-					}
-					beta[i] = temp;
-				}
-				// Calculate gamma_k
-				CalcType gamma_k = Q[k*DataSize+k] + beta[0];
-				for (size_t i=0; i<SSize; ++i) {
-					gamma_k += Q[k*DataSize+SMask[i]] * beta[i+1];
-				}
-				// Update Matrix R - enlarge
-				if (SSize!=0) {
-					for (size_t i=0; i<SSize+1; ++i) {
-						for (size_t j=0; j<SSize+1; ++j) {
-							R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
-						}
-						R[i*RSize+SSize+1] = beta[i] / gamma_k;
-					}
-					for (size_t j=0; j<SSize+1; ++j) {
-						R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
-					}
-					R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
-				}
-				else {
-					R[0] = -1;
-					R[1] = 1;
-					R[RSize] = 1;
-					R[RSize+1] = 0;
-				}
-				// move Xl to S
-				Group[k] = 'S';
-				SMask[SSize++] = k;
-				// TODO: Update theta[k]
-				CalcType temp = 0;
-				for (size_t i=0; i<=CurSize; ++i) {
-					if (i!=k) temp += theta[i];
-				}
-				theta[k] = -temp;
-				// Update NMask
-				for (size_t i=minkey; i<NSize-1; ++i) {
-					NMask[i] = NMask[i+1];
-				}
-				NSize--;
-				(*_NSize)--;
-				(*_SSize)++;
-				break;
-			}
-			case 4: {
-				size_t k = NMask[minkey];
-				// Update beta - intensive, optimisable
-				// this beta is the relation between Xl and coeff b and set S
-				for (size_t i=0; i<SSize+1; ++i) {
-					CalcType temp = -R[i*RSize];
-					for (size_t j=0; j<SSize; ++j) {
-						temp -= R[i*RSize+j+1] * Q[k*DataSize+SMask[j]];
-					}
-					beta[i] = temp;
-				}
-				// Calculate gamma_k
-				CalcType gamma_k = Q[k*DataSize+k] + beta[0];
-				for (size_t i=0; i<SSize; i++) {
-					gamma_k += Q[k*DataSize+SMask[i]] * beta[i+1];
-				}
-				// Update Matrix R - enlarge
-				if (SSize!=0) {
-					for (size_t i=0; i<SSize+1; ++i) {
-						for (size_t j=0; j<SSize+1; ++j) {
-							R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
-						}
-						R[i*RSize+SSize+1] = beta[i] / gamma_k;
-					}
-					for (size_t j=0; j<SSize+1; ++j) {
-						R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
-					}
-					R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
-				}
-				else {
-					R[0] = -1;
-					R[1] = 1;
-					R[RSize] = 1;
-					R[RSize+1] = 0;
-				}
-				// move Xl to S
-				Group[k] = 'S';
-				SMask[SSize++] = k;
-				// TODO: Update theta[k]
-				CalcType temp = 0;
-				for (size_t i=0; i<=CurSize; ++i) {
-					if (i!=k) temp += theta[i];
-				}
-				theta[k] = -temp;
-				// Update NMask
-				for (size_t i=minkey; i<NSize-1; ++i) {
-					NMask[i] = NMask[i+1];
-				}
-				NSize--;
-				(*_NSize)--;
-				(*_SSize)++;
-				break;
-			}
-			default: {
+				} // end of 'switch(flag)'
+			} // end of 'if(minL)<infinity'
+			else {
 				// ERROR!
-				fprintf(stderr, "[ERROR] minL(%f) is smaller than INF, but flag(%zu) is invalid. \n", minL, flag);
+				fprintf(stderr, "[ERROR] unable to make any move because minL=%f. \n", minL);
+				return -1;
+			}
+		} // end of 'if(SSize==0)'
+		else {
+			// Calculate beta - intensive, optimisable
+			// this beta is the relation between Xc and theta of set S, offset b
+			for (size_t i=0; i<SSize+1; ++i) {
+				CalcType temp = -R[i*RSize];
+				for (size_t j=0; j<SSize; ++j) {
+					temp -= R[i*RSize+j+1] * Q[CurSize*DataSize+SMask[j]];
+				}
+				beta[i] = temp;
+			}
+
+			// Calculate gamma - intensive, optimisable
+			// this gamma is the relation between Xc and hXi of set E, set R
+			for (size_t i=0; i<NSize; ++i) {
+				CalcType temp1 = Q[CurSize*DataSize+NMask[i]];
+				CalcType temp2 = beta[0];
+				for (size_t j=0; j<SSize; ++j) {
+					temp2 += Q[NMask[i]*DataSize+SMask[j]] * beta[j+1];
+				}
+				gamma[i] = temp1 + temp2;
+			}
+
+			// Calculate gamma_c
+			CalcType gamma_c = Q[CurSize*DataSize+CurSize] + beta[0];
+			for (size_t i=0; i<SSize; ++i) {
+				gamma_c += Q[CurSize*DataSize+SMask[i]] * beta[i+1];
+			}
+
+			///////////////////////////// Bookkeeping /////////////////////////////
+
+			// Calculate Lc1 - Case 1
+			CalcType Lc1 = INFINITY;
+			CalcType qrc = q*gamma_c;
+			if (qrc>0 && hXi[CurSize]<-ep) Lc1 = (-ep-hXi[CurSize])/gamma_c;
+			else if (qrc<0 && hXi[CurSize]>ep) Lc1 = (ep-hXi[CurSize])/gamma_c;
+			Lc1 = fabs(Lc1);
+
+			// Calculate Lc2 - Case 2
+			CalcType Lc2 = fabs(q*C - theta[CurSize]);
+
+			// Calculate LiS - Case 3
+			CalcType LiS = INFINITY;
+			size_t keyS = 0;
+			for (size_t i=0; i<SSize; ++i) {
+				CalcType curLiS = INFINITY;
+				CalcType qbi = q*beta[i+1];
+				if (qbi>0 && theta[SMask[i]]>=0) curLiS = (C-theta[SMask[i]])/beta[i+1];
+				else if (qbi>0 && theta[SMask[i]]<0) curLiS = theta[SMask[i]]/beta[i+1];
+				else if (qbi<0 && theta[SMask[i]]>0) curLiS = theta[SMask[i]]/beta[i+1];
+				else if (qbi<0 && theta[SMask[i]]<=0) curLiS = (-C-theta[SMask[i]])/beta[i+1];
+				curLiS = fabs(curLiS);
+				if (curLiS<LiS) {
+					LiS = curLiS;
+					keyS = i;
+				}
+			}
+
+			// Calculate LiE - Case 4
+			// Calculate LiR - Case 5
+			CalcType LiE = INFINITY;
+			size_t keyE = 0;
+			CalcType LiR = INFINITY;
+			size_t keyR = 0;
+			for (size_t i=0; i<NSize; ++i) {
+				CalcType hX = hXi[NMask[i]];
+				CalcType qri = q*gamma[i];
+				if (Group[NMask[i]]=='E') {
+					CalcType curLiE = INFINITY;
+					if (qri>0 && hX<-ep) curLiE = (-hX-ep)/gamma[i];
+					else if (qri<0 && hX>ep) curLiE = (-hX+ep)/gamma[i];
+					curLiE = fabs(curLiE);
+					if (curLiE<LiE) {
+						LiE = curLiE;
+						keyE = i;
+					}
+				}
+				else if (Group[NMask[i]]=='R') {
+					CalcType curLiR = INFINITY;
+					if (qri>0) curLiR = (-hX+ep)/gamma[i];
+					else if (qri<0) curLiR = (-hX-ep)/gamma[i];
+					curLiR = fabs(curLiR);
+					if (curLiR<LiR) {
+						LiR = curLiR;
+						keyR = i;
+					}
+				}
+			}
+
+			// Calculate delta theta_c
+			CalcType L[5] = {Lc1, Lc2, LiS, LiE, LiR};
+			size_t key[5] = {CurSize, CurSize, keyS, keyE, keyR};
+			CalcType minL = Lc1;
+			size_t minkey = CurSize;
+			size_t flag = 0;
+			for (size_t i=1; i<5; ++i) {
+				if (L[i]<minL) {
+					minL = L[i];
+					minkey = key[i];
+					flag = i;
+				}
+			}
+			CalcType d_theta_c = q*minL;
+
+			printf("[Adding item #%zu] <q=%1.0f> Lc1=%f, Lc2=%f, LiS=%f, LiE=%f, LiR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", CurSize+1, q, Lc1, Lc2, LiS, LiE, LiR, flag, minkey, SSize);
+
+
+			///////////////////////////// Updating coefficients /////////////////////////////
+
+			// Update theta_c
+			theta[CurSize] += d_theta_c;
+
+			// Update b
+			*b += beta[0] * d_theta_c;
+
+			// Update theta_S
+			for (size_t i=0; i<SSize; ++i) {
+				theta[SMask[i]] += beta[i+1] * d_theta_c;
+			}
+
+			// Update hXi - for set E, set R
+			for (size_t i=0; i<NSize; ++i) {
+				hXi[NMask[i]] += gamma[i] * d_theta_c;
+			}
+
+			// Update hXi - for Xc
+			hXi[CurSize] += gamma_c * d_theta_c;
+
+
+			///////////////////////////// Moving data items /////////////////////////////
+
+			if (minL<INFINITY) {
+				switch (flag) {
+					// Xc joins S
+					case 0: {
+						// Update Matrix R - enlarge
+						for (size_t i=0; i<SSize+1; ++i) {
+							for (size_t j=0; j<SSize+1; ++j) {
+								R[i*RSize+j] += beta[i] * beta[j] / gamma_c;
+							}
+							R[i*RSize+SSize+1] = beta[i] / gamma_c;
+						}
+						for (size_t j=0; j<SSize+1; ++j) {
+							R[(SSize+1)*RSize+j] = beta[j] / gamma_c;
+						}
+						R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_c;
+
+						// Xc joins S and terminate
+						Group[CurSize] = 'S';
+						SMask[SSize] = CurSize;
+						(*_SSize)++;
+						(*_CurSize)++;
+						return 0;
+					}
+					// Xc joins E
+					case 1: {
+						// Xc joins E and terminate
+						Group[CurSize] = 'E';
+						NMask[NSize] = CurSize;
+						(*_NSize)++;
+						(*_CurSize)++;
+						return 0;
+					}
+					// Xl moves from S to R or E
+					case 2: {
+						// Update Matrix R - shrink
+						if (SSize>1) {
+							size_t k = minkey + 1;
+							for (size_t i=0; i<SSize+1; ++i) {
+								for (size_t j=0; j<SSize+1; ++j) {
+									if (i==k || j==k) continue;
+									else R[i*RSize+j] -= R[i*RSize+k] * R[k*RSize+j] / R[k*RSize+k];
+								}
+							}
+							for (size_t i=0; i<SSize+1; ++i) {
+								for (size_t j=k; j<SSize; ++j) R[i*RSize+j] = R[i*RSize+j+1];
+							}
+							for (size_t i=k; i<SSize; ++i) {
+								for (size_t j=0; j<SSize; ++j) R[i*RSize+j] = R[(i+1)*RSize+j];
+							}
+						}
+						else {
+							R[0] = 0;
+						}
+						// move Xl to R
+						size_t k = SMask[minkey];
+						if (fabs(theta[k])<eps) {
+							Group[k] = 'R';
+							NMask[NSize++] = k;
+							hXi[k] = hCalc(k, CurSize+1, Group, dataY, Q, theta, b);
+							for (size_t i=minkey; i<SSize-1; ++i) {
+								SMask[i] = SMask[i+1];
+							}
+							SSize--;
+							(*_SSize)--;
+							(*_NSize)++;
+							theta[k] = 0;  // for numerical stability
+						}
+						// move Xl to E
+						else if (fabs(fabs(theta[k])-C)<eps){
+							Group[k] = 'E';
+							NMask[NSize++] = k;
+							hXi[k] = hCalc(k, CurSize+1, Group, dataY, Q, theta, b);
+							for (size_t i=minkey; i<SSize-1; ++i) {
+								SMask[i] = SMask[i+1];
+							}
+							SSize--;
+							(*_SSize)--;
+							(*_NSize)++;
+							theta[k] = theta[k]>0 ? C : -C;
+						}
+						break;
+					}
+					// Xl joins S
+					case 3: {
+						size_t k = NMask[minkey];
+						// Update beta - intensive, optimisable
+						// this beta is the relation between Xl and coeff b and set S
+						for (size_t i=0; i<SSize+1; ++i) {
+							CalcType temp = -R[i*RSize];
+							for (size_t j=0; j<SSize; ++j) {
+								temp -= R[i*RSize+j+1] * Q[k*DataSize+SMask[j]];
+							}
+							beta[i] = temp;
+						}
+
+						// Calculate gamma_k
+						CalcType gamma_k = Q[k*DataSize+k] + beta[0];
+						for (size_t i=0; i<SSize; ++i) {
+							gamma_k += Q[k*DataSize+SMask[i]] * beta[i+1];
+						}
+
+						// Update Matrix R - enlarge
+						for (size_t i=0; i<SSize+1; ++i) {
+							for (size_t j=0; j<SSize+1; ++j) {
+								R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
+							}
+							R[i*RSize+SSize+1] = beta[i] / gamma_k;
+						}
+						for (size_t j=0; j<SSize+1; ++j) {
+							R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
+						}
+						R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+
+						// move Xl to S
+						Group[k] = 'S';
+						SMask[SSize++] = k;
+
+						// Update theta[k]
+						CalcType temp = 0;
+						for (size_t i=0; i<=CurSize; ++i) {
+							if (i!=k) temp += theta[i];
+						}
+						theta[k] = -temp;
+
+						// Update NMask
+						for (size_t i=minkey; i<NSize-1; ++i) {
+							NMask[i] = NMask[i+1];
+						}
+						NSize--;
+						(*_NSize)--;
+						(*_SSize)++;
+						break;
+					}
+					case 4: {
+						size_t k = NMask[minkey];
+						// Update beta - intensive, optimisable
+						// this beta is the relation between Xl and coeff b and set S
+						for (size_t i=0; i<SSize+1; ++i) {
+							CalcType temp = -R[i*RSize];
+							for (size_t j=0; j<SSize; ++j) {
+								temp -= R[i*RSize+j+1] * Q[k*DataSize+SMask[j]];
+							}
+							beta[i] = temp;
+						}
+						// Calculate gamma_k
+						CalcType gamma_k = Q[k*DataSize+k] + beta[0];
+						for (size_t i=0; i<SSize; i++) {
+							gamma_k += Q[k*DataSize+SMask[i]] * beta[i+1];
+						}
+						// Update Matrix R - enlarge
+						for (size_t i=0; i<SSize+1; ++i) {
+							for (size_t j=0; j<SSize+1; ++j) {
+								R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
+							}
+							R[i*RSize+SSize+1] = beta[i] / gamma_k;
+						}
+						for (size_t j=0; j<SSize+1; ++j) {
+							R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
+						}
+						R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+
+						// move Xl to S
+						Group[k] = 'S';
+						SMask[SSize++] = k;
+
+						// Update theta[k]
+						CalcType temp = 0;
+						for (size_t i=0; i<=CurSize; ++i) {
+							if (i!=k) temp += theta[i];
+						}
+						theta[k] = -temp;
+
+						// Update NMask
+						for (size_t i=minkey; i<NSize-1; ++i) {
+							NMask[i] = NMask[i+1];
+						}
+						NSize--;
+						(*_NSize)--;
+						(*_SSize)++;
+						break;
+					}
+					default: {
+						// ERROR!
+						fprintf(stderr, "[ERROR] minL(%f) is smaller than INF, but flag(%zu) is invalid. \n", minL, flag);
+						return -1;
+					}
+				} // end of 'switch (flag)'
+			} // end of 'if(minL)<infinity'
+			else {
+				// ERROR!
+				fprintf(stderr, "[ERROR] unable to make any move because minL=%f. \n", minL);
 				return -1;
 			}
 		}
-
-	}
-	else {
-		// ERROR!
-		fprintf(stderr, "[ERROR] unable to make any move because minL=%f. \n", minL);
-		return -1;
-	}
-
-	}
+	} // end of 'while(1)'
 
 	return -1;
 }

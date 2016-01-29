@@ -9,32 +9,42 @@
 
 ////////////////////// Definitions //////////////////////
 
-// Size of the input data stream
-#define DataSize 	10
-
-// Size of the window used for SVR
-#define WinSize     10
-
-// dimension of input data X
-#define DataDim 	1
-
-// dimension of matrix R
-#define RSize 		5
-
-// precision
-#define eps		1e-6
-
 // type of input data X
 typedef double DataType;
 
 // type of input data Y and internal calculations
 typedef double CalcType;
 
+// SVR Parameters
+typedef struct {
+	// Input File Name
+	char * InFile;
+	// Output File Name
+	char * OutFile;
+	// Length of the input data file
+	size_t DataSize;
+	// dimension of input data X - number of features
+	size_t DataDim;
+	// Window Size
+	size_t WinSize;
+	// Allocated Size of Matrix R - actual size SSize+1
+	size_t RSize;
+	// epsilon - for SVR
+	CalcType ep;
+	// C - for SVR
+	CalcType C;
+	// sigma^2 - for RBF Kernel
+	CalcType sigma_sq;
+	// eps - for numerical stability
+	CalcType eps;
+} Param;
+
+
 
 ////////////////////// Utility Functions //////////////////////
 
 // RBF Kernel
-static inline CalcType Kernel(DataType *X1, DataType*X2, const CalcType sigma_sq) {
+static inline CalcType Kernel(DataType *X1, DataType*X2, const size_t DataDim, const CalcType sigma_sq) {
 	CalcType sum = 0;
 	for (size_t i=0; i<DataDim; ++i) sum -= (X1[i] - X2[i]) * (X1[i] - X2[i]);
 	return exp(sum/2/sigma_sq);
@@ -46,7 +56,8 @@ CalcType hCalc(	const size_t ID,
 				DataType *dataY,
 				CalcType *Q,
 				CalcType *theta,
-				CalcType *b) {
+				CalcType *b,
+				const size_t WinSize) {
 
 	// Initialise f(Xi)
 	CalcType fXi = *b;
@@ -66,7 +77,8 @@ CalcType objCalc(	CalcType *dataY,
 					CalcType *Q,
 					CalcType *b,
 					const CalcType C,
-					const CalcType ep){
+					const CalcType ep,
+					const size_t WinSize){
 
 	// Calculate the first term
 	CalcType temp1 = 0;
@@ -81,7 +93,7 @@ CalcType objCalc(	CalcType *dataY,
 	CalcType temp2 = 0;
 	for (size_t i=0; i<WinSize; ++i) {
 		if (Group[i]=='E'){
-			CalcType hXi = hCalc(i, dataY, Q, theta, b);
+			CalcType hXi = hCalc(i, dataY, Q, theta, b, WinSize);
 			temp2 += (fabs(hXi)>ep) ? C*(fabs(hXi)-ep) : 0;
 		}
 	}
@@ -97,11 +109,13 @@ CalcType regSVM(	DataType *X_IN,
 				DataType *dataX,
 				CalcType *theta,
 				CalcType *b,
+				const size_t WinSize,
+				const size_t DataDim,
 				const CalcType sigma_sq) {
 
 	CalcType f = *b;
 	for (size_t i=0; i<WinSize; ++i) {
-		f += theta[i] * Kernel(X_IN, &(dataX[i*DataDim]), sigma_sq);
+		f += theta[i] * Kernel(X_IN, &(dataX[i*DataDim]), DataDim, sigma_sq);
 	}
 
 	return f;
@@ -127,9 +141,18 @@ void initSVM(		DataType *X1,
 				size_t *_CurSize,
 				size_t *_SSize,
 				size_t *_NSize,
-				const CalcType ep,
-				const CalcType C,
-				const CalcType sigma_sq) {
+				const Param param) {
+
+	///////////////////////////// Read Parameters /////////////////////////////
+
+	const size_t DataSize	= param.DataSize;
+	const size_t DataDim	= param.DataDim;
+	const size_t WinSize	= param.WinSize;
+	const size_t RSize		= param.RSize;
+	const CalcType ep		= param.ep;
+	const CalcType C		= param.C;
+	const CalcType sigma_sq = param.sigma_sq;
+	const CalcType eps		= param.eps;
 
 
 	///////////////////////////// Adding items to data set /////////////////////////////
@@ -152,9 +175,9 @@ void initSVM(		DataType *X1,
 	}
 
 	// Update Q
-	Q[0*WinSize+0] = Kernel(&(dataX[0*DataDim]), &(dataX[0*DataDim]), sigma_sq);
-	Q[0*WinSize+1] = Kernel(&(dataX[0*DataDim]), &(dataX[1*DataDim]), sigma_sq);
-	Q[1*WinSize+1] = Kernel(&(dataX[1*DataDim]), &(dataX[1*DataDim]), sigma_sq);
+	Q[0*WinSize+0] = Kernel(&(dataX[0*DataDim]), &(dataX[0*DataDim]), DataDim, sigma_sq);
+	Q[0*WinSize+1] = Kernel(&(dataX[0*DataDim]), &(dataX[1*DataDim]), DataDim, sigma_sq);
+	Q[1*WinSize+1] = Kernel(&(dataX[1*DataDim]), &(dataX[1*DataDim]), DataDim, sigma_sq);
 	Q[1*WinSize+0] = Q[0*WinSize+1];
 
 	// Update theta
@@ -173,8 +196,8 @@ void initSVM(		DataType *X1,
 		Group[1] = 'E';
 		NMask[0] = 0;
 		NMask[1] = 1;
-		hXi[0] = hCalc(0, dataY, Q, theta, b);
-		hXi[1] = hCalc(1, dataY, Q, theta, b);
+		hXi[0] = hCalc(0, dataY, Q, theta, b, WinSize);
+		hXi[1] = hCalc(1, dataY, Q, theta, b, WinSize);
 		*_NSize = 2;
 		*_CurSize = 2;
 	}
@@ -184,8 +207,8 @@ void initSVM(		DataType *X1,
 		Group[1] = 'R';
 		NMask[0] = 0;
 		NMask[1] = 1;
-		hXi[0] = hCalc(0, dataY, Q, theta, b);
-		hXi[1] = hCalc(1, dataY, Q, theta, b);
+		hXi[0] = hCalc(0, dataY, Q, theta, b, WinSize);
+		hXi[1] = hCalc(1, dataY, Q, theta, b, WinSize);
 		*_NSize = 2;
 		*_CurSize = 2;
 	}
@@ -235,11 +258,18 @@ int incSVM(		size_t ID,
 				size_t *_CurSize,
 				size_t *_SSize,
 				size_t *_NSize,
-				const CalcType ep,
-				const CalcType C,
-				const CalcType sigma_sq) {
+				const Param param) {
 
-	///////////////////////////// Reading params /////////////////////////////
+	///////////////////////////// Read Parameters /////////////////////////////
+
+	const size_t DataSize	= param.DataSize;
+	const size_t DataDim	= param.DataDim;
+	const size_t WinSize	= param.WinSize;
+	const size_t RSize		= param.RSize;
+	const CalcType ep		= param.ep;
+	const CalcType C		= param.C;
+	const CalcType sigma_sq = param.sigma_sq;
+	const CalcType eps		= param.eps;
 
 	size_t CurSize = *_CurSize;
 	size_t SSize = *_SSize;
@@ -260,11 +290,11 @@ int incSVM(		size_t ID,
 	theta[ID] = 0;
 
 	// Update Q - optimisable
-	for (size_t i=0; i<WinSize; ++i) Q[ID*WinSize+i] = Kernel(Xc, &(dataX[i*DataDim]), sigma_sq);
+	for (size_t i=0; i<WinSize; ++i) Q[ID*WinSize+i] = Kernel(Xc, &(dataX[i*DataDim]), DataDim, sigma_sq);
 	for (size_t i=0; i<WinSize; ++i) Q[i*WinSize+ID] = Q[ID*WinSize+i];
 
 	// Compute h(Xc)
-	hXi[ID] = hCalc(ID, dataY, Q, theta, b);
+	hXi[ID] = hCalc(ID, dataY, Q, theta, b, WinSize);
 
 	// non-support vector => Xc joins 'R' and terminate, without changing theta or b
 	if (fabs(hXi[ID])<=ep) {
@@ -365,7 +395,7 @@ int incSVM(		size_t ID,
 					case 1: {
 						size_t k = NMask[minkey];
 						// Update Matrix R
-						R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), sigma_sq);
+						R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), DataDim, sigma_sq);
 						R[1] = 1;
 						R[RSize] = 1;
 						R[RSize+1] = 0;
@@ -387,7 +417,7 @@ int incSVM(		size_t ID,
 					case 2: {
 						size_t k = NMask[minkey];
 						// Update Matrix R
-						R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), sigma_sq);
+						R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), DataDim, sigma_sq);
 						R[1] = 1;
 						R[RSize] = 1;
 						R[RSize+1] = 0;
@@ -606,7 +636,7 @@ int incSVM(		size_t ID,
 						if (fabs(theta[k])<eps) {
 							Group[k] = 'R';
 							NMask[NSize++] = k;
-							hXi[k] = hCalc(k, dataY, Q, theta, b);
+							hXi[k] = hCalc(k, dataY, Q, theta, b, WinSize);
 							for (size_t i=minkey; i<SSize-1; ++i) {
 								SMask[i] = SMask[i+1];
 							}
@@ -619,7 +649,7 @@ int incSVM(		size_t ID,
 						else if (fabs(fabs(theta[k])-C)<eps){
 							Group[k] = 'E';
 							NMask[NSize++] = k;
-							hXi[k] = hCalc(k, dataY, Q, theta, b);
+							hXi[k] = hCalc(k, dataY, Q, theta, b, WinSize);
 							for (size_t i=minkey; i<SSize-1; ++i) {
 								SMask[i] = SMask[i+1];
 							}
@@ -765,11 +795,18 @@ int decSVM(		size_t ID,
 				size_t *_CurSize,
 				size_t *_SSize,
 				size_t *_NSize,
-				const CalcType ep,
-				const CalcType C,
-				const CalcType sigma_sq) {
+				const Param param) {
 
-	///////////////////////////// Reading params /////////////////////////////
+	///////////////////////////// Read Parameters /////////////////////////////
+
+	const size_t DataSize	= param.DataSize;
+	const size_t DataDim	= param.DataDim;
+	const size_t WinSize	= param.WinSize;
+	const size_t RSize		= param.RSize;
+	const CalcType ep		= param.ep;
+	const CalcType C		= param.C;
+	const CalcType sigma_sq = param.sigma_sq;
+	const CalcType eps		= param.eps;
 
 	size_t SSize = *_SSize;
 	size_t NSize = *_NSize;
@@ -777,7 +814,7 @@ int decSVM(		size_t ID,
 
 	///////////////////////////// Remove ID from SMask and NMask /////////////////////////////
 
-	if (Group[ID]=='R') {
+	if (Group[ID]=='R'||fabs(theta[ID])<eps) {
 		// non-support vector => Xc can be directly removed
 		// Update NMask
 		size_t key;
@@ -886,7 +923,7 @@ int decSVM(		size_t ID,
 			size_t minkey = (bE<bR) ? keyE : keyR;
 			size_t flag   = (bE<bR) ? 1 : 2;
 
-			printf("[Removing item #%zu] <q=%1.0f> bE=%f, bR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", ID, q, bE, bR, flag, minkey, SSize);
+			printf("[Removing item #%zu] <q=%1.0f> bE=%f, bR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", ID+1, q, bE, bR, flag, minkey, SSize);
 
 			///////////////////////////// Updating coefficients /////////////////////////////
 
@@ -911,7 +948,7 @@ int decSVM(		size_t ID,
 					case 1: {
 						size_t k = NMask[minkey];
 						// Update Matrix R
-						R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), sigma_sq);
+						R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), DataDim, sigma_sq);
 						R[1] = 1;
 						R[RSize] = 1;
 						R[RSize+1] = 0;
@@ -933,7 +970,7 @@ int decSVM(		size_t ID,
 					case 2: {
 						size_t k = NMask[minkey];
 						// Update Matrix R
-						R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), sigma_sq);
+						R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), DataDim, sigma_sq);
 						R[1] = 1;
 						R[RSize] = 1;
 						R[RSize+1] = 0;
@@ -1063,7 +1100,7 @@ int decSVM(		size_t ID,
 			}
 			CalcType d_theta_c = q*minL;
 
-			printf("[Removing item #%zu] <q=%1.0f> Lc2=%f, LiS=%f, LiE=%f, LiR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", ID, q, Lc2, LiS, LiE, LiR, flag, minkey, SSize);
+			printf("[Removing item #%zu] <q=%1.0f> Lc2=%f, LiS=%f, LiE=%f, LiR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", ID+1, q, Lc2, LiS, LiE, LiR, flag, minkey, SSize);
 
 
 			///////////////////////////// Updating coefficients /////////////////////////////
@@ -1094,6 +1131,7 @@ int decSVM(		size_t ID,
 				switch (flag) {
 					// Xc joins R and is removed
 					case 0: {
+						Group[ID] = 'N';
 						(*_CurSize)--;
 						return 0;
 					}
@@ -1123,7 +1161,7 @@ int decSVM(		size_t ID,
 						if (fabs(theta[k])<eps) {
 							Group[k] = 'R';
 							NMask[NSize++] = k;
-							hXi[k] = hCalc(k, dataY, Q, theta, b);
+							hXi[k] = hCalc(k, dataY, Q, theta, b, WinSize);
 							for (size_t i=minkey; i<SSize-1; ++i) {
 								SMask[i] = SMask[i+1];
 							}
@@ -1136,7 +1174,7 @@ int decSVM(		size_t ID,
 						else if (fabs(fabs(theta[k])-C)<eps){
 							Group[k] = 'E';
 							NMask[NSize++] = k;
-							hXi[k] = hCalc(k, dataY, Q, theta, b);
+							hXi[k] = hCalc(k, dataY, Q, theta, b, WinSize);
 							for (size_t i=minkey; i<SSize-1; ++i) {
 								SMask[i] = SMask[i+1];
 							}
@@ -1300,19 +1338,23 @@ int DemoKernel() {
 }
 */
 
-int main(){
+int SimpleDataSet(const Param param){
 
 	/////////////////////////// SVM Parameters ///////////////////////////
 
-	const CalcType ep = 0.01;
-	const CalcType C = 1000;
-	const CalcType sigma_sq = 50;
+	const size_t DataSize = param.DataSize;
+	const size_t DataDim = param.DataDim;
+	const size_t WinSize = param.WinSize;
+	const size_t RSize = param.RSize;
+	const CalcType ep = param.ep;
+	const CalcType C  = param.C;
+	const CalcType sigma_sq = param.sigma_sq;
 
 
 	/////////////////////////// Read data file ///////////////////////////
 
 	// Open input file
-	char *inFile = "data.txt";
+	char *inFile = param.InFile;
 	FILE *infp = fopen(inFile, "r");
 	if (infp==NULL) {
 		fprintf(stderr, "[ERROR] Cannot open input file [%s]. \n", inFile);
@@ -1324,20 +1366,22 @@ int main(){
 	CalcType *Y_IN = calloc(DataSize, sizeof(CalcType));
 
 	// read file into memory
+	// We use LibSVM data format
+	// Assuming both X and Y are double
 	size_t ActualDataSize = 0;
 	while(!feof(infp) && ActualDataSize<DataSize) {
-		for (size_t j=0; j<DataDim; ++j) {
-			fscanf(infp, "%lf", &X_IN[ActualDataSize*DataDim+j]);
-		}
 		fscanf(infp, "%lf", &Y_IN[ActualDataSize]);
+		for (size_t j=0; j<DataDim; ++j) {
+			fscanf(infp, "%*d:%lf", &X_IN[ActualDataSize*DataDim+j]);
+		}
 		++ActualDataSize;
 	}
 	fclose(infp);
 
-	// Atleast we need 2 data points to initialise SVM
+	// At least we need 2 data points to initialise SVM
 	if (ActualDataSize<2) {
 		free(X_IN); free(Y_IN);
-		fprintf(stderr, "[ERROR] Atleast we need 2 data points, but there are only %zu. \n", ActualDataSize);
+		fprintf(stderr, "[ERROR] At least we need 2 data points, but there are only %zu. \n", ActualDataSize);
   		exit(1);
 	}
 
@@ -1390,10 +1434,10 @@ int main(){
 	/////////////////////////// Initialise SVM ///////////////////////////
 
 	// initialise SVM using 2 data points
-	initSVM(&X_IN[0*DataDim], Y_IN[0], &X_IN[1*DataDim], Y_IN[1], dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, &CurSize, &SSize, &NSize, ep, C, sigma_sq);
+	initSVM(&X_IN[0*DataDim], Y_IN[0], &X_IN[1*DataDim], Y_IN[1], dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, &CurSize, &SSize, &NSize, param);
 
 	// Calculate Objective Function Value
-	CalcType init_obj = objCalc(dataY, Group, theta, Q, &b, C, ep);
+	CalcType init_obj = objCalc(dataY, Group, theta, Q, &b, C, ep, WinSize);
 	printf("[SVM]CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
 
 	/////////////////////////// Incremental Training ///////////////////////////
@@ -1410,13 +1454,13 @@ int main(){
 		Yc = Y_IN[i];
 
 		// calculate SVM prediction of Yc
-		Ypredict[i] = regSVM(Xc, dataX, theta, &b, sigma_sq);
+		Ypredict[i] = regSVM(Xc, dataX, theta, &b, WinSize, DataDim, sigma_sq);
 
 		// Assign the place for Xc
 		size_t ID = i;
 
 		// train SVM incrementally
-		int isTrainingSuccessful = incSVM(ID, Xc, Yc, dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, &CurSize, &SSize, &NSize, ep, C, sigma_sq);
+		int isTrainingSuccessful = incSVM(ID, Xc, Yc, dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, &CurSize, &SSize, &NSize, param);
 
 		if (isTrainingSuccessful!=0) {
 			free(X_IN); free(Y_IN); free(dataX); free(dataY); free(Ypredict);
@@ -1428,7 +1472,7 @@ int main(){
 		}
 
 		// Calculate Objective Function Value
-		CalcType init_obj = objCalc(dataY, Group, theta, Q, &b, C, ep);
+		CalcType init_obj = objCalc(dataY, Group, theta, Q, &b, C, ep, WinSize);
 		printf("[SVM]CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
 		printf("----------------------------------------------------\n");
 
@@ -1436,13 +1480,13 @@ int main(){
 
 	/////////////////////////// Decremental Training ///////////////////////////
 
-	for (size_t ID=9; ID>2; ID--) {
+	for (size_t ID=9; ID>1; ID--) {
 
 		// Decremental Training
-		int isTrainingSuccessful = decSVM(ID, dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, &CurSize, &SSize, &NSize, ep, C, sigma_sq);
+		int isTrainingSuccessful = decSVM(ID, dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, &CurSize, &SSize, &NSize, param);
 
 		// Calculate Objective Function Value
-		CalcType init_obj = objCalc(dataY, Group, theta, Q, &b, C, ep);
+		CalcType init_obj = objCalc(dataY, Group, theta, Q, &b, C, ep, WinSize);
 		printf("[SVM]CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
 		printf("----------------------------------------------------\n");
 	}
@@ -1452,7 +1496,7 @@ int main(){
 	/////////////////////////// Checking Results ///////////////////////////
 
 	// Open output file
-	char *outFile = "result.txt";
+	char *outFile = param.OutFile;
 	FILE *outfp = fopen(outFile, "w");
 	if (outfp==NULL) {
 		fprintf(stderr, "[ERROR] Cannot open output file [%s]. \n", outFile);
@@ -1474,6 +1518,27 @@ int main(){
 	free(beta); free(gamma); free(theta);
 	free(hXi);
 
+	return 0;
+}
+
+
+int main(){
+
+	///////////// Simple Data Set /////////////
+
+	Param ParamSimple;
+	ParamSimple.InFile 		= "SimpleData.txt";
+	ParamSimple.OutFile 	= "result.txt";
+	ParamSimple.DataSize 	= 10;
+	ParamSimple.DataDim 	= 1;
+	ParamSimple.WinSize 	= 10;
+	ParamSimple.RSize 		= 5;
+	ParamSimple.ep 			= 0.01;
+	ParamSimple.C 			= 1000;
+	ParamSimple.sigma_sq 	= 50;
+	ParamSimple.eps 		= 1e-6;
+
+	SimpleDataSet(ParamSimple);
 
 	// Demo Kernel
 //	int Result = DemoKernel();

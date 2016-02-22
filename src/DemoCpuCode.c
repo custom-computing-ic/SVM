@@ -56,23 +56,85 @@ static inline CalcType Kernel(DataType *X1, DataType*X2, const size_t DataDim, c
 
 
 // Calculating h(Xi) - Assuming Q is full matrix
-CalcType hCalc(	const size_t ID,
-				DataType *dataY,
-				CalcType *Q,
-				CalcType *theta,
-				CalcType *b,
-				const size_t WinSize) {
-
-	// Initialise f(Xi)
+CalcType hCalc(const size_t ID, DataType *dataY, CalcType *Q, CalcType *theta, CalcType *b, const size_t WinSize) {
 	CalcType fXi = *b;
+	for (size_t i=0; i<WinSize; ++i) fXi += theta[i] * Q[ID*WinSize+i];
+	return fXi - dataY[ID];
+}
 
-	// Iterating over the whole window - optimisable
-	for (size_t i=0; i<WinSize; ++i) {
-		fXi += theta[i] * Q[ID*WinSize+i];
+
+// [USED FREQUENTLY] Calculate beta for X[k] - eq. 21
+void betaCalc(CalcType *R, CalcType *Q, CalcType *beta, size_t *SMask, size_t k, size_t SSize, size_t RSize, size_t WinSize){
+
+	for (size_t i=0; i<SSize+1; ++i) {
+		CalcType temp = -R[i*RSize];
+		for (size_t j=0; j<SSize; ++j) {
+			temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
+		}
+		beta[i] = temp;
 	}
 
-	// Compute h(Xi) = f(Xi) - Yi
-	return fXi - dataY[ID];
+}
+
+
+// [USED FREQUENTLY] Calculate gamma[k] - eq. 22
+CalcType gammaCalc(CalcType *Q, CalcType *beta, size_t *SMask, size_t k, size_t SSize, size_t WinSize){
+	CalcType gamma_k = Q[k*WinSize+k] + beta[0];
+	for (size_t i=0; i<SSize; ++i) {
+		gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
+	}
+	return gamma_k;
+}
+
+
+// Initialise R for X[k] - eq. 24
+void RInit(CalcType *R, DataType *dataX, size_t k, size_t DataDim, size_t RSize, CalcType sigma_sq){
+	R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), DataDim, sigma_sq);
+	R[1] = 1;
+	R[RSize] = 1;
+	R[RSize+1] = 0;
+}
+
+
+// [USED FREQUENTLY] Enlarge Matrix R - eq. 20
+void REnlarge(CalcType *R, CalcType *beta, CalcType gamma_k, size_t SSize, size_t RSize){
+
+	for (size_t i=0; i<SSize+1; ++i) {
+		for (size_t j=0; j<SSize+1; ++j) {
+			R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
+		}
+		R[i*RSize+SSize+1] = beta[i] / gamma_k;
+	}
+	for (size_t j=0; j<SSize+1; ++j) {
+		R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
+	}
+	R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+
+}
+
+
+// Shrink Matrix R - eq. 23
+void RShrink(CalcType *R, size_t p, size_t SSize, size_t RSize) {
+
+	if (SSize>1) {
+		size_t k = p + 1;
+		for (size_t i=0; i<SSize+1; ++i) {
+			for (size_t j=0; j<SSize+1; ++j) {
+				if (i==k || j==k) continue;
+				else R[i*RSize+j] -= R[i*RSize+k] * R[k*RSize+j] / R[k*RSize+k];
+			}
+		}
+		for (size_t i=0; i<SSize+1; ++i) {
+			for (size_t j=k; j<SSize; ++j) R[i*RSize+j] = R[i*RSize+j+1];
+		}
+		for (size_t i=k; i<SSize; ++i) {
+			for (size_t j=0; j<SSize; ++j) R[i*RSize+j] = R[(i+1)*RSize+j];
+		}
+	}
+	else {
+		R[0] = 0;
+	}
+
 }
 
 CalcType objCalc(	CalcType *dataY,
@@ -374,7 +436,6 @@ int incSVM(		size_t ID,
 				}
 			}
 
-
 			// handle ties
 			minL = val[ID];
 			for (size_t i=0; i<WinSize; ++i) {
@@ -416,48 +477,25 @@ int incSVM(		size_t ID,
 								break;
 							}
 							case 1: { // case 1 and case 2 are handled the same way
-								// Xi moves from E to S
-								size_t k = cur;
+								// X[cur] moves from E to S
 								// Update Matrix R
 								if (SSize==0) {
 									// Initialise Matrix R
-									R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), DataDim, sigma_sq);
-									R[1] = 1;
-									R[RSize] = 1;
-									R[RSize+1] = 0;
+									RInit(R, dataX, cur, DataDim, RSize, sigma_sq);
 								}
 								else {
 									// Update Matrix R - enlarge
-									// Update beta - intensive, optimisable
-									// this beta is the relation between Xl and coeff b and set S
-									for (size_t i=0; i<SSize+1; ++i) {
-										CalcType temp = -R[i*RSize];
-										for (size_t j=0; j<SSize; ++j) {
-											temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
-										}
-										beta[i] = temp;
-									}
-									// Calculate gamma_k
-									CalcType gamma_k = Q[k*WinSize+k] + beta[0];
-									for (size_t i=0; i<SSize; ++i) {
-										gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
-									}
-									// Update Matrix R - enlarge
-									for (size_t i=0; i<SSize+1; ++i) {
-										for (size_t j=0; j<SSize+1; ++j) {
-											R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
-										}
-										R[i*RSize+SSize+1] = beta[i] / gamma_k;
-									}
-									for (size_t j=0; j<SSize+1; ++j) {
-										R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
-									}
-									R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+									// Calc beta
+									betaCalc(R, Q, beta, SMask, cur, SSize, RSize, WinSize);
+									// Calc gamma_k
+									CalcType gamma_k = gammaCalc(Q, beta, SMask, cur, SSize, WinSize);
+									// Enlarge Matrix R
+									REnlarge(R, beta, gamma_k, SSize, RSize);
 								}
 
 								// move Xl to S
-								Group[k] = 'S';
-								SMask[SSize++] = k;
+								Group[cur] = 'S';
+								SMask[SSize] = cur;
 
 								// Update NMask
 								// Search for current location
@@ -469,52 +507,30 @@ int incSVM(		size_t ID,
 								}
 								NSize--;
 								(*_NSize)--;
+								SSize++;
 								(*_SSize)++;
 								break;
 							}
 							case 2: { // case 1 and case 2 are handled the same way
-								// Xi moves from E to S
-								size_t k = cur;
+								// X[cur] moves from E to S
 								// Update Matrix R
 								if (SSize==0) {
 									// Initialise Matrix R
-									R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), DataDim, sigma_sq);
-									R[1] = 1;
-									R[RSize] = 1;
-									R[RSize+1] = 0;
+									RInit(R, dataX, cur, DataDim, RSize, sigma_sq);
 								}
 								else {
 									// Update Matrix R - enlarge
-									// Update beta - intensive, optimisable
-									// this beta is the relation between Xl and coeff b and set S
-									for (size_t i=0; i<SSize+1; ++i) {
-										CalcType temp = -R[i*RSize];
-										for (size_t j=0; j<SSize; ++j) {
-											temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
-										}
-										beta[i] = temp;
-									}
-									// Calculate gamma_k
-									CalcType gamma_k = Q[k*WinSize+k] + beta[0];
-									for (size_t i=0; i<SSize; ++i) {
-										gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
-									}
-									// Update Matrix R - enlarge
-									for (size_t i=0; i<SSize+1; ++i) {
-										for (size_t j=0; j<SSize+1; ++j) {
-											R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
-										}
-										R[i*RSize+SSize+1] = beta[i] / gamma_k;
-									}
-									for (size_t j=0; j<SSize+1; ++j) {
-										R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
-									}
-									R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+									// Calc beta
+									betaCalc(R, Q, beta, SMask, cur, SSize, RSize, WinSize);
+									// Calc gamma_k
+									CalcType gamma_k = gammaCalc(Q, beta, SMask, cur, SSize, WinSize);
+									// Enlarge Matrix R
+									REnlarge(R, beta, gamma_k, SSize, RSize);
 								}
 
 								// move Xl to S
-								Group[k] = 'S';
-								SMask[SSize++] = k;
+								Group[cur] = 'S';
+								SMask[SSize] = cur;
 
 								// Update NMask
 								// Search for current location
@@ -526,6 +542,7 @@ int incSVM(		size_t ID,
 								}
 								NSize--;
 								(*_NSize)--;
+								SSize++;
 								(*_SSize)++;
 								break;
 							}
@@ -547,15 +564,9 @@ int incSVM(		size_t ID,
 			}
 		}
 		else { // if (SSize!=0)
-			// Calculate beta - intensive, optimisable
-			// this beta is the relation between Xc and theta of set S, offset b
-			for (size_t i=0; i<SSize+1; ++i) {
-				CalcType temp = -R[i*RSize];
-				for (size_t j=0; j<SSize; ++j) {
-					temp -= R[i*RSize+j+1] * Q[ID*WinSize+SMask[j]];
-				}
-				beta[i] = temp;
-			}
+
+			// Calc beta
+			betaCalc(R, Q, beta, SMask, ID, SSize, RSize, WinSize);
 
 			// Calculate gamma - intensive, optimisable
 			// this gamma is the relation between Xc and hXi of set E, set R
@@ -568,11 +579,9 @@ int incSVM(		size_t ID,
 				gamma[i] = temp1 + temp2;
 			}
 
-			// Calculate gamma_c
-			CalcType gamma_c = Q[ID*WinSize+ID] + beta[0];
-			for (size_t i=0; i<SSize; ++i) {
-				gamma_c += Q[ID*WinSize+SMask[i]] * beta[i+1];
-			}
+			// Calc gamma_c
+			CalcType gamma_c = gammaCalc(Q, beta, SMask, ID, SSize, WinSize);
+
 
 			///////////////////////////// Bookkeeping /////////////////////////////
 
@@ -702,19 +711,9 @@ int incSVM(		size_t ID,
 					if (val[cur]-minL<eps && Group[cur]!='N') {
 						switch (flag[cur]) {
 							case 0: {
-								// Xc joins S and TERMINATE
+								// Xc joins S and terminate
 								// Update Matrix R - enlarge
-								for (size_t i=0; i<SSize+1; ++i) {
-									for (size_t j=0; j<SSize+1; ++j) {
-										R[i*RSize+j] += beta[i] * beta[j] / gamma_c;
-									}
-									R[i*RSize+SSize+1] = beta[i] / gamma_c;
-								}
-								for (size_t j=0; j<SSize+1; ++j) {
-									R[(SSize+1)*RSize+j] = beta[j] / gamma_c;
-								}
-								R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_c;
-
+								REnlarge(R, beta, gamma_c, SSize, RSize);
 								// Xc joins S and terminate
 								Group[ID] = 'S';
 								SMask[SSize++] = ID;
@@ -736,25 +735,10 @@ int incSVM(		size_t ID,
 								// Search for current location
 								size_t p=0;
 								while(SMask[p]!=cur) p++;
+
 								// Update Matrix R - shrink
-								if (SSize>1) {
-									size_t k = p + 1;
-									for (size_t i=0; i<SSize+1; ++i) {
-										for (size_t j=0; j<SSize+1; ++j) {
-											if (i==k || j==k) continue;
-											else R[i*RSize+j] -= R[i*RSize+k] * R[k*RSize+j] / R[k*RSize+k];
-										}
-									}
-									for (size_t i=0; i<SSize+1; ++i) {
-										for (size_t j=k; j<SSize; ++j) R[i*RSize+j] = R[i*RSize+j+1];
-									}
-									for (size_t i=k; i<SSize; ++i) {
-										for (size_t j=0; j<SSize; ++j) R[i*RSize+j] = R[(i+1)*RSize+j];
-									}
-								}
-								else {
-									R[0] = 0;
-								}
+								RShrink(R, p, SSize, RSize);
+
 								// move Xl to R
 								size_t k = cur;
 								if (fabs(theta[k])<eps) {
@@ -789,37 +773,16 @@ int incSVM(		size_t ID,
 							case 3: {
 								// Xl joins S
 								size_t k = cur;
-								// Update beta - intensive, optimisable
-								// this beta is the relation between Xl and coeff b and set S
-								for (size_t i=0; i<SSize+1; ++i) {
-									CalcType temp = -R[i*RSize];
-									for (size_t j=0; j<SSize; ++j) {
-										temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
-									}
-									beta[i] = temp;
-								}
-
-								// Calculate gamma_k
-								CalcType gamma_k = Q[k*WinSize+k] + beta[0];
-								for (size_t i=0; i<SSize; ++i) {
-									gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
-								}
-
-								// Update Matrix R - enlarge
-								for (size_t i=0; i<SSize+1; ++i) {
-									for (size_t j=0; j<SSize+1; ++j) {
-										R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
-									}
-									R[i*RSize+SSize+1] = beta[i] / gamma_k;
-								}
-								for (size_t j=0; j<SSize+1; ++j) {
-									R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
-								}
-								R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+								// Calc beta
+								betaCalc(R, Q, beta, SMask, cur, SSize, RSize, WinSize);
+								// Calc gamma_k
+								CalcType gamma_k = gammaCalc(Q, beta, SMask, cur, SSize, WinSize);
+								// Enlarge Matrix R
+								REnlarge(R, beta, gamma_k, SSize, RSize);
 
 								// move Xl to S
 								Group[k] = 'S';
-								SMask[SSize++] = k;
+								SMask[SSize] = k;
 
 								// Update theta[k]
 								CalcType temp = 0;
@@ -837,40 +800,23 @@ int incSVM(		size_t ID,
 								}
 								NSize--;
 								(*_NSize)--;
+								SSize++;
 								(*_SSize)++;
 								break;
 							}
 							case 4: {
+								// Xl joins S
 								size_t k = cur;
-								// Update beta - intensive, optimisable
-								// this beta is the relation between Xl and coeff b and set S
-								for (size_t i=0; i<SSize+1; ++i) {
-									CalcType temp = -R[i*RSize];
-									for (size_t j=0; j<SSize; ++j) {
-										temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
-									}
-									beta[i] = temp;
-								}
-								// Calculate gamma_k
-								CalcType gamma_k = Q[k*WinSize+k] + beta[0];
-								for (size_t i=0; i<SSize; i++) {
-									gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
-								}
-								// Update Matrix R - enlarge
-								for (size_t i=0; i<SSize+1; ++i) {
-									for (size_t j=0; j<SSize+1; ++j) {
-										R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
-									}
-									R[i*RSize+SSize+1] = beta[i] / gamma_k;
-								}
-								for (size_t j=0; j<SSize+1; ++j) {
-									R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
-								}
-								R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+								// Calc beta
+								betaCalc(R, Q, beta, SMask, cur, SSize, RSize, WinSize);
+								// Calc gamma_k
+								CalcType gamma_k = gammaCalc(Q, beta, SMask, cur, SSize, WinSize);
+								// Enlarge Matrix R
+								REnlarge(R, beta, gamma_k, SSize, RSize);
 
 								// move Xl to S
 								Group[k] = 'S';
-								SMask[SSize++] = k;
+								SMask[SSize] = k;
 
 								// Update theta[k]
 								CalcType temp = 0;
@@ -888,6 +834,7 @@ int incSVM(		size_t ID,
 								}
 								NSize--;
 								(*_NSize)--;
+								SSize++;
 								(*_SSize)++;
 								break;
 							}
@@ -988,24 +935,8 @@ int decSVM(		size_t ID,
 			if (SMask[i]==ID) {key=i; break;}
 		}
 		// Update Matrix R - shrink
-		if (SSize>1) {
-			size_t k = key + 1;
-			for (size_t i=0; i<SSize+1; ++i) {
-				for (size_t j=0; j<SSize+1; ++j) {
-					if (i==k || j==k) continue;
-					else R[i*RSize+j] -= R[i*RSize+k] * R[k*RSize+j] / R[k*RSize+k];
-				}
-			}
-			for (size_t i=0; i<SSize+1; ++i) {
-				for (size_t j=k; j<SSize; ++j) R[i*RSize+j] = R[i*RSize+j+1];
-			}
-			for (size_t i=k; i<SSize; ++i) {
-				for (size_t j=0; j<SSize; ++j) R[i*RSize+j] = R[(i+1)*RSize+j];
-			}
-		}
-		else {
-			R[0] = 0;
-		}
+		RShrink(R, key, SSize, RSize);
+
 		// Update SMask
 		for (size_t i=key; i<SSize-1; ++i) {
 			SMask[i] = SMask[i+1];
@@ -1099,47 +1030,24 @@ int decSVM(		size_t ID,
 							// case 1 and case 2 are handled the same way
 							case 1: {
 								// Xi moves from E to S
-								size_t k = cur;
 								// Update Matrix R
 								if (SSize==0) {
 									// Initialise Matrix R
-									R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), DataDim, sigma_sq);
-									R[1] = 1;
-									R[RSize] = 1;
-									R[RSize+1] = 0;
+									RInit(R, dataX, cur, DataDim, RSize, sigma_sq);
 								}
 								else {
 									// Update Matrix R - enlarge
-									// Update beta - intensive, optimisable
-									// this beta is the relation between Xl and coeff b and set S
-									for (size_t i=0; i<SSize+1; ++i) {
-										CalcType temp = -R[i*RSize];
-										for (size_t j=0; j<SSize; ++j) {
-											temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
-										}
-										beta[i] = temp;
-									}
-									// Calculate gamma_k
-									CalcType gamma_k = Q[k*WinSize+k] + beta[0];
-									for (size_t i=0; i<SSize; ++i) {
-										gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
-									}
-									// Update Matrix R - enlarge
-									for (size_t i=0; i<SSize+1; ++i) {
-										for (size_t j=0; j<SSize+1; ++j) {
-											R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
-										}
-										R[i*RSize+SSize+1] = beta[i] / gamma_k;
-									}
-									for (size_t j=0; j<SSize+1; ++j) {
-										R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
-									}
-									R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+									// Calc beta
+									betaCalc(R, Q, beta, SMask, cur, SSize, RSize, WinSize);
+									// Calc gamma_k
+									CalcType gamma_k = gammaCalc(Q, beta, SMask, cur, SSize, WinSize);
+									// Enlarge Matrix R
+									REnlarge(R, beta, gamma_k, SSize, RSize);
 								}
 
 								// move Xl to S
-								Group[k] = 'S';
-								SMask[SSize++] = k;
+								Group[cur] = 'S';
+								SMask[SSize] = cur;
 
 								// Update NMask
 								// Search for current location
@@ -1151,52 +1059,30 @@ int decSVM(		size_t ID,
 								}
 								NSize--;
 								(*_NSize)--;
+								SSize++;
 								(*_SSize)++;
 								break;
 							}
 							case 2: {
 								// Xi moves from R to S
-								size_t k = cur;
 								// Update Matrix R
 								if (SSize==0) {
 									// Initialise Matrix R
-									R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), DataDim, sigma_sq);
-									R[1] = 1;
-									R[RSize] = 1;
-									R[RSize+1] = 0;
+									RInit(R, dataX, cur, DataDim, RSize, sigma_sq);
 								}
 								else {
 									// Update Matrix R - enlarge
-									// Update beta - intensive, optimisable
-									// this beta is the relation between Xl and coeff b and set S
-									for (size_t i=0; i<SSize+1; ++i) {
-										CalcType temp = -R[i*RSize];
-										for (size_t j=0; j<SSize; ++j) {
-											temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
-										}
-										beta[i] = temp;
-									}
-									// Calculate gamma_k
-									CalcType gamma_k = Q[k*WinSize+k] + beta[0];
-									for (size_t i=0; i<SSize; ++i) {
-										gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
-									}
-									// Update Matrix R - enlarge
-									for (size_t i=0; i<SSize+1; ++i) {
-										for (size_t j=0; j<SSize+1; ++j) {
-											R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
-										}
-										R[i*RSize+SSize+1] = beta[i] / gamma_k;
-									}
-									for (size_t j=0; j<SSize+1; ++j) {
-										R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
-									}
-									R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+									// Calc beta
+									betaCalc(R, Q, beta, SMask, cur, SSize, RSize, WinSize);
+									// Calc gamma_k
+									CalcType gamma_k = gammaCalc(Q, beta, SMask, cur, SSize, WinSize);
+									// Enlarge Matrix R
+									REnlarge(R, beta, gamma_k, SSize, RSize);
 								}
 
 								// move Xl to S
-								Group[k] = 'S';
-								SMask[SSize++] = k;
+								Group[cur] = 'S';
+								SMask[SSize] = cur;
 
 								// Update NMask
 								// Search for current location
@@ -1208,6 +1094,7 @@ int decSVM(		size_t ID,
 								}
 								NSize--;
 								(*_NSize)--;
+								SSize++;
 								(*_SSize)++;
 								break;
 							}
@@ -1233,15 +1120,8 @@ int decSVM(		size_t ID,
 			// Assign q
 			CalcType q = theta[ID] > 0 ? -1 : 1;
 
-			// Calculate beta - intensive, optimisable
-			// this beta is the relation between Xc and theta of set S, offset b
-			for (size_t i=0; i<SSize+1; ++i) {
-				CalcType temp = -R[i*RSize];
-				for (size_t j=0; j<SSize; ++j) {
-					temp -= R[i*RSize+j+1] * Q[ID*WinSize+SMask[j]];
-				}
-				beta[i] = temp;
-			}
+			// Calc beta
+			betaCalc(R, Q, beta, SMask, ID, SSize, RSize, WinSize);
 
 			// Calculate gamma - intensive, optimisable
 			// this gamma is the relation between Xc and hXi of set E, set R
@@ -1255,10 +1135,7 @@ int decSVM(		size_t ID,
 			}
 
 			// Calculate gamma_c
-			CalcType gamma_c = Q[ID*WinSize+ID] + beta[0];
-			for (size_t i=0; i<SSize; ++i) {
-				gamma_c += Q[ID*WinSize+SMask[i]] * beta[i+1];
-			}
+			CalcType gamma_c = gammaCalc(Q, beta, SMask, ID, SSize, WinSize);
 
 			///////////////////////////// Bookkeeping /////////////////////////////
 
@@ -1391,25 +1268,10 @@ int decSVM(		size_t ID,
 								// Search for current location
 								size_t p=0;
 								while(SMask[p]!=cur) p++;
+
 								// Update Matrix R - shrink
-								if (SSize>1) {
-									size_t k = p + 1;
-									for (size_t i=0; i<SSize+1; ++i) {
-										for (size_t j=0; j<SSize+1; ++j) {
-											if (i==k || j==k) continue;
-											else R[i*RSize+j] -= R[i*RSize+k] * R[k*RSize+j] / R[k*RSize+k];
-										}
-									}
-									for (size_t i=0; i<SSize+1; ++i) {
-										for (size_t j=k; j<SSize; ++j) R[i*RSize+j] = R[i*RSize+j+1];
-									}
-									for (size_t i=k; i<SSize; ++i) {
-										for (size_t j=0; j<SSize; ++j) R[i*RSize+j] = R[(i+1)*RSize+j];
-									}
-								}
-								else {
-									R[0] = 0;
-								}
+								RShrink(R, p, SSize, RSize);
+
 								// move Xl to R
 								size_t k = cur;
 								if (fabs(theta[k])<eps) {
@@ -1443,45 +1305,23 @@ int decSVM(		size_t ID,
 							}
 							case 2: {
 								// Xl joins S
-								size_t k = cur;
-								// Update beta - intensive, optimisable
-								// this beta is the relation between Xl and coeff b and set S
-								for (size_t i=0; i<SSize+1; ++i) {
-									CalcType temp = -R[i*RSize];
-									for (size_t j=0; j<SSize; ++j) {
-										temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
-									}
-									beta[i] = temp;
-								}
-
-								// Calculate gamma_k
-								CalcType gamma_k = Q[k*WinSize+k] + beta[0];
-								for (size_t i=0; i<SSize; ++i) {
-									gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
-								}
-
-								// Update Matrix R - enlarge
-								for (size_t i=0; i<SSize+1; ++i) {
-									for (size_t j=0; j<SSize+1; ++j) {
-										R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
-									}
-									R[i*RSize+SSize+1] = beta[i] / gamma_k;
-								}
-								for (size_t j=0; j<SSize+1; ++j) {
-									R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
-								}
-								R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+								// Calc beta
+								betaCalc(R, Q, beta, SMask, cur, SSize, RSize, WinSize);
+								// Calc gamma_k
+								CalcType gamma_k = gammaCalc(Q, beta, SMask, cur, SSize, WinSize);
+								// Enlarge Matrix R
+								REnlarge(R, beta, gamma_k, SSize, RSize);
 
 								// move Xl to S
-								Group[k] = 'S';
-								SMask[SSize++] = k;
+								Group[cur] = 'S';
+								SMask[SSize] = cur;
 
 								// Update theta[k]
 								CalcType temp = 0;
 								for (size_t i=0; i<WinSize; ++i) {
-									if (i!=k) temp += theta[i];
+									if (i!=cur) temp += theta[i];
 								}
-								theta[k] = -temp;
+								theta[cur] = -temp;
 
 								// Update NMask
 								// Search for current location
@@ -1492,47 +1332,29 @@ int decSVM(		size_t ID,
 								}
 								NSize--;
 								(*_NSize)--;
+								SSize++;
 								(*_SSize)++;
 								break;
 							}
 							case 3: {
-								size_t k = cur;
-								// Update beta - intensive, optimisable
-								// this beta is the relation between Xl and coeff b and set S
-								for (size_t i=0; i<SSize+1; ++i) {
-									CalcType temp = -R[i*RSize];
-									for (size_t j=0; j<SSize; ++j) {
-										temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
-									}
-									beta[i] = temp;
-								}
-								// Calculate gamma_k
-								CalcType gamma_k = Q[k*WinSize+k] + beta[0];
-								for (size_t i=0; i<SSize; i++) {
-									gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
-								}
-								// Update Matrix R - enlarge
-								for (size_t i=0; i<SSize+1; ++i) {
-									for (size_t j=0; j<SSize+1; ++j) {
-										R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
-									}
-									R[i*RSize+SSize+1] = beta[i] / gamma_k;
-								}
-								for (size_t j=0; j<SSize+1; ++j) {
-									R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
-								}
-								R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+								// Xl joins S
+								// Calc beta
+								betaCalc(R, Q, beta, SMask, cur, SSize, RSize, WinSize);
+								// Calc gamma_k
+								CalcType gamma_k = gammaCalc(Q, beta, SMask, cur, SSize, WinSize);
+								// Enlarge Matrix R
+								REnlarge(R, beta, gamma_k, SSize, RSize);
 
 								// move Xl to S
-								Group[k] = 'S';
-								SMask[SSize++] = k;
+								Group[cur] = 'S';
+								SMask[SSize] = cur;
 
 								// Update theta[k]
 								CalcType temp = 0;
 								for (size_t i=0; i<WinSize; ++i) {
-									if (i!=k) temp += theta[i];
+									if (i!=cur) temp += theta[i];
 								}
-								theta[k] = -temp;
+								theta[cur] = -temp;
 
 								// Update NMask
 								// Search for current location
@@ -1543,6 +1365,7 @@ int decSVM(		size_t ID,
 								}
 								NSize--;
 								(*_NSize)--;
+								SSize++;
 								(*_SSize)++;
 								break;
 							}

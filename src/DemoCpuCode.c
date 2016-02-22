@@ -21,6 +21,10 @@ typedef struct {
 	char * InFile;
 	// Output File Name
 	char * OutFile;
+	// Log File Name
+	char * LogFile;
+	// Log File Pointer
+	FILE * LogFileHandle;
 	// Length of the input data file
 	size_t DataSize;
 	// dimension of input data X - number of features
@@ -143,9 +147,9 @@ void initSVM(		DataType *X1,
 				size_t *_NSize,
 				const Param param) {
 
+
 	///////////////////////////// Read Parameters /////////////////////////////
 
-	const size_t DataSize	= param.DataSize;
 	const size_t DataDim	= param.DataDim;
 	const size_t WinSize	= param.WinSize;
 	const size_t RSize		= param.RSize;
@@ -255,6 +259,8 @@ int incSVM(		size_t ID,
 				CalcType *theta,
 				CalcType *b,
 				CalcType *hXi,
+				CalcType *val,
+				size_t *flag,
 				size_t *_CurSize,
 				size_t *_SSize,
 				size_t *_NSize,
@@ -262,7 +268,7 @@ int incSVM(		size_t ID,
 
 	///////////////////////////// Read Parameters /////////////////////////////
 
-	const size_t DataSize	= param.DataSize;
+	FILE * LogFile			= param.LogFileHandle;
 	const size_t DataDim	= param.DataDim;
 	const size_t WinSize	= param.WinSize;
 	const size_t RSize		= param.RSize;
@@ -278,9 +284,7 @@ int incSVM(		size_t ID,
 
 	///////////////////////////// Adding (Xc, Yc) to data set /////////////////////////////
 
-	for (size_t i=0; i<DataDim; ++i) {
-		dataX[ID*DataDim+i] = Xc[i];
-	}
+	for (size_t i=0; i<DataDim; ++i) dataX[ID*DataDim+i] = Xc[i];
 	dataY[ID] = Yc;
 
 
@@ -317,11 +321,14 @@ int incSVM(		size_t ID,
 
 	///////////////////////////// Main Loop /////////////////////////////
 
-	while(1) {
+	while(Group[ID]!='S' && Group[ID]!='E' && Group[ID]!='R') {
 
 		if(SSize==0){
 			// Calculate bC - Case 1
 			CalcType bC = fabs(hXi[ID] + q*ep);
+			// handle ties
+			val[ID] = bC;
+			flag[ID] = 0;
 
 			// Calculate bE,bR - Case 2&3
 			CalcType bE = INFINITY;
@@ -337,6 +344,9 @@ int incSVM(		size_t ID,
 						bE = curbE;
 						keyE = i;
 					}
+					// handle ties
+					val[NMask[i]] = curbE;
+					flag[NMask[i]] = 1;
 				}
 				else if (Group[NMask[i]]=='R') {
 					CalcType curbR = fabs(-hX + q*ep);
@@ -344,25 +354,37 @@ int incSVM(		size_t ID,
 						bR = curbR;
 						keyR = i;
 					}
+					// handle ties
+					val[NMask[i]] = curbR;
+					flag[NMask[i]] = 2;
 				}
 			}
 
 			// Calculate delta_b
-			CalcType L[3] = {bC, bE, bR};
-			size_t key[3] = {ID, keyE, keyR};
-			CalcType minL = bC;
-			size_t minkey = ID;
-			size_t flag = 0;
+			CalcType L_[3] = {bC, bE, bR};
+			size_t key_[3] = {ID, keyE, keyR};
+			CalcType minL = L_[0];
+			size_t minkey = key_[0];
+			size_t flag_ = 0;
 			for (size_t i=1; i<3; ++i) {
-				if (L[i]<minL) {
-					minL = L[i];
-					minkey = key[i];
-					flag = i;
+				if (L_[i]<minL) {
+					minL = L_[i];
+					minkey = key_[i];
+					flag_ = i;
 				}
 			}
+
+
+			// handle ties
+			minL = val[ID];
+			for (size_t i=0; i<WinSize; ++i) {
+				if (val[i]<minL && Group[i]!='N') minL = val[i];
+			}
+
 			CalcType delta_b = q*minL;
 
-			printf("[Adding item #%zu] <q=%1.0f> bC=%f, bE=%f, bR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", CurSize+1, q, bC, bE, bR, flag, minkey, SSize);
+			printf("[Adding item #%zu] <q=%1.0f> bC=%f, bE=%f, bR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", CurSize+1, q, bC, bE, bR, flag_, minkey, SSize);
+			fprintf(LogFile,"[Adding item #%zu] <q=%1.0f> bC=%f, bE=%f, bR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", CurSize+1, q, bC, bE, bR, flag_, minkey, SSize);
 
 			///////////////////////////// Updating coefficients /////////////////////////////
 
@@ -381,74 +403,150 @@ int incSVM(		size_t ID,
 			///////////////////////////// Moving data items /////////////////////////////
 
 			if (minL<INFINITY) {
-				switch (flag) {
-					// Xc joins R
-					case 0: {
-						// Xc joins R and terminate
-						Group[ID] = 'R';
-						NMask[NSize] = ID;
-						(*_NSize)++;
-						(*_CurSize)++;
-						return 0;
-					}
-					// Xi moves from E to S
-					case 1: {
-						size_t k = NMask[minkey];
-						// Update Matrix R
-						R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), DataDim, sigma_sq);
-						R[1] = 1;
-						R[RSize] = 1;
-						R[RSize+1] = 0;
+				for (size_t cur=0; cur<WinSize; ++cur) {
+					if (val[cur]-minL<eps && Group[cur]!='N') {
+						switch (flag[cur]) {
+							case 0: {
+								// Xc joins R and TERMINATE
+								Group[ID] = 'R';
+								theta[ID] = 0;
+								NMask[NSize] = ID;
+								(*_NSize)++;
+								(*_CurSize)++;
+								break;
+							}
+							case 1: { // case 1 and case 2 are handled the same way
+								// Xi moves from E to S
+								size_t k = cur;
+								// Update Matrix R
+								if (SSize==0) {
+									// Initialise Matrix R
+									R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), DataDim, sigma_sq);
+									R[1] = 1;
+									R[RSize] = 1;
+									R[RSize+1] = 0;
+								}
+								else {
+									// Update Matrix R - enlarge
+									// Update beta - intensive, optimisable
+									// this beta is the relation between Xl and coeff b and set S
+									for (size_t i=0; i<SSize+1; ++i) {
+										CalcType temp = -R[i*RSize];
+										for (size_t j=0; j<SSize; ++j) {
+											temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
+										}
+										beta[i] = temp;
+									}
+									// Calculate gamma_k
+									CalcType gamma_k = Q[k*WinSize+k] + beta[0];
+									for (size_t i=0; i<SSize; ++i) {
+										gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
+									}
+									// Update Matrix R - enlarge
+									for (size_t i=0; i<SSize+1; ++i) {
+										for (size_t j=0; j<SSize+1; ++j) {
+											R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
+										}
+										R[i*RSize+SSize+1] = beta[i] / gamma_k;
+									}
+									for (size_t j=0; j<SSize+1; ++j) {
+										R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
+									}
+									R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+								}
 
-						// move Xl to S
-						Group[k] = 'S';
-						SMask[SSize++] = k;
+								// move Xl to S
+								Group[k] = 'S';
+								SMask[SSize++] = k;
 
-						// Update NMask
-						for (size_t i=minkey; i<NSize-1; ++i) {
-							NMask[i] = NMask[i+1];
-						}
-						NSize--;
-						(*_NSize)--;
-						(*_SSize)++;
-						break;
-					}
-					// Xi moves from R to S
-					case 2: {
-						size_t k = NMask[minkey];
-						// Update Matrix R
-						R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), DataDim, sigma_sq);
-						R[1] = 1;
-						R[RSize] = 1;
-						R[RSize+1] = 0;
+								// Update NMask
+								// Search for current location
+								size_t p=0;
+								while(NMask[p]!=cur) p++;
+								// Shift NMask
+								for (size_t i=p; i<NSize-1; ++i) {
+									NMask[i] = NMask[i+1];
+								}
+								NSize--;
+								(*_NSize)--;
+								(*_SSize)++;
+								break;
+							}
+							case 2: { // case 1 and case 2 are handled the same way
+								// Xi moves from E to S
+								size_t k = cur;
+								// Update Matrix R
+								if (SSize==0) {
+									// Initialise Matrix R
+									R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), DataDim, sigma_sq);
+									R[1] = 1;
+									R[RSize] = 1;
+									R[RSize+1] = 0;
+								}
+								else {
+									// Update Matrix R - enlarge
+									// Update beta - intensive, optimisable
+									// this beta is the relation between Xl and coeff b and set S
+									for (size_t i=0; i<SSize+1; ++i) {
+										CalcType temp = -R[i*RSize];
+										for (size_t j=0; j<SSize; ++j) {
+											temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
+										}
+										beta[i] = temp;
+									}
+									// Calculate gamma_k
+									CalcType gamma_k = Q[k*WinSize+k] + beta[0];
+									for (size_t i=0; i<SSize; ++i) {
+										gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
+									}
+									// Update Matrix R - enlarge
+									for (size_t i=0; i<SSize+1; ++i) {
+										for (size_t j=0; j<SSize+1; ++j) {
+											R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
+										}
+										R[i*RSize+SSize+1] = beta[i] / gamma_k;
+									}
+									for (size_t j=0; j<SSize+1; ++j) {
+										R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
+									}
+									R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+								}
 
-						// move Xl to S
-						Group[k] = 'S';
-						SMask[SSize++] = k;
+								// move Xl to S
+								Group[k] = 'S';
+								SMask[SSize++] = k;
 
-						// Update NMask
-						for (size_t i=minkey; i<NSize-1; ++i) {
-							NMask[i] = NMask[i+1];
-						}
-						NSize--;
-						(*_NSize)--;
-						(*_SSize)++;
-						break;
-					}
-					default: {
-						// ERROR!
-						fprintf(stderr, "[ERROR] minL(%f) is smaller than INF, but flag(%zu) is invalid. \n", minL, flag);
-						return -1;
-					}
-				} // end of 'switch(flag)'
+								// Update NMask
+								// Search for current location
+								size_t p=0;
+								while(NMask[p]!=cur) p++;
+								// Shift NMask
+								for (size_t i=p; i<NSize-1; ++i) {
+									NMask[i] = NMask[i+1];
+								}
+								NSize--;
+								(*_NSize)--;
+								(*_SSize)++;
+								break;
+							}
+							default: {
+								// ERROR!
+								fprintf(LogFile, "[ERROR] minL(%f) is smaller than INF, but flag(%zu) is invalid. \n", minL, flag[cur]);
+								fprintf(stderr, "[ERROR] minL(%f) is smaller than INF, but flag(%zu) is invalid. \n", minL, flag[cur]);
+								return -1;
+							}
+						} // end of 'switch(flag[i])'
+					} // end of if (val[i]==minL && Group[i]!='N')
+				} // end of for() loop
 			} // end of 'if(minL)<infinity'
 			else {
 				// ERROR!
+				fprintf(LogFile, "[ERROR] unable to make any move because minL=%f. \n", minL);
 				fprintf(stderr, "[ERROR] unable to make any move because minL=%f. \n", minL);
 				return -1;
 			}
-		} // end of 'if(SSize==0)'
-		else {
+		}
+		else { // if (SSize!=0)
 			// Calculate beta - intensive, optimisable
 			// this beta is the relation between Xc and theta of set S, offset b
 			for (size_t i=0; i<SSize+1; ++i) {
@@ -488,6 +586,10 @@ int incSVM(		size_t ID,
 			// Calculate Lc2 - Case 2
 			CalcType Lc2 = fabs(q*C - theta[ID]);
 
+			// handle ties
+			val[ID] = (Lc1<Lc2) ? Lc1 : Lc2;
+			flag[ID] = (Lc1<Lc2) ? 0 : 1;
+
 			// Calculate LiS - Case 3
 			CalcType LiS = INFINITY;
 			size_t keyS = 0;
@@ -503,6 +605,9 @@ int incSVM(		size_t ID,
 					LiS = curLiS;
 					keyS = i;
 				}
+				// handle ties
+				val[SMask[i]] = curLiS;
+				flag[SMask[i]] = 2;
 			}
 
 			// Calculate LiE - Case 4
@@ -516,13 +621,16 @@ int incSVM(		size_t ID,
 				CalcType qri = q*gamma[i];
 				if (Group[NMask[i]]=='E') {
 					CalcType curLiE = INFINITY;
-					if (qri>0 && hX<-ep) curLiE = (-hX-ep)/gamma[i];
-					else if (qri<0 && hX>ep) curLiE = (-hX+ep)/gamma[i];
+					if (qri>0 && hX<=-ep) curLiE = (-hX-ep)/gamma[i];
+					else if (qri<0 && hX>=ep) curLiE = (-hX+ep)/gamma[i];
 					curLiE = fabs(curLiE);
 					if (curLiE<LiE) {
 						LiE = curLiE;
 						keyE = i;
 					}
+					// handle ties
+					val[NMask[i]] = curLiE;
+					flag[NMask[i]] = 3;
 				}
 				else if (Group[NMask[i]]=='R') {
 					CalcType curLiR = INFINITY;
@@ -533,25 +641,36 @@ int incSVM(		size_t ID,
 						LiR = curLiR;
 						keyR = i;
 					}
+					// handle ties
+					val[NMask[i]] = curLiR;
+					flag[NMask[i]] = 4;
 				}
 			}
 
 			// Calculate delta theta_c
-			CalcType L[5] = {Lc1, Lc2, LiS, LiE, LiR};
-			size_t key[5] = {ID, ID, keyS, keyE, keyR};
-			CalcType minL = Lc1;
-			size_t minkey = ID;
-			size_t flag = 0;
+			CalcType L_[5] = {Lc1, Lc2, LiS, LiE, LiR};
+			size_t key_[5] = {ID, ID, keyS, keyE, keyR};
+			CalcType minL = L_[0];
+			size_t minkey = key_[0];
+			size_t flag_ = 0;
 			for (size_t i=1; i<5; ++i) {
-				if (L[i]<minL) {
-					minL = L[i];
-					minkey = key[i];
-					flag = i;
+				if (L_[i]<=minL) {
+					minL = L_[i];
+					minkey = key_[i];
+					flag_ = i;
 				}
 			}
+
+			// handle ties
+			minL = val[ID];
+			for (size_t i=0; i<WinSize; ++i) {
+				if (val[i]<minL && Group[i]!='N') minL = val[i];
+			}
+
 			CalcType d_theta_c = q*minL;
 
-			printf("[Adding item #%zu] <q=%1.0f> Lc1=%f, Lc2=%f, LiS=%f, LiE=%f, LiR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", CurSize+1, q, Lc1, Lc2, LiS, LiE, LiR, flag, minkey, SSize);
+			printf("[Adding item #%zu] <q=%1.0f> Lc1=%f, Lc2=%f, LiS=%f, LiE=%f, LiR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", CurSize+1, q, Lc1, Lc2, LiS, LiE, LiR, flag_, minkey, SSize);
+			fprintf(LogFile, "[Adding item #%zu] <q=%1.0f> Lc1=%f, Lc2=%f, LiS=%f, LiE=%f, LiR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", CurSize+1, q, Lc1, Lc2, LiS, LiE, LiR, flag_, minkey, SSize);
 
 
 			///////////////////////////// Updating coefficients /////////////////////////////
@@ -579,202 +698,219 @@ int incSVM(		size_t ID,
 			///////////////////////////// Moving data items /////////////////////////////
 
 			if (minL<INFINITY) {
-				switch (flag) {
-					// Xc joins S
-					case 0: {
-						// Update Matrix R - enlarge
-						for (size_t i=0; i<SSize+1; ++i) {
-							for (size_t j=0; j<SSize+1; ++j) {
-								R[i*RSize+j] += beta[i] * beta[j] / gamma_c;
-							}
-							R[i*RSize+SSize+1] = beta[i] / gamma_c;
-						}
-						for (size_t j=0; j<SSize+1; ++j) {
-							R[(SSize+1)*RSize+j] = beta[j] / gamma_c;
-						}
-						R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_c;
-
-						// Xc joins S and terminate
-						Group[ID] = 'S';
-						SMask[SSize] = ID;
-						(*_SSize)++;
-						(*_CurSize)++;
-						return 0;
-					}
-					// Xc joins E
-					case 1: {
-						// Xc joins E and terminate
-						Group[ID] = 'E';
-						NMask[NSize] = ID;
-						(*_NSize)++;
-						(*_CurSize)++;
-						return 0;
-					}
-					// Xl moves from S to R or E
-					case 2: {
-						// Update Matrix R - shrink
-						if (SSize>1) {
-							size_t k = minkey + 1;
-							for (size_t i=0; i<SSize+1; ++i) {
-								for (size_t j=0; j<SSize+1; ++j) {
-									if (i==k || j==k) continue;
-									else R[i*RSize+j] -= R[i*RSize+k] * R[k*RSize+j] / R[k*RSize+k];
+				for (size_t cur=0; cur<WinSize; ++cur) {
+					if (val[cur]-minL<eps && Group[cur]!='N') {
+						switch (flag[cur]) {
+							case 0: {
+								// Xc joins S and TERMINATE
+								// Update Matrix R - enlarge
+								for (size_t i=0; i<SSize+1; ++i) {
+									for (size_t j=0; j<SSize+1; ++j) {
+										R[i*RSize+j] += beta[i] * beta[j] / gamma_c;
+									}
+									R[i*RSize+SSize+1] = beta[i] / gamma_c;
 								}
-							}
-							for (size_t i=0; i<SSize+1; ++i) {
-								for (size_t j=k; j<SSize; ++j) R[i*RSize+j] = R[i*RSize+j+1];
-							}
-							for (size_t i=k; i<SSize; ++i) {
-								for (size_t j=0; j<SSize; ++j) R[i*RSize+j] = R[(i+1)*RSize+j];
-							}
-						}
-						else {
-							R[0] = 0;
-						}
-						// move Xl to R
-						size_t k = SMask[minkey];
-						if (fabs(theta[k])<eps) {
-							Group[k] = 'R';
-							NMask[NSize++] = k;
-							hXi[k] = hCalc(k, dataY, Q, theta, b, WinSize);
-							for (size_t i=minkey; i<SSize-1; ++i) {
-								SMask[i] = SMask[i+1];
-							}
-							SSize--;
-							(*_SSize)--;
-							(*_NSize)++;
-							theta[k] = 0;  // for numerical stability
-						}
-						// move Xl to E
-						else if (fabs(fabs(theta[k])-C)<eps){
-							Group[k] = 'E';
-							NMask[NSize++] = k;
-							hXi[k] = hCalc(k, dataY, Q, theta, b, WinSize);
-							for (size_t i=minkey; i<SSize-1; ++i) {
-								SMask[i] = SMask[i+1];
-							}
-							SSize--;
-							(*_SSize)--;
-							(*_NSize)++;
-							theta[k] = theta[k]>0 ? C : -C;
-						}
-						break;
-					}
-					// Xl joins S
-					case 3: {
-						size_t k = NMask[minkey];
-						// Update beta - intensive, optimisable
-						// this beta is the relation between Xl and coeff b and set S
-						for (size_t i=0; i<SSize+1; ++i) {
-							CalcType temp = -R[i*RSize];
-							for (size_t j=0; j<SSize; ++j) {
-								temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
-							}
-							beta[i] = temp;
-						}
+								for (size_t j=0; j<SSize+1; ++j) {
+									R[(SSize+1)*RSize+j] = beta[j] / gamma_c;
+								}
+								R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_c;
 
-						// Calculate gamma_k
-						CalcType gamma_k = Q[k*WinSize+k] + beta[0];
-						for (size_t i=0; i<SSize; ++i) {
-							gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
-						}
-
-						// Update Matrix R - enlarge
-						for (size_t i=0; i<SSize+1; ++i) {
-							for (size_t j=0; j<SSize+1; ++j) {
-								R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
+								// Xc joins S and terminate
+								Group[ID] = 'S';
+								SMask[SSize++] = ID;
+								(*_SSize)++;
+								(*_CurSize)++;
+								break;
 							}
-							R[i*RSize+SSize+1] = beta[i] / gamma_k;
-						}
-						for (size_t j=0; j<SSize+1; ++j) {
-							R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
-						}
-						R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
-
-						// move Xl to S
-						Group[k] = 'S';
-						SMask[SSize++] = k;
-
-						// Update theta[k]
-						CalcType temp = 0;
-						for (size_t i=0; i<WinSize; ++i) {
-							if (i!=k) temp += theta[i];
-						}
-						theta[k] = -temp;
-
-						// Update NMask
-						for (size_t i=minkey; i<NSize-1; ++i) {
-							NMask[i] = NMask[i+1];
-						}
-						NSize--;
-						(*_NSize)--;
-						(*_SSize)++;
-						break;
-					}
-					case 4: {
-						size_t k = NMask[minkey];
-						// Update beta - intensive, optimisable
-						// this beta is the relation between Xl and coeff b and set S
-						for (size_t i=0; i<SSize+1; ++i) {
-							CalcType temp = -R[i*RSize];
-							for (size_t j=0; j<SSize; ++j) {
-								temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
+							case 1: {
+								// Xc joins E and terminate
+								Group[ID] = 'E';
+								theta[ID] = (theta[ID]>0) ? C : -C;
+								NMask[NSize] = ID;
+								(*_NSize)++;
+								(*_CurSize)++;
+								break;
 							}
-							beta[i] = temp;
-						}
-						// Calculate gamma_k
-						CalcType gamma_k = Q[k*WinSize+k] + beta[0];
-						for (size_t i=0; i<SSize; i++) {
-							gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
-						}
-						// Update Matrix R - enlarge
-						for (size_t i=0; i<SSize+1; ++i) {
-							for (size_t j=0; j<SSize+1; ++j) {
-								R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
+							case 2: {
+								// Xl moves from S to R or E
+								// Search for current location
+								size_t p=0;
+								while(SMask[p]!=cur) p++;
+								// Update Matrix R - shrink
+								if (SSize>1) {
+									size_t k = p + 1;
+									for (size_t i=0; i<SSize+1; ++i) {
+										for (size_t j=0; j<SSize+1; ++j) {
+											if (i==k || j==k) continue;
+											else R[i*RSize+j] -= R[i*RSize+k] * R[k*RSize+j] / R[k*RSize+k];
+										}
+									}
+									for (size_t i=0; i<SSize+1; ++i) {
+										for (size_t j=k; j<SSize; ++j) R[i*RSize+j] = R[i*RSize+j+1];
+									}
+									for (size_t i=k; i<SSize; ++i) {
+										for (size_t j=0; j<SSize; ++j) R[i*RSize+j] = R[(i+1)*RSize+j];
+									}
+								}
+								else {
+									R[0] = 0;
+								}
+								// move Xl to R
+								size_t k = cur;
+								if (fabs(theta[k])<eps) {
+									Group[k] = 'R';
+									theta[k] = 0;
+									NMask[NSize] = k;
+									hXi[k] = hCalc(k, dataY, Q, theta, b, WinSize);
+									for (size_t i=p; i<SSize-1; ++i) {
+										SMask[i] = SMask[i+1];
+									}
+									SSize--;
+									(*_SSize)--;
+									NSize++;
+									(*_NSize)++;
+								}
+								// move Xl to E
+								else{
+									Group[k] = 'E';
+									theta[k] = (theta[k]>0) ? C : -C;
+									NMask[NSize] = k;
+									hXi[k] = hCalc(k, dataY, Q, theta, b, WinSize);
+									for (size_t i=p; i<SSize-1; ++i) {
+										SMask[i] = SMask[i+1];
+									}
+									SSize--;
+									(*_SSize)--;
+									NSize++;
+									(*_NSize)++;
+								}
+								break;
 							}
-							R[i*RSize+SSize+1] = beta[i] / gamma_k;
-						}
-						for (size_t j=0; j<SSize+1; ++j) {
-							R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
-						}
-						R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+							case 3: {
+								// Xl joins S
+								size_t k = cur;
+								// Update beta - intensive, optimisable
+								// this beta is the relation between Xl and coeff b and set S
+								for (size_t i=0; i<SSize+1; ++i) {
+									CalcType temp = -R[i*RSize];
+									for (size_t j=0; j<SSize; ++j) {
+										temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
+									}
+									beta[i] = temp;
+								}
 
-						// move Xl to S
-						Group[k] = 'S';
-						SMask[SSize++] = k;
+								// Calculate gamma_k
+								CalcType gamma_k = Q[k*WinSize+k] + beta[0];
+								for (size_t i=0; i<SSize; ++i) {
+									gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
+								}
 
-						// Update theta[k]
-						CalcType temp = 0;
-						for (size_t i=0; i<WinSize; ++i) {
-							if (i!=k) temp += theta[i];
-						}
-						theta[k] = -temp;
+								// Update Matrix R - enlarge
+								for (size_t i=0; i<SSize+1; ++i) {
+									for (size_t j=0; j<SSize+1; ++j) {
+										R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
+									}
+									R[i*RSize+SSize+1] = beta[i] / gamma_k;
+								}
+								for (size_t j=0; j<SSize+1; ++j) {
+									R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
+								}
+								R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
 
-						// Update NMask
-						for (size_t i=minkey; i<NSize-1; ++i) {
-							NMask[i] = NMask[i+1];
-						}
-						NSize--;
-						(*_NSize)--;
-						(*_SSize)++;
-						break;
-					}
-					default: {
-						// ERROR!
-						fprintf(stderr, "[ERROR] minL(%f) is smaller than INF, but flag(%zu) is invalid. \n", minL, flag);
-						return -1;
-					}
-				} // end of 'switch (flag)'
+								// move Xl to S
+								Group[k] = 'S';
+								SMask[SSize++] = k;
+
+								// Update theta[k]
+								CalcType temp = 0;
+								for (size_t i=0; i<WinSize; ++i) {
+									if (i!=k) temp += theta[i];
+								}
+								theta[k] = -temp;
+
+								// Update NMask
+								// Search for current location
+								size_t p=0;
+								while(NMask[p]!=cur) p++;
+								for (size_t i=p; i<NSize-1; ++i) {
+									NMask[i] = NMask[i+1];
+								}
+								NSize--;
+								(*_NSize)--;
+								(*_SSize)++;
+								break;
+							}
+							case 4: {
+								size_t k = cur;
+								// Update beta - intensive, optimisable
+								// this beta is the relation between Xl and coeff b and set S
+								for (size_t i=0; i<SSize+1; ++i) {
+									CalcType temp = -R[i*RSize];
+									for (size_t j=0; j<SSize; ++j) {
+										temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
+									}
+									beta[i] = temp;
+								}
+								// Calculate gamma_k
+								CalcType gamma_k = Q[k*WinSize+k] + beta[0];
+								for (size_t i=0; i<SSize; i++) {
+									gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
+								}
+								// Update Matrix R - enlarge
+								for (size_t i=0; i<SSize+1; ++i) {
+									for (size_t j=0; j<SSize+1; ++j) {
+										R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
+									}
+									R[i*RSize+SSize+1] = beta[i] / gamma_k;
+								}
+								for (size_t j=0; j<SSize+1; ++j) {
+									R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
+								}
+								R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+
+								// move Xl to S
+								Group[k] = 'S';
+								SMask[SSize++] = k;
+
+								// Update theta[k]
+								CalcType temp = 0;
+								for (size_t i=0; i<WinSize; ++i) {
+									if (i!=k) temp += theta[i];
+								}
+								theta[k] = -temp;
+
+								// Update NMask
+								// Search for current location
+								size_t p=0;
+								while(NMask[p]!=cur) p++;
+								for (size_t i=p; i<NSize-1; ++i) {
+									NMask[i] = NMask[i+1];
+								}
+								NSize--;
+								(*_NSize)--;
+								(*_SSize)++;
+								break;
+							}
+							default: {
+								// ERROR!
+								fprintf(LogFile, "[ERROR] minL(%f) is smaller than INF, but flag(%zu) is invalid. \n", minL, flag[cur]);
+								fprintf(stderr, "[ERROR] minL(%f) is smaller than INF, but flag(%zu) is invalid. \n", minL, flag[cur]);
+								return -1;
+							}
+						} // end of 'switch (flag)'
+					} // end of if (val[cur]==minL && Group[cur]!='N')
+				}// end of (size_t cur=0; cur<WinSize; ++cur)
 			} // end of 'if(minL)<infinity'
 			else {
 				// ERROR!
+				fprintf(LogFile, "[ERROR] unable to make any move because minL=%f. \n", minL);
 				fprintf(stderr, "[ERROR] unable to make any move because minL=%f. \n", minL);
 				return -1;
 			}
-		}
+		} // end of if(SSize!=0)
 	} // end of 'while(1)'
 
-	return -1;
+	return 0;
 }
 
 
@@ -792,6 +928,8 @@ int decSVM(		size_t ID,
 				CalcType *theta,
 				CalcType *b,
 				CalcType *hXi,
+				CalcType *val,
+				size_t *flag,
 				size_t *_CurSize,
 				size_t *_SSize,
 				size_t *_NSize,
@@ -799,7 +937,7 @@ int decSVM(		size_t ID,
 
 	///////////////////////////// Read Parameters /////////////////////////////
 
-	const size_t DataSize	= param.DataSize;
+	FILE * LogFile			= param.LogFileHandle;
 	const size_t DataDim	= param.DataDim;
 	const size_t WinSize	= param.WinSize;
 	const size_t RSize		= param.RSize;
@@ -824,10 +962,9 @@ int decSVM(		size_t ID,
 		for (size_t i=key; i<NSize-1; ++i) {
 			NMask[i] = NMask[i+1];
 		}
-		// Update theta - for extra safety
-		theta[ID] = 0;
 		// Update Group
 		Group[ID] = 'N';
+		theta[ID] = 0;
 		(*_NSize)--;
 		(*_CurSize)--;
 		return 0;
@@ -879,6 +1016,7 @@ int decSVM(		size_t ID,
 	}
 	else {
 		// ERROR!
+		fprintf(LogFile, "[ERROR] Group[%zu]='%c' \n", ID, Group[ID]);
 		fprintf(stderr, "[ERROR] Group[%zu]='%c' \n", ID, Group[ID]);
 		return -1;
 	}
@@ -886,7 +1024,7 @@ int decSVM(		size_t ID,
 
 	///////////////////////////// Main Loop /////////////////////////////
 
-	while(1) {
+	while(Group[ID]!='N') {
 
 		if(SSize==0){
 
@@ -907,6 +1045,9 @@ int decSVM(		size_t ID,
 						bE = curbE;
 						keyE = i;
 					}
+					// handle ties
+					val[NMask[i]] = curbE;
+					flag[NMask[i]] = 1;
 				}
 				else if (Group[NMask[i]]=='R') {
 					CalcType curbR = fabs(-hX + q*ep);
@@ -914,16 +1055,27 @@ int decSVM(		size_t ID,
 						bR = curbR;
 						keyR = i;
 					}
+					// handle ties
+					val[NMask[i]] = curbR;
+					flag[NMask[i]] = 2;
 				}
 			}
 
 			// Calculate delta_b
 			CalcType minL = (bE<bR) ? bE : bR;
-			CalcType delta_b = q*minL;
 			size_t minkey = (bE<bR) ? keyE : keyR;
-			size_t flag   = (bE<bR) ? 1 : 2;
+			size_t flag_  = (bE<bR) ? 1 : 2;
 
-			printf("[Removing item #%zu] <q=%1.0f> bE=%f, bR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", ID+1, q, bE, bR, flag, minkey, SSize);
+			// handle ties
+			minL = val[ID];
+			for (size_t i=0; i<WinSize; ++i) {
+				if (val[i]<minL && Group[i]!='N') minL = val[i];
+			}
+
+			CalcType delta_b = q*minL;
+
+			printf("[Removing item #%zu] <q=%1.0f> bE=%f, bR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", ID, q, bE, bR, flag_, minkey, SSize);
+			fprintf(LogFile, "[Removing item #%zu] <q=%1.0f> bE=%f, bR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", ID, q, bE, bR, flag_, minkey, SSize);
 
 			///////////////////////////// Updating coefficients /////////////////////////////
 
@@ -940,68 +1092,144 @@ int decSVM(		size_t ID,
 
 
 			///////////////////////////// Moving data items /////////////////////////////
-
 			if (minL<INFINITY) {
-				switch (flag) {
+				for (size_t cur=0; cur<WinSize; ++cur) {
+					if (val[cur]-minL<eps && Group[cur]!='N') {
+						switch (flag[cur]) {
+							// case 1 and case 2 are handled the same way
+							case 1: {
+								// Xi moves from E to S
+								size_t k = cur;
+								// Update Matrix R
+								if (SSize==0) {
+									// Initialise Matrix R
+									R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), DataDim, sigma_sq);
+									R[1] = 1;
+									R[RSize] = 1;
+									R[RSize+1] = 0;
+								}
+								else {
+									// Update Matrix R - enlarge
+									// Update beta - intensive, optimisable
+									// this beta is the relation between Xl and coeff b and set S
+									for (size_t i=0; i<SSize+1; ++i) {
+										CalcType temp = -R[i*RSize];
+										for (size_t j=0; j<SSize; ++j) {
+											temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
+										}
+										beta[i] = temp;
+									}
+									// Calculate gamma_k
+									CalcType gamma_k = Q[k*WinSize+k] + beta[0];
+									for (size_t i=0; i<SSize; ++i) {
+										gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
+									}
+									// Update Matrix R - enlarge
+									for (size_t i=0; i<SSize+1; ++i) {
+										for (size_t j=0; j<SSize+1; ++j) {
+											R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
+										}
+										R[i*RSize+SSize+1] = beta[i] / gamma_k;
+									}
+									for (size_t j=0; j<SSize+1; ++j) {
+										R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
+									}
+									R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+								}
 
-					// Xi moves from E to S
-					case 1: {
-						size_t k = NMask[minkey];
-						// Update Matrix R
-						R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), DataDim, sigma_sq);
-						R[1] = 1;
-						R[RSize] = 1;
-						R[RSize+1] = 0;
+								// move Xl to S
+								Group[k] = 'S';
+								SMask[SSize++] = k;
 
-						// move Xl to S
-						Group[k] = 'S';
-						SMask[SSize++] = k;
+								// Update NMask
+								// Search for current location
+								size_t p=0;
+								while(NMask[p]!=cur) p++;
+								// Shift NMask
+								for (size_t i=p; i<NSize-1; ++i) {
+									NMask[i] = NMask[i+1];
+								}
+								NSize--;
+								(*_NSize)--;
+								(*_SSize)++;
+								break;
+							}
+							case 2: {
+								// Xi moves from R to S
+								size_t k = cur;
+								// Update Matrix R
+								if (SSize==0) {
+									// Initialise Matrix R
+									R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), DataDim, sigma_sq);
+									R[1] = 1;
+									R[RSize] = 1;
+									R[RSize+1] = 0;
+								}
+								else {
+									// Update Matrix R - enlarge
+									// Update beta - intensive, optimisable
+									// this beta is the relation between Xl and coeff b and set S
+									for (size_t i=0; i<SSize+1; ++i) {
+										CalcType temp = -R[i*RSize];
+										for (size_t j=0; j<SSize; ++j) {
+											temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
+										}
+										beta[i] = temp;
+									}
+									// Calculate gamma_k
+									CalcType gamma_k = Q[k*WinSize+k] + beta[0];
+									for (size_t i=0; i<SSize; ++i) {
+										gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
+									}
+									// Update Matrix R - enlarge
+									for (size_t i=0; i<SSize+1; ++i) {
+										for (size_t j=0; j<SSize+1; ++j) {
+											R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
+										}
+										R[i*RSize+SSize+1] = beta[i] / gamma_k;
+									}
+									for (size_t j=0; j<SSize+1; ++j) {
+										R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
+									}
+									R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+								}
 
-						// Update NMask
-						for (size_t i=minkey; i<NSize-1; ++i) {
-							NMask[i] = NMask[i+1];
-						}
-						NSize--;
-						(*_NSize)--;
-						(*_SSize)++;
-						break;
-					}
-					// Xi moves from R to S
-					case 2: {
-						size_t k = NMask[minkey];
-						// Update Matrix R
-						R[0] = -Kernel(&(dataX[k*DataDim]), &(dataX[k*DataDim]), DataDim, sigma_sq);
-						R[1] = 1;
-						R[RSize] = 1;
-						R[RSize+1] = 0;
+								// move Xl to S
+								Group[k] = 'S';
+								SMask[SSize++] = k;
 
-						// move Xl to S
-						Group[k] = 'S';
-						SMask[SSize++] = k;
-
-						// Update NMask
-						for (size_t i=minkey; i<NSize-1; ++i) {
-							NMask[i] = NMask[i+1];
-						}
-						NSize--;
-						(*_NSize)--;
-						(*_SSize)++;
-						break;
-					}
-					default: {
-						// ERROR!
-						fprintf(stderr, "[ERROR] minL(%f) is smaller than INF, but flag(%zu) is invalid. \n", minL, flag);
-						return -1;
-					}
-				} // end of 'switch(flag)'
+								// Update NMask
+								// Search for current location
+								size_t p=0;
+								while(NMask[p]!=cur) p++;
+								// Shift NMask
+								for (size_t i=p; i<NSize-1; ++i) {
+									NMask[i] = NMask[i+1];
+								}
+								NSize--;
+								(*_NSize)--;
+								(*_SSize)++;
+								break;
+							}
+							default: {
+								// ERROR!
+								fprintf(LogFile, "[ERROR] minL(%f) is smaller than INF, but flag(%zu) is invalid. \n", minL, flag[cur]);
+								fprintf(stderr, "[ERROR] minL(%f) is smaller than INF, but flag(%zu) is invalid. \n", minL, flag[cur]);
+								return -1;
+							}
+						} // end of 'switch(flag[cur])'
+					} // end of if (val[i]==minL && Group[i]!='N')
+				} // end of for() loop
 			} // end of 'if(minL)<infinity'
 			else {
 				// ERROR!
+				fprintf(LogFile, "[ERROR] unable to make any move because minL=%f. \n", minL);
 				fprintf(stderr, "[ERROR] unable to make any move because minL=%f. \n", minL);
 				return -1;
 			}
-		} // end of 'if(SSize==0)'
-		else {
+		}
+		else { // if(SSize!=0)
+
 			// Assign q
 			CalcType q = theta[ID] > 0 ? -1 : 1;
 
@@ -1036,6 +1264,9 @@ int decSVM(		size_t ID,
 
 			// Calculate Lc2 - Case 1
 			CalcType Lc2 = fabs(theta[ID]);
+			// handle ties
+			val[ID] = Lc2;
+			flag[ID] = 0;
 
 			// Calculate LiS - Case 2
 			CalcType LiS = INFINITY;
@@ -1052,6 +1283,9 @@ int decSVM(		size_t ID,
 					LiS = curLiS;
 					keyS = i;
 				}
+				// handle ties
+				val[SMask[i]] = curLiS;
+				flag[SMask[i]] = 1;
 			}
 
 			// Calculate LiE - Case 3
@@ -1072,6 +1306,9 @@ int decSVM(		size_t ID,
 						LiE = curLiE;
 						keyE = i;
 					}
+					// handle ties
+					val[NMask[i]] = curLiE;
+					flag[NMask[i]] = 2;
 				}
 				else if (Group[NMask[i]]=='R') {
 					CalcType curLiR = INFINITY;
@@ -1082,6 +1319,9 @@ int decSVM(		size_t ID,
 						LiR = curLiR;
 						keyR = i;
 					}
+					// handle ties
+					val[NMask[i]] = curLiR;
+					flag[NMask[i]] = 3;
 				}
 			}
 
@@ -1090,17 +1330,25 @@ int decSVM(		size_t ID,
 			size_t key[4] = {ID, keyS, keyE, keyR};
 			CalcType minL = Lc2;
 			size_t minkey = ID;
-			size_t flag = 0;
+			size_t flag_ = 0;
 			for (size_t i=1; i<4; ++i) {
 				if (L[i]<minL) {
 					minL = L[i];
 					minkey = key[i];
-					flag = i;
+					flag_ = i;
 				}
 			}
+
+			// handle ties
+			minL = val[ID];
+			for (size_t i=0; i<WinSize; ++i) {
+				if (val[i]<minL && Group[i]!='N') minL = val[i];
+			}
+
 			CalcType d_theta_c = q*minL;
 
-			printf("[Removing item #%zu] <q=%1.0f> Lc2=%f, LiS=%f, LiE=%f, LiR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", ID+1, q, Lc2, LiS, LiE, LiR, flag, minkey, SSize);
+			printf("[Removing item #%zu] <q=%1.0f> Lc2=%f, LiS=%f, LiE=%f, LiR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", ID, q, Lc2, LiS, LiE, LiR, flag_, minkey, SSize);
+			fprintf(LogFile, "[Removing item #%zu] <q=%1.0f> Lc2=%f, LiS=%f, LiE=%f, LiR=%f. [flag=%zu, minkey=%zu] SSize=%zu\n", ID, q, Lc2, LiS, LiE, LiR, flag_, minkey, SSize);
 
 
 			///////////////////////////// Updating coefficients /////////////////////////////
@@ -1128,178 +1376,196 @@ int decSVM(		size_t ID,
 			///////////////////////////// Moving data items /////////////////////////////
 
 			if (minL<INFINITY) {
-				switch (flag) {
-					// Xc joins R and is removed
-					case 0: {
-						Group[ID] = 'N';
-						(*_CurSize)--;
-						return 0;
-					}
-					// Xl moves from S to R or E
-					case 1: {
-						// Update Matrix R - shrink
-						if (SSize>1) {
-							size_t k = minkey + 1;
-							for (size_t i=0; i<SSize+1; ++i) {
-								for (size_t j=0; j<SSize+1; ++j) {
-									if (i==k || j==k) continue;
-									else R[i*RSize+j] -= R[i*RSize+k] * R[k*RSize+j] / R[k*RSize+k];
+				for (size_t cur=0; cur<WinSize; ++cur) {
+					if (val[cur]-minL<eps && Group[cur]!='N') {
+						switch (flag[cur]) {
+							case 0: {
+								// Xc joins R and is removed
+								Group[ID] = 'N';
+								theta[ID] = 0;
+								(*_CurSize)--;
+								break;
+							}
+							case 1: {
+								// Xl moves from S to R or E
+								// Search for current location
+								size_t p=0;
+								while(SMask[p]!=cur) p++;
+								// Update Matrix R - shrink
+								if (SSize>1) {
+									size_t k = p + 1;
+									for (size_t i=0; i<SSize+1; ++i) {
+										for (size_t j=0; j<SSize+1; ++j) {
+											if (i==k || j==k) continue;
+											else R[i*RSize+j] -= R[i*RSize+k] * R[k*RSize+j] / R[k*RSize+k];
+										}
+									}
+									for (size_t i=0; i<SSize+1; ++i) {
+										for (size_t j=k; j<SSize; ++j) R[i*RSize+j] = R[i*RSize+j+1];
+									}
+									for (size_t i=k; i<SSize; ++i) {
+										for (size_t j=0; j<SSize; ++j) R[i*RSize+j] = R[(i+1)*RSize+j];
+									}
 								}
+								else {
+									R[0] = 0;
+								}
+								// move Xl to R
+								size_t k = cur;
+								if (fabs(theta[k])<eps) {
+									Group[k] = 'R';
+									theta[k] = 0;
+									NMask[NSize] = k;
+									hXi[k] = hCalc(k, dataY, Q, theta, b, WinSize);
+									for (size_t i=p; i<SSize-1; ++i) {
+										SMask[i] = SMask[i+1];
+									}
+									SSize--;
+									(*_SSize)--;
+									NSize++;
+									(*_NSize)++;
+								}
+								// move Xl to E
+								else {
+									Group[k] = 'E';
+									theta[k] = theta[k]>0 ? C : -C;
+									NMask[NSize] = k;
+									hXi[k] = hCalc(k, dataY, Q, theta, b, WinSize);
+									for (size_t i=p; i<SSize-1; ++i) {
+										SMask[i] = SMask[i+1];
+									}
+									SSize--;
+									(*_SSize)--;
+									NSize++;
+									(*_NSize)++;
+								}
+								break;
 							}
-							for (size_t i=0; i<SSize+1; ++i) {
-								for (size_t j=k; j<SSize; ++j) R[i*RSize+j] = R[i*RSize+j+1];
-							}
-							for (size_t i=k; i<SSize; ++i) {
-								for (size_t j=0; j<SSize; ++j) R[i*RSize+j] = R[(i+1)*RSize+j];
-							}
-						}
-						else {
-							R[0] = 0;
-						}
-						// move Xl to R
-						size_t k = SMask[minkey];
-						if (fabs(theta[k])<eps) {
-							Group[k] = 'R';
-							NMask[NSize++] = k;
-							hXi[k] = hCalc(k, dataY, Q, theta, b, WinSize);
-							for (size_t i=minkey; i<SSize-1; ++i) {
-								SMask[i] = SMask[i+1];
-							}
-							SSize--;
-							(*_SSize)--;
-							(*_NSize)++;
-							theta[k] = 0;  // for numerical stability
-						}
-						// move Xl to E
-						else if (fabs(fabs(theta[k])-C)<eps){
-							Group[k] = 'E';
-							NMask[NSize++] = k;
-							hXi[k] = hCalc(k, dataY, Q, theta, b, WinSize);
-							for (size_t i=minkey; i<SSize-1; ++i) {
-								SMask[i] = SMask[i+1];
-							}
-							SSize--;
-							(*_SSize)--;
-							(*_NSize)++;
-							theta[k] = theta[k]>0 ? C : -C;
-						}
-						break;
-					}
-					// Xl joins S
-					case 2: {
-						size_t k = NMask[minkey];
-						// Update beta - intensive, optimisable
-						// this beta is the relation between Xl and coeff b and set S
-						for (size_t i=0; i<SSize+1; ++i) {
-							CalcType temp = -R[i*RSize];
-							for (size_t j=0; j<SSize; ++j) {
-								temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
-							}
-							beta[i] = temp;
-						}
+							case 2: {
+								// Xl joins S
+								size_t k = cur;
+								// Update beta - intensive, optimisable
+								// this beta is the relation between Xl and coeff b and set S
+								for (size_t i=0; i<SSize+1; ++i) {
+									CalcType temp = -R[i*RSize];
+									for (size_t j=0; j<SSize; ++j) {
+										temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
+									}
+									beta[i] = temp;
+								}
 
-						// Calculate gamma_k
-						CalcType gamma_k = Q[k*WinSize+k] + beta[0];
-						for (size_t i=0; i<SSize; ++i) {
-							gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
-						}
+								// Calculate gamma_k
+								CalcType gamma_k = Q[k*WinSize+k] + beta[0];
+								for (size_t i=0; i<SSize; ++i) {
+									gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
+								}
 
-						// Update Matrix R - enlarge
-						for (size_t i=0; i<SSize+1; ++i) {
-							for (size_t j=0; j<SSize+1; ++j) {
-								R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
+								// Update Matrix R - enlarge
+								for (size_t i=0; i<SSize+1; ++i) {
+									for (size_t j=0; j<SSize+1; ++j) {
+										R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
+									}
+									R[i*RSize+SSize+1] = beta[i] / gamma_k;
+								}
+								for (size_t j=0; j<SSize+1; ++j) {
+									R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
+								}
+								R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+
+								// move Xl to S
+								Group[k] = 'S';
+								SMask[SSize++] = k;
+
+								// Update theta[k]
+								CalcType temp = 0;
+								for (size_t i=0; i<WinSize; ++i) {
+									if (i!=k) temp += theta[i];
+								}
+								theta[k] = -temp;
+
+								// Update NMask
+								// Search for current location
+								size_t p=0;
+								while(NMask[p]!=cur) p++;
+								for (size_t i=p; i<NSize-1; ++i) {
+									NMask[i] = NMask[i+1];
+								}
+								NSize--;
+								(*_NSize)--;
+								(*_SSize)++;
+								break;
 							}
-							R[i*RSize+SSize+1] = beta[i] / gamma_k;
-						}
-						for (size_t j=0; j<SSize+1; ++j) {
-							R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
-						}
-						R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
+							case 3: {
+								size_t k = cur;
+								// Update beta - intensive, optimisable
+								// this beta is the relation between Xl and coeff b and set S
+								for (size_t i=0; i<SSize+1; ++i) {
+									CalcType temp = -R[i*RSize];
+									for (size_t j=0; j<SSize; ++j) {
+										temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
+									}
+									beta[i] = temp;
+								}
+								// Calculate gamma_k
+								CalcType gamma_k = Q[k*WinSize+k] + beta[0];
+								for (size_t i=0; i<SSize; i++) {
+									gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
+								}
+								// Update Matrix R - enlarge
+								for (size_t i=0; i<SSize+1; ++i) {
+									for (size_t j=0; j<SSize+1; ++j) {
+										R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
+									}
+									R[i*RSize+SSize+1] = beta[i] / gamma_k;
+								}
+								for (size_t j=0; j<SSize+1; ++j) {
+									R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
+								}
+								R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
 
-						// move Xl to S
-						Group[k] = 'S';
-						SMask[SSize++] = k;
+								// move Xl to S
+								Group[k] = 'S';
+								SMask[SSize++] = k;
 
-						// Update theta[k]
-						CalcType temp = 0;
-						for (size_t i=0; i<WinSize; ++i) {
-							if (i!=k) temp += theta[i];
-						}
-						theta[k] = -temp;
+								// Update theta[k]
+								CalcType temp = 0;
+								for (size_t i=0; i<WinSize; ++i) {
+									if (i!=k) temp += theta[i];
+								}
+								theta[k] = -temp;
 
-						// Update NMask
-						for (size_t i=minkey; i<NSize-1; ++i) {
-							NMask[i] = NMask[i+1];
-						}
-						NSize--;
-						(*_NSize)--;
-						(*_SSize)++;
-						break;
-					}
-					case 3: {
-						size_t k = NMask[minkey];
-						// Update beta - intensive, optimisable
-						// this beta is the relation between Xl and coeff b and set S
-						for (size_t i=0; i<SSize+1; ++i) {
-							CalcType temp = -R[i*RSize];
-							for (size_t j=0; j<SSize; ++j) {
-								temp -= R[i*RSize+j+1] * Q[k*WinSize+SMask[j]];
+								// Update NMask
+								// Search for current location
+								size_t p=0;
+								while(NMask[p]!=cur) p++;
+								for (size_t i=p; i<NSize-1; ++i) {
+									NMask[i] = NMask[i+1];
+								}
+								NSize--;
+								(*_NSize)--;
+								(*_SSize)++;
+								break;
 							}
-							beta[i] = temp;
-						}
-						// Calculate gamma_k
-						CalcType gamma_k = Q[k*WinSize+k] + beta[0];
-						for (size_t i=0; i<SSize; i++) {
-							gamma_k += Q[k*WinSize+SMask[i]] * beta[i+1];
-						}
-						// Update Matrix R - enlarge
-						for (size_t i=0; i<SSize+1; ++i) {
-							for (size_t j=0; j<SSize+1; ++j) {
-								R[i*RSize+j] += beta[i] * beta[j] / gamma_k;
+							default: {
+								// ERROR!
+								fprintf(LogFile, "[ERROR] minL(%f) is smaller than INF, but flag(%zu) is invalid. \n", minL, flag[cur]);
+								fprintf(stderr, "[ERROR] minL(%f) is smaller than INF, but flag(%zu) is invalid. \n", minL, flag[cur]);
+								return -1;
 							}
-							R[i*RSize+SSize+1] = beta[i] / gamma_k;
-						}
-						for (size_t j=0; j<SSize+1; ++j) {
-							R[(SSize+1)*RSize+j] = beta[j] / gamma_k;
-						}
-						R[(SSize+1)*RSize+SSize+1] = 1.0 / gamma_k;
-
-						// move Xl to S
-						Group[k] = 'S';
-						SMask[SSize++] = k;
-
-						// Update theta[k]
-						CalcType temp = 0;
-						for (size_t i=0; i<WinSize; ++i) {
-							if (i!=k) temp += theta[i];
-						}
-						theta[k] = -temp;
-
-						// Update NMask
-						for (size_t i=minkey; i<NSize-1; ++i) {
-							NMask[i] = NMask[i+1];
-						}
-						NSize--;
-						(*_NSize)--;
-						(*_SSize)++;
-						break;
-					}
-					default: {
-						// ERROR!
-						fprintf(stderr, "[ERROR] minL(%f) is smaller than INF, but flag(%zu) is invalid. \n", minL, flag);
-						return -1;
-					}
-				} // end of 'switch (flag)'
+						} // end of 'switch (flag)'
+					} // end of if (val[cur]==minL && Group[cur]!='N')
+				}// end of (size_t cur=0; cur<WinSize; ++cur)
 			} // end of 'if(minL)<infinity'
 			else {
 				// ERROR!
+				fprintf(LogFile, "[ERROR] unable to make any move because minL=%f. \n", minL);
 				fprintf(stderr, "[ERROR] unable to make any move because minL=%f. \n", minL);
 				return -1;
 			}
-		}
-	} // end of 'while(1)'
+		}// end of if(SSize!=0)
+	} // end of 'while()'
 
-	return -1;
+	return 0;
 }
 
 
@@ -1338,7 +1604,8 @@ int DemoKernel() {
 }
 */
 
-int SimpleDataSet(const Param param){
+int SimpleDataSet(Param param){
+
 
 	/////////////////////////// SVM Parameters ///////////////////////////
 
@@ -1349,6 +1616,16 @@ int SimpleDataSet(const Param param){
 	const CalcType ep = param.ep;
 	const CalcType C  = param.C;
 	const CalcType sigma_sq = param.sigma_sq;
+
+
+	/////////////////////////// Open Log File ///////////////////////////
+
+	// Open log file
+	param.LogFileHandle = fopen(param.LogFile, "w");
+	if (param.LogFileHandle==NULL) {
+		fprintf(stderr, "[ERROR] Cannot open log file [%s]. \n", param.LogFile);
+  		exit(1);
+	}
 
 
 	/////////////////////////// Read data file ///////////////////////////
@@ -1427,6 +1704,12 @@ int SimpleDataSet(const Param param){
 	// hXi
 	CalcType *hXi = calloc(WinSize, sizeof(CalcType));
 
+	// val
+	CalcType *val = calloc(WinSize, sizeof(CalcType));
+
+	// flag
+	size_t *flag = calloc(WinSize, sizeof(size_t));
+
 	// Coeff b
 	CalcType b = 0;
 
@@ -1439,6 +1722,9 @@ int SimpleDataSet(const Param param){
 	// Calculate Objective Function Value
 	CalcType init_obj = objCalc(dataY, Group, theta, Q, &b, C, ep, WinSize);
 	printf("[SVM]CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
+	printf("----------------------------------------------------\n");
+	fprintf(param.LogFileHandle, "[SVM]CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
+	fprintf(param.LogFileHandle, "----------------------------------------------------\n");
 
 	/////////////////////////// Incremental Training ///////////////////////////
 
@@ -1460,35 +1746,53 @@ int SimpleDataSet(const Param param){
 		size_t ID = i;
 
 		// train SVM incrementally
-		int isTrainingSuccessful = incSVM(ID, Xc, Yc, dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, &CurSize, &SSize, &NSize, param);
+		int isTrainingSuccessful = incSVM(ID, Xc, Yc, dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, val, flag, &CurSize, &SSize, &NSize, param);
 
 		if (isTrainingSuccessful!=0) {
 			free(X_IN); free(Y_IN); free(dataX); free(dataY); free(Ypredict);
 			free(Group); free(SMask); free(NMask);
 			free(Q); free(R);
 			free(beta); free(gamma); free(theta);
-			free(hXi);
+			free(hXi); free(val); free(flag);
 			fprintf(stderr, "[ERROR] Incremental SVM training failed at data[%zu]. \n", i);
+			fprintf(param.LogFileHandle, "[ERROR] Incremental SVM training failed at data[%zu]. \n", i);
+			fclose(param.LogFileHandle);
+			return -1;
 		}
 
 		// Calculate Objective Function Value
 		CalcType init_obj = objCalc(dataY, Group, theta, Q, &b, C, ep, WinSize);
 		printf("[SVM]CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
 		printf("----------------------------------------------------\n");
+		fprintf(param.LogFileHandle, "[SVM]CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
+		fprintf(param.LogFileHandle, "----------------------------------------------------\n");
 
 	}
 
 	/////////////////////////// Decremental Training ///////////////////////////
 
-	for (size_t ID=9; ID>1; ID--) {
+	for (size_t ID=ActualDataSize-1; ID>1; ID--) {
 
 		// Decremental Training
-		int isTrainingSuccessful = decSVM(ID, dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, &CurSize, &SSize, &NSize, param);
+		int isTrainingSuccessful = decSVM(ID, dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, val, flag, &CurSize, &SSize, &NSize, param);
 
+		if (isTrainingSuccessful!=0) {
+			free(X_IN); free(Y_IN); free(dataX); free(dataY); free(Ypredict);
+			free(Group); free(SMask); free(NMask);
+			free(Q); free(R);
+			free(beta); free(gamma); free(theta);
+			free(hXi);  free(val); free(flag);
+			fprintf(stderr, "[ERROR] Decremental SVM training failed at data[%zu]. \n", ID);
+			fprintf(param.LogFileHandle, "[ERROR] Decremental SVM training failed at data[%zu]. \n", ID);
+			fclose(param.LogFileHandle);
+			return -1;
+		}
 		// Calculate Objective Function Value
 		CalcType init_obj = objCalc(dataY, Group, theta, Q, &b, C, ep, WinSize);
 		printf("[SVM]CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
 		printf("----------------------------------------------------\n");
+		fprintf(param.LogFileHandle, "[SVM]CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
+		fprintf(param.LogFileHandle, "----------------------------------------------------\n");
 	}
 
 
@@ -1516,11 +1820,265 @@ int SimpleDataSet(const Param param){
 	free(Group); free(SMask); free(NMask);
 	free(Q); free(R);
 	free(beta); free(gamma); free(theta);
-	free(hXi);
+	free(hXi);  free(val); free(flag);
+	fclose(param.LogFileHandle);
 
 	return 0;
 }
 
+
+int WindowBasedTraining(Param param){
+
+	/////////////////////////// Problem Parameters ///////////////////////////
+
+	// Prediction Horizon - Look Forward (predict t+fw)
+	size_t fw = 5;
+
+
+	/////////////////////////// SVM Parameters ///////////////////////////
+
+	const size_t DataSize = param.DataSize;
+	const size_t DataDim = param.DataDim;
+	const size_t WinSize = param.WinSize;
+	const size_t RSize = param.RSize;
+	const CalcType ep = param.ep;
+	const CalcType C  = param.C;
+	const CalcType sigma_sq = param.sigma_sq;
+
+
+	/////////////////////////// Open Files ///////////////////////////
+
+	// Open input file
+	char *inFile = param.InFile;
+	FILE *infp = fopen(inFile, "r");
+	if (infp==NULL) {
+		fprintf(stderr, "[ERROR] Cannot open input file [%s]. \n", inFile);
+  		exit(1);
+	}
+
+	// Open output file
+	FILE *outfp = fopen(param.OutFile, "w");
+	if (outfp==NULL) {
+		fprintf(stderr, "[ERROR] Cannot open output file [%s]. \n", param.OutFile);
+  		exit(1);
+	}
+
+	// Open log file
+	param.LogFileHandle = fopen(param.LogFile, "w");
+	if (param.LogFileHandle==NULL) {
+		fprintf(stderr, "[ERROR] Cannot open log file [%s]. \n", param.LogFile);
+  		exit(1);
+	}
+
+	/////////////////////////// Read data file ///////////////////////////
+
+	// Allocating Memory for input data
+	DataType *X_IN = calloc(DataSize * DataDim, sizeof(DataType));
+	CalcType *Y_IN = calloc(DataSize, sizeof(CalcType));
+
+	// read file into memory
+	// We use LibSVM data format
+	// Assuming both X and Y are double
+	size_t ActualDataSize = 0;
+	while(!feof(infp) && ActualDataSize<DataSize) {
+		fscanf(infp, "%lf", &Y_IN[ActualDataSize]);
+		for (size_t j=0; j<DataDim; ++j) {
+			fscanf(infp, "%*d:%lf", &X_IN[ActualDataSize*DataDim+j]);
+		}
+		++ActualDataSize;
+	}
+	fclose(infp);
+
+	// At least [fw+2] lines needed
+	if (ActualDataSize<fw+fw+3) {
+		free(X_IN); free(Y_IN);
+		fprintf(param.LogFileHandle, "[ERROR] At least we need %zu samples, but there are only %zu. \n", fw+fw+3, ActualDataSize);
+		fprintf(stderr, "[ERROR] At least we need %zu samples, but there are only %zu. \n", fw+fw+3, ActualDataSize);
+  		fclose(param.LogFileHandle);
+		exit(1);
+	}
+
+
+	/////////////////////////// Allocating Memory for SVM ///////////////////////////
+
+	// Current Number of Elements
+	size_t CurSize = 0;
+
+	// Record of Input Data (X, Y)
+	DataType *dataX = calloc(WinSize * DataDim, sizeof(DataType));
+	CalcType *dataY = calloc(WinSize, sizeof(CalcType));
+
+	// Prediction of Y from SVM
+	CalcType *Ypredict = calloc(DataSize, sizeof(CalcType));
+
+	// Group: 'S', 'E', 'R', 'C', 'N'
+	char *Group = malloc(sizeof(char) * WinSize);
+	for (size_t i=0; i<WinSize; ++i) Group[i] = 'N';
+
+	// Position of each S vector
+	size_t SSize = 0;
+	size_t *SMask = calloc(WinSize, sizeof(size_t));
+
+	// Position of each E or R vector
+	size_t NSize = 0;
+	size_t *NMask = calloc(WinSize, sizeof(size_t));
+
+	// Matrix Q
+	CalcType *Q = calloc(WinSize * WinSize, sizeof(CalcType));
+
+	// Matrix R : should be (1+S)-by-(1+S)
+	CalcType *R = calloc(RSize * RSize, sizeof(CalcType));
+
+	// Coeff beta
+	CalcType *beta = calloc(WinSize, sizeof(CalcType));
+
+	// Coeff gamma
+	CalcType *gamma = calloc(WinSize, sizeof(CalcType));
+
+	// Coeff theta
+	CalcType *theta = calloc(WinSize, sizeof(CalcType));
+
+	// hXi
+	CalcType *hXi = calloc(WinSize, sizeof(CalcType));
+
+	// val
+	CalcType *val = calloc(WinSize, sizeof(CalcType));
+
+	// flag
+	size_t *flag = calloc(WinSize, sizeof(size_t));
+
+	// Coeff b
+	CalcType b = 0;
+
+
+	/////////////////////////// Initialise SVM ///////////////////////////
+
+	// initialise SVM using 2 data points
+	initSVM(&X_IN[0*DataDim], Y_IN[0], &X_IN[1*DataDim], Y_IN[1], dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, &CurSize, &SSize, &NSize, param);
+
+	// Calculate Objective Function Value
+	CalcType init_obj = objCalc(dataY, Group, theta, Q, &b, C, ep, WinSize);
+	fprintf(param.LogFileHandle, "[SVM]CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
+	fprintf(param.LogFileHandle, "----------------------------------------------------\n");
+
+	/////////////////////////// Window Based Training ///////////////////////////
+
+	DataType Xc[DataDim];
+	CalcType Yc;
+
+	// Position for the new item
+	size_t AddPos = 2;
+
+	// Position for the item to be removed
+	size_t DelPos = 0;
+
+	for (size_t i=2; i+fw+fw<ActualDataSize; ++i) {
+
+		// read current data point
+		for (size_t j=0; j<DataDim; ++j) {
+			Xc[j] = X_IN[i*DataDim+j];
+		}
+		Yc = Y_IN[i];
+
+		// Training
+		if (CurSize<WinSize) {
+			// Window is not full - add without remove
+
+			// Incremental Training
+			int isIncSuccessful = incSVM(AddPos, Xc, Yc, dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, val, flag, &CurSize, &SSize, &NSize, param);
+			if (isIncSuccessful!=0) {
+				free(X_IN); free(Y_IN); free(dataX); free(dataY); free(Ypredict);
+				free(Group); free(SMask); free(NMask); free(hXi); free(val); free(flag);
+				free(Q); free(R);free(beta); free(gamma); free(theta);
+				fprintf(param.LogFileHandle, "[ERROR] Incremental SVM training failed at data[%zu]. \n", i);
+				fprintf(stderr, "[ERROR] Incremental SVM training failed at data[%zu]. \n", i);
+				fclose(param.LogFileHandle);
+				return -1;
+			}
+			else{
+				printf("[INC] Sample #%zu WRITE TO %zu, new CurSize = %zu.\n", i, AddPos, CurSize);
+				fprintf(param.LogFileHandle, "[INC] Sample #%zu WRITE TO %zu, new CurSize = %zu.\n", i, AddPos, CurSize);
+			}
+
+			// Increment AddPos
+			AddPos++;
+		}
+		else{
+			// Window is full - remove then add
+
+			// Decremental Training
+			int isDecSuccessful = decSVM(DelPos, dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, val, flag, &CurSize, &SSize, &NSize, param);
+			if (isDecSuccessful!=0) {
+				free(X_IN); free(Y_IN); free(dataX); free(dataY); free(Ypredict);
+				free(Group); free(SMask); free(NMask); free(hXi); free(val); free(flag);
+				free(Q); free(R);free(beta); free(gamma); free(theta);
+				fprintf(param.LogFileHandle, "[ERROR] Decremental SVM training failed at data[%zu]. \n", i);
+				fprintf(stderr, "[ERROR] Decremental SVM training failed at data[%zu]. \n", i);
+				fclose(param.LogFileHandle);
+				return -1;
+			}
+			else {
+				fprintf(param.LogFileHandle, "[DEC] Sample REMOVED FROM %zu, new CurSize = %zu.\n", DelPos, CurSize);
+			}
+
+			// Use the empty slot
+			AddPos = DelPos;
+
+			// Incremental Training
+			int isIncSuccessful = incSVM(AddPos, Xc, Yc, dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, val, flag, &CurSize, &SSize, &NSize, param);
+			if (isIncSuccessful!=0) {
+				free(X_IN); free(Y_IN); free(dataX); free(dataY); free(Ypredict);
+				free(Group); free(SMask); free(NMask); free(hXi);  free(val); free(flag);
+				free(Q); free(R);free(beta); free(gamma); free(theta);
+				fprintf(param.LogFileHandle, "[ERROR] Incremental SVM training failed at data[%zu]. \n", i);
+				fprintf(stderr, "[ERROR] Incremental SVM training failed at data[%zu]. \n", i);
+				fclose(param.LogFileHandle);
+				return -1;
+			}
+			else{
+				fprintf(param.LogFileHandle, "[INC] Sample #%zu WRITE TO %zu, new CurSize = %zu.\n", i, AddPos, CurSize);
+			}
+
+			// Increment DelPos - wrap at WinSize-1
+			DelPos = (DelPos==WinSize-1) ? 0 : DelPos+1;
+		}
+
+		// Calculate Objective Function Value
+		CalcType init_obj = objCalc(dataY, Group, theta, Q, &b, C, ep, WinSize);
+		printf("[SVM]CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
+		printf("----------------------------------------------------\n");
+		fprintf(param.LogFileHandle, "[SVM]CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
+		fprintf(param.LogFileHandle, "----------------------------------------------------\n");
+
+		// Current Ask
+		DataType CurrentMid = X_IN[i*DataDim+2];
+		DataType CurrentSpread = X_IN[i*DataDim+6];
+		DataType CurrentAsk = (CalcType)CurrentMid + 0.5*(CalcType)CurrentSpread;
+
+		// Make Prediction
+		CalcType BidPredict = regSVM(&X_IN[(i+fw)*DataDim], dataX, theta, &b, WinSize, DataDim, sigma_sq);
+
+		// Fetch Correct Value
+		DataType FutureMid = X_IN[(i+fw+fw)*DataDim+2];
+		DataType FutureSpread = X_IN[(i+fw+fw)*DataDim+6];
+		CalcType FutureBid = (CalcType)FutureMid - 0.5*(CalcType)FutureSpread;
+
+		// Write Prediction and Correct Value to output file
+		fprintf(outfp, "%f %f %f\n", FutureBid, BidPredict, CurrentAsk);
+
+	}
+
+
+	/////////////////////////// Clean up ///////////////////////////
+
+	free(X_IN); free(Y_IN); free(dataX); free(dataY); free(Ypredict);
+	free(Group); free(SMask); free(NMask); free(hXi);  free(val); free(flag);
+	free(Q); free(R);free(beta); free(gamma); free(theta);
+	fclose(outfp);
+	fclose(param.LogFileHandle);
+
+	return 0;
+}
 
 int main(){
 
@@ -1528,20 +2086,42 @@ int main(){
 
 	Param ParamSimple;
 	ParamSimple.InFile 		= "SimpleData.txt";
-	ParamSimple.OutFile 	= "result.txt";
-	ParamSimple.DataSize 	= 10;
-	ParamSimple.DataDim 	= 1;
-	ParamSimple.WinSize 	= 10;
+	ParamSimple.OutFile  	= "SimpleResult.txt";
+	ParamSimple.LogFile		= "SimpleLog.txt";
+	ParamSimple.DataSize  	= 10;
+	ParamSimple.DataDim  	= 1;
+	ParamSimple.WinSize  	= 10;
 	ParamSimple.RSize 		= 5;
 	ParamSimple.ep 			= 0.01;
 	ParamSimple.C 			= 1000;
-	ParamSimple.sigma_sq 	= 50;
-	ParamSimple.eps 		= 1e-6;
+	ParamSimple.sigma_sq  	= 50;
+	ParamSimple.eps  		= 1e-6;
 
 	SimpleDataSet(ParamSimple);
 
-	// Demo Kernel
+
+	///////////// Order Book Data /////////////
+
+	Param ParamOrderBook;
+	ParamOrderBook.InFile 		= "data0525.txt";
+	ParamOrderBook.OutFile  	= "data0525result.txt";
+	ParamOrderBook.LogFile		= "data0525log.txt";
+	ParamOrderBook.DataSize  	= 1000;
+	ParamOrderBook.DataDim  	= 30;
+	ParamOrderBook.WinSize  	= 512;
+	ParamOrderBook.RSize 		= 512;
+	ParamOrderBook.ep 			= 50;
+	ParamOrderBook.C 			= 32768;
+	ParamOrderBook.sigma_sq  	= 64;
+	ParamOrderBook.eps  		= 1e-6;
+
+	WindowBasedTraining(ParamOrderBook);
+
+	///////////// DFE /////////////
+
 //	int Result = DemoKernel();
+
+	printf("[System] Job Finished.\n");
 
 	return 0;
 }

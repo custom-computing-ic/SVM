@@ -12,4 +12,7 @@
 *.txt
 
 # build folder
-Demo_*
+SVM_*
+
+# Ant build folder
+report

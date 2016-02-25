@@ -1,19 +1,41 @@
-/***
-   This is a simple kernel that adds two numbers.
-*/
-
 import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelParameters;
+import com.maxeler.maxcompiler.v2.kernelcompiler.SMIO;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 
-class DemoKernel extends Kernel {
+class SVMKernel extends Kernel {
 
-    protected DemoKernel(KernelParameters parameters) {
-        super(parameters);
+	SVMKernel(KernelParameters parameters) {
+		
+		super(parameters);
+		
+		////////////////////////// State Machine /////////////////////////
+		
+		/*
+		SMIO SM = addStateMachine("SVMSM", new SVMStateMachine(this));
+		
+		// Control input stream Xc
+		DFEVar EnInput = SM.getOutput("EnInput");
 
-        DFEVar a = io.input("a", dfeInt(32));
-        DFEVar b = io.input("b", dfeInt(32));
-        io.output("output", a + b, dfeInt(32));
-    }
+		SM.connectInput("max", max);
+		DFEVar count = SM.getOutput("count");
+		*/
+
+
+		////////////////////////// Input /////////////////////////
+
+		// Input Vector Xc - int32*30
+		//DFEVector<DFEVar> Xc = io.input("Xc", Def.DataVecType, EnInput);
+		
+		
+
+		////////////////////////// Simple Kernel /////////////////////////
+		
+		DFEVar a = io.input("a", dfeInt(32));
+		DFEVar b = io.input("b", dfeInt(32));
+
+		io.output("output", a + b, dfeInt(32));
+
+	}
 
 }

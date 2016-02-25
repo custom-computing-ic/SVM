@@ -1,0 +1,118 @@
+package maxpower;
+
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.KernelObjectVectorizable;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+
+/**
+ * {@code Kernel} binary operators for use with e.g. {@code TreeReduce}.
+ *
+ * @author Chris Jones
+ */
+ 
+public abstract class KernelBinaryOp {
+	public static class Add<T extends KernelObjectVectorizable<T, T>> implements AssociativeOp<T> {
+		@Override
+		public T op(T a, T b) {
+			return a + b;
+		}
+	}
+
+	public static class Sub<T extends KernelObjectVectorizable<T, T>> implements BinaryOp<T, T, T> {
+		@Override
+		public T op(T a, T b) {
+			return a - b;
+		}
+	}
+
+	public static class Mul<T extends KernelObjectVectorizable<T, T>> implements AssociativeOp<T> {
+		@Override
+		public T op(T a, T b) {
+			return a * b;
+		}
+	}
+
+	public static class Div<T extends KernelObjectVectorizable<T, T>> implements BinaryOp<T, T, T> {
+		@Override
+		public T op(T a, T b) {
+			return a / b;
+		}
+	}
+
+	public static class And<T extends KernelObjectVectorizable<T, T>> implements AssociativeOp<T> {
+		@Override
+		public T op(T a, T b) {
+			return a & b;
+		}
+	}
+
+	public static class Or<T extends KernelObjectVectorizable<T, T>> implements AssociativeOp<T> {
+		@Override
+		public T op(T a, T b) {
+			return a | b;
+		}
+	}
+
+	public static class Xor<T extends KernelObjectVectorizable<T, T>> implements AssociativeOp<T> {
+		@Override
+		public T op(T a, T b) {
+			return a ^ b;
+		}
+	}
+
+	public static class Lt<T extends KernelObjectVectorizable<T, T>> implements BinaryOp<T, T, T> {
+		@Override
+		public T op(T a, T b) {
+			return a < b;
+		}
+	}
+
+	public static class Lte<T extends KernelObjectVectorizable<T, T>> implements BinaryOp<T, T, T> {
+		@Override
+		public T op(T a, T b) {
+			return a <= b;
+		}
+	}
+
+	public static class Gt<T extends KernelObjectVectorizable<T, T>> implements BinaryOp<T, T, T> {
+		@Override
+		public T op(T a, T b) {
+			return a > b;
+		}
+	}
+
+	public static class Gte<T extends KernelObjectVectorizable<T, T>> implements BinaryOp<T, T, T> {
+		@Override
+		public T op(T a, T b) {
+			return a >= b;
+		}
+	}
+
+	public static class Eq<T extends KernelObjectVectorizable<T, T>> implements BinaryOp<T, T, T> {
+		@Override
+		public T op(T a, T b) {
+			return a.eq(b);
+		}
+	}
+
+	public static class Neq<T extends KernelObjectVectorizable<T, T>> implements BinaryOp<T, T, T> {
+		@Override
+		public T op(T a, T b) {
+			return a.neq(b);
+		}
+	}
+
+	public static class Max implements AssociativeOp<DFEVar> {
+		@Override
+		public DFEVar op(DFEVar a, DFEVar b) {
+			return KernelMath.max(a, b);
+		}
+	}
+
+	public static class Min implements AssociativeOp<DFEVar> {
+		@Override
+		public DFEVar op(DFEVar a, DFEVar b) {
+			return KernelMath.min(a, b);
+		}
+	}
+};

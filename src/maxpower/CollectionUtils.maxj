@@ -1,0 +1,28 @@
+package maxpower;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+
+public class CollectionUtils {
+	/**
+	 * Splits the given collection in groups of elements of size n.
+	 *
+	 * The last group may have fewer than n elements.
+	 *
+	 * N.B. If the input is a list, the returned group lists are views into that list.
+	 *      Modifications of the input list will be visible in group lists.
+	 */
+	public static <T> List<List<T>> grouped(Collection<T> values, int n) {
+		List<List<T>> grouped = new ArrayList<List<T>>();
+		List<T>       valList = (values instanceof List) ? (List<T>) values : new ArrayList<T>(values);
+
+		while (!valList.isEmpty()) {
+			int split = Math.min(n, valList.size());
+			grouped.add(valList.subList(0, split));
+			valList = valList.subList(split, valList.size());
+		}
+
+		return grouped;
+	}
+}

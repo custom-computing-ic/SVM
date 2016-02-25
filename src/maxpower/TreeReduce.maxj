@@ -1,0 +1,107 @@
+package maxpower;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+import com.maxeler.maxcompiler.v2.errors.MaxCompilerAPIError;
+
+/**
+ * A set of static methods to perform a reduction in a tree-like manner.
+ *
+ * Tree reduction incurs less scheduling resource cost than a naive reduction and the operations
+ * are performed with lower latency.
+ *
+ * Naive reduction       Tree reduction
+ *
+ *   a   b c d            a   b c   d
+ *    \ /  | |             \ /   \ /
+ *     x   | |              x     x
+ *      \ /  |               \   /
+ *       x   |                 x
+ *        \ /
+ *         x
+ *
+ * NB. For operations which are not strictly associative (e.g. floating-point addition), using tree
+ *     reduction may affect the result slightly as the order of operations is altered.
+ */
+public class TreeReduce {
+	/**
+	 * Reduce the given values using a binary tree and the specified associative operation.
+	 */
+	public static <T> T reduce(AssociativeOp<T> op, T... values) {
+		return reduce(op, Arrays.asList(values));
+	}
+
+	/**
+	 * Reduce the given values using a binary tree and the specified associative operation.
+	 */
+	public static <T> T reduce(final AssociativeOp<T> op, List<T> values) {
+		Reducer<T> reducer = new Reducer<T>() {
+			@Override
+			public int getMaxNumValues() { return 2; }
+
+			@Override
+			public T reduce(List<T> values) {
+				switch (values.size()) {
+				case 1: return values[0];
+				case 2: return op.op(values[0], values[1]);
+				default: throw new MaxCompilerAPIError("Expecting exactly 1 or 2 values");
+				}
+			}
+		};
+
+		return reduce(reducer, values);
+	}
+
+	/**
+	 * Reduce the given values using an n-ary tree.
+	 *
+	 * @param n the degree of the reduction tree (maximum inputs to node in tree)
+	 * @param reducer functor to perform the reduction at each node in tree
+	 * @param values values to reduce
+	 */
+	public static <T> T reduce(Reducer<T> reducer, T... values) {
+		return reduce(reducer, Arrays.asList(values));
+	}
+
+	/**
+	 * Reduce the given values using an n-ary tree.
+	 *
+	 * @param n the degree of the reduction tree (maximum inputs to node in tree)
+	 * @param reducer functor to perform the reduction at each node in tree
+	 * @param values values to reduce
+	 */
+	public static <T> T reduce(Reducer<T> reducer, List<T> values) {
+		if (values.isEmpty())
+			throw new MaxCompilerAPIError("Cannot reduce zero values");
+
+		if (reducer.getMaxNumValues() < 2)
+			throw new MaxCompilerAPIError("Reduction tree must have degree of at least 2");
+
+		List<T> reduced = new ArrayList<T>();
+		for (List<T> group : CollectionUtils.grouped(values, reducer.getMaxNumValues())) {
+			reduced.add(reducer.reduce(group));
+		}
+
+		return (reduced.size() == 1) ? reduced[0] : reduce(reducer, reduced);
+	}
+
+	/**
+	 * A functor, which can take a list of values and reduce down to a single value.
+	 */
+	public interface Reducer<T> {
+		/**
+		 * @return Maximum number of values which may be passed to the {@code reduce} method.
+		 */
+		int getMaxNumValues();
+
+		/**
+		 * Reduce values to a single value.
+		 *
+		 * This function should be capable of reducing any list with size between
+		 * 1 and {@code getMaxNumValues()} inclusive.
+		 */
+		T reduce(List<T> values);
+	}
+}

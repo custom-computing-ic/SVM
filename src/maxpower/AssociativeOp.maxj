@@ -1,0 +1,7 @@
+package maxpower;
+
+/**
+ * This interface is just a label for sanity checking, e.g. in TreeReduce.
+ */
+ 
+public interface AssociativeOp<T> extends BinaryOp<T, T, T> {}

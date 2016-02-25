@@ -25,7 +25,7 @@ WHEREISROOT=/homes/ss13412
 
 
 # Assuming Kernel and Manager class names follow the pattern below:
-PRJ=Demo
+PRJ=SVM
 KERNEL=$(PRJ)Kernel
 MANAGER=$(PRJ)Manager
 

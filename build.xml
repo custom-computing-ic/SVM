@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project name ="SVM" default="all" basedir=".">
+	
+	<description>
+	Incremental Support Vector Machine on FPGA
+  	</description>
+
+	<!-- Directory Name -->
+	<property name="bin.dir" location="bin"/>
+	<property name="report.dir" location="report"/>
+	
+	<!-- Environment -->
+	<property environment="env"/>
+	
+	<!-- MaxjCompiler -->
+	<taskdef name="MaxCompiler" classname="org.eclipse.jdt.core.ant.taskdef.MaxjTask" classpath="${env.MAXCOMPILERDIR}/lib/MaxIDE/ecj.jar" onerror="ignore"/>
+	
+	<condition property="maxeda.classpath" value="${env.MAXCOMPILERJCP}">
+		<isset property="env.MAXCOMPILERJCP"/>
+	</condition>
+	
+	<condition property="maxeda.classpath" value="${env.MAXCOMPILERDIR}/lib/MaxCompiler.jar">
+		<not><isset property="env.MAXCOMPILERJCP"/></not>
+	</condition>
+
+	<path id="main.classpath">
+		<pathelement location="${maxeda.classpath}"/>
+	</path>
+	
+	<path id="test.classpath">
+		<path refid="main.classpath"/>
+		<pathelement location="${env.MAXCOMPILERDIR}/lib/MaxIDE/plugins/org.junit4/junit.jar"/>
+		<pathelement location="${env.MAXCOMPILERDIR}/lib/MaxIDE/plugins/org.hamcrest.core_1.1.0.v20090501071000.jar"/>
+		<pathelement location="${bin.dir}"/>
+	</path>
+
+	<!-- Target: all -->
+	<target name="all" depends="build, build-test, test"/>
+
+	<!-- Target: build -->
+	<target name="build" depends="clean">
+		<echo>
+	Using maxeda classpath '${maxeda.classpath}'
+	(Precedence: 1. $MAXCOMPILERJCP, 2. $MAXCOMPILERDIR)
+		</echo>
+		<mkdir dir="${bin.dir}"/>
+		<MaxCompiler srcdir="src" destdir="${bin.dir}" debug="true" failonerror="true" debuglevel="lines,vars,source" source="1.6" target="1.6">
+			<classpath refid="main.classpath"/>
+		</MaxCompiler>
+	</target>
+
+
+	<!-- Target: build-test -->
+	<target name="build-test" depends="build">
+		<echo>
+	Using maxeda classpath '${maxeda.classpath}'
+	(Precedence: 1. $MAXCOMPILERJCP, 2. $MAXCOMPILERDIR)
+		</echo>
+		<mkdir dir="${bin.dir}"/>
+		<MaxCompiler srcdir="test" destdir="${bin.dir}" debug="true" failonerror="true" debuglevel="lines,vars,source" source="1.6" target="1.6">
+			<classpath refid="test.classpath"/>
+		</MaxCompiler>
+	</target>
+	
+	<!-- Target: test -->
+	<target name="test" depends="build-test">
+		<mkdir dir="${report.dir}"/>
+		<junit haltonfailure="no" failureproperty="junit.failed">
+			<classpath refid="test.classpath"/>
+			<formatter type="plain" usefile="false"/>
+			<formatter type="xml"/>
+			<batchtest todir="${report.dir}">
+				<fileset dir="${bin.dir}" includes="**/*Test.class"/>
+			</batchtest>
+		</junit>
+		<fail message="A JUnit test FAILED" if="junit.failed"/>
+	</target>
+
+	<!-- Target: clean -->
+	<target name="clean">
+		<delete dir="${bin.dir}"/>
+		<delete dir="${report.dir}"/>
+	</target>
+	
+</project>

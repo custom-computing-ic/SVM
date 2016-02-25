@@ -1,0 +1,97 @@
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.statemachine.DFEsmInput;
+import com.maxeler.maxcompiler.v2.statemachine.DFEsmOutput;
+import com.maxeler.maxcompiler.v2.statemachine.DFEsmStateEnum;
+import com.maxeler.maxcompiler.v2.statemachine.DFEsmStateValue;
+import com.maxeler.maxcompiler.v2.statemachine.kernel.KernelStateMachine;
+import com.maxeler.maxcompiler.v2.statemachine.types.DFEsmValueType;
+
+class SVMStateMachine extends KernelStateMachine {
+
+	////////////////////////// Operating Modes /////////////////////////
+
+        enum Modes {
+                IDLE,			// Idle state
+                INC,				// Incremental Training
+                DEC, 			// Decremental Training
+                QUPDATE,		// Updating Q
+        }
+
+        ////////////////////////// I/O Variables /////////////////////////
+
+	// Control input stream Xc
+	private final DFEsmOutput EnInput;
+
+//        private final DFEsmInput iMax;
+//        private final int mHoldCount;
+
+        ////////////////////////// State Variables /////////////////////////
+        
+        // Mode
+        private final DFEsmStateEnum<Modes> sMode;
+        
+        /*
+        // Current number of samples in the window
+        private final DFEsmStateValue CurSize;
+        
+        // ID of the item currently processing
+        private final DFEsmStateValue ID;
+        
+        // Read address of matrix Q blocks
+        private final DFEsmStateValue QReadAddr;
+        
+        // Write address of matrix Q blocks
+        private final DFEsmStateValue QWriteAddr;
+        */
+
+	public SVMStateMachine(KernelLib owner) {
+
+		super(owner);
+
+                ////////////////////////// Types /////////////////////////
+                
+		DFEsmValueType BoolType = dfeUInt(1);
+
+                ////////////////////////// Outputs /////////////////////////
+
+                // Control input stream Xc
+                EnInput = io.output("EnInput", BoolType);
+                
+
+//                iMax = io.input("max", counterType);
+                
+                // Initialise State Variables
+                sMode = state.enumerated(Modes.class, Modes.IDLE);
+//                sCounter = state.value(counterType, 0);
+//                sHoldCounter = state.value(counterType, 0);
+        }
+        
+	@Override
+	protected void nextState() {
+		SWITCH(sMode) {
+			CASE(Modes.IDLE) {
+				sMode.next <== Modes.INC;
+                        }
+                        OTHERWISE {
+                        	sMode.next <== sMode;
+                        /*
+                                IF (sHoldCounter === mHoldCount)
+                                {
+                                        sHoldCounter.next <== 0;
+                                        sMode.next <== Modes.COUNTING_DOWN;
+                                }
+                                ELSE {
+                                        sHoldCounter.next <== sHoldCounter+1;
+                                }
+                        */
+                        }
+                }
+        }
+
+        @Override
+        protected void outputFunction() {
+		EnInput <== (sMode === Modes.IDLE);
+        }
+        
+}
+

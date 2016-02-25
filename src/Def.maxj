@@ -1,0 +1,88 @@
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEFix.SignMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
+//import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEStruct;
+//import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEStructType;
+//import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEStructType.StructFieldType;
+
+//import maxpower.*;
+
+import maxpower.KernelBinaryOp.Add;
+import maxpower.TreeReduce;
+
+class Def {
+
+	///////////////////////// FPGA Settings /////////////////////////
+
+	// Pipelining factor
+	public static final double PipeliningFactor = 0.75;
+
+	// FPGA Frequency
+	public static final int KernelFrequency = 100;
+
+
+	///////////////////////// SVM Parameters /////////////////////////
+
+	// Input Data Dimension : Number of Features
+	public static final int DataDim = 30;
+
+	// Window Size
+	public static final int WinSize = 512;
+	
+	// RSize - theoretical maximum RSize is (WinSize+1)
+	public static final int RSize = 512;
+
+	// epsilon
+	public static final double ep = 50;
+	
+	// C
+	public static final double C = 32768;
+	
+	// sigma_sq
+	public static final double sigma_sq = 64;
+	
+	// eps 
+	// [TODO]: Multiple EPS
+	public static final double eps = 1e-6;
+	
+
+	///////////////////////// Types /////////////////////////
+
+	// Input Data Type
+	public static final DFEType DataType = KernelLib.dfeInt(32);
+
+	// CalcType
+	public static final DFEType CalcType = KernelLib.dfeFloat(11, 53);
+		
+	// Feature Vector
+	public static final DFEVectorType<DFEVar> DataVecType = new DFEVectorType<DFEVar>(DataType, DataDim);
+
+	// Boolean Type
+	public static final DFEType BoolType = KernelLib.dfeBool();
+
+
+	///////////////////////// Kernel /////////////////////////
+	
+	public static DFEVar RBFKernel(DFEVector<DFEVar>X1, DFEVector<DFEVar>X2) {
+		
+		// Calculate Norm using Input Data Type - to save resource
+		DFEVar[] summands = new DFEVar[DataDim];
+		for (int i=0; i<DataDim; ++i) {
+			summands[i] = (X1[i] - X2[i]) * (X1[i] - X2[i]);
+		}
+		DFEVar sum = TreeReduce.reduce(new Add<DFEVar>(), summands);
+		
+		// Cast sum into floating point
+		DFEVar sum_float = sum.cast(CalcType);
+		
+		// Expontiation
+		DFEVar result = KernelMath.exp(sum_float*(-0.5/sigma_sq));
+		
+		return result;
+	}
+
+}

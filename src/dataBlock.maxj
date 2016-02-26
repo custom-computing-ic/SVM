@@ -1,0 +1,92 @@
+import java.util.ArrayList;
+
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamPortMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
+import com.maxeler.maxcompiler.v2.utils.MathUtils;
+
+
+/**
+ * Iterate Over a dataX block. 
+ * dataX is distributed over several blocks to increase parallelism.
+ *
+ * @author Patrick Shao
+ *
+ * @param <ID>  ID of this block
+ * @param <Size> Size of this block
+ * @param <Xc> New Sample - Xc
+ * @param <XcPosition> Position of Xc (in terms of the whole dataX array)
+ * @param <EnIterate> Enable Iteration - valid on the cycle that Xc arrives
+ */
+
+class dataBlock extends KernelLib{
+
+	private DFEVector<DFEVar> dataOUT;
+	private DFEVar Valid;
+		
+	public DFEVector<DFEVar> getData() 	{return dataOUT;}
+	public DFEVar isValid() 					{return Valid;}
+	
+	dataBlock (KernelLib owner, int ID, int Size, DFEVector<DFEVar> Xc, DFEVar XcPosition, DFEVar EnIterate) {
+		
+		super(owner);
+		
+		/////////////////////// Counter ///////////////////////
+
+		// Counter: 0, 1, ... , Size-1, Size, Size ...
+		// Valid Address: [0, Size-1]
+		// Counter stops at Size to indicate data invalid 
+		int CounterBitWidth = MathUtils.bitsToRepresentUnsigned(Size);
+                Count.Params CounterParam = control.count.makeParams(CounterBitWidth)
+                							.withInitValue(0)
+                							.withMax(Size)
+                							.withWrapMode(WrapMode.STOP_AT_MAX)
+                							.withReset(EnIterate);
+                Counter AddrCounter = control.count.makeCounter(CounterParam);
+                DFEVar AddrCount = AddrCounter.getCount();
+
+		// Address is valid when it's smaller than Size                
+                Valid = AddrCount<Size;
+                
+                // Address for memory
+                DFEVar Addr = Valid ? AddrCount.cast(dfeUInt(MathUtils.bitsToAddress(Size))) : 0;
+
+
+		/////////////////////// Memory ///////////////////////
+		
+		// Write Control
+		DFEVar XcAddr = KernelMath.modulo(XcPosition, Size).cast(dfeUInt(MathUtils.bitsToAddress(Size)));
+		DFEVar isThisBlock = (XcPosition>=ID*Size) & (XcPosition<(ID+1)*Size);
+		DFEVar EnWrite = isThisBlock & (XcAddr === Addr);
+		
+		// Memory
+		dataOUT = Def.DataVecType.newInstance(this);
+		ArrayList<Memory<DFEVar>> Block = new ArrayList<Memory<DFEVar>>();
+		for(int i=0; i<Def.DataDim; ++i) {
+			Block.add(i, mem.alloc(Def.DataType, Size));
+			Block.get(i).mapToCPU("dataXBlock"+ID+"Dim"+i);
+			dataOUT[i] <== Block.get(i).port(Addr, Xc[i], EnWrite, RamWriteMode.WRITE_FIRST);
+		}
+		
+		/*
+		// Doesn't work because port() doesn't support DFEVector
+		Memory<DFEVar> Block = mem.alloc(Def.DataVecType, Size);
+		Block.mapToCPU("dataXBlock"+ID);
+		dataOUT = Block.port(Addr, Xc, EnWrite, RamWriteMode.WRITE_FIRST);
+		
+		// Doesn't work because bit-width of RAM must not exceed 64
+		Mem.RamPortParams<DFEVector<DFEVar>> BlockParam = mem.makeRamPortParams(RamPortMode.READ_WRITE, Addr, Xc).withWriteEnable(EnWrite);
+		dataOUT = mem.ramMapped("dataXBlock"+ID, Size, RamWriteMode.WRITE_FIRST, BlockParam);
+		*/
+
+	}
+
+}

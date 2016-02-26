@@ -1,0 +1,90 @@
+import static org.junit.Assert.assertTrue;
+import java.util.Random;
+import org.junit.Test;
+
+import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelParameters;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEFloat;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
+import com.maxeler.maxcompiler.v2.managers.standard.SimulationManager;
+import com.maxeler.maxcompiler.v2.utils.MathUtils;
+
+public class dataBlockTest {
+
+	private class dataBlockTestKernel extends Kernel {
+	
+		dataBlockTestKernel(KernelParameters parameters) {
+		
+			super(parameters);
+			
+			// Tick Counter
+			DFEVar Tick = control.count.simpleCounter(32);
+			
+			// A new Item every 8 cycles
+			Count.Params EnInputParam = control.count.makeParams(3);
+			Counter EnInputCounter = control.count.makeCounter(EnInputParam);
+			DFEVar EnInputCount = EnInputCounter.getCount();
+			DFEVar EnInput = ( EnInputCount === 0);
+			
+			// Input
+			DFEVar Xc_IN = io.input("Xc_IN", Def.DataType, EnInput);
+			DFEVector<DFEVar> Xc = Def.DataVecType.newInstance(this);
+			for (int i=0; i<Def.DataDim; ++i) Xc[i] <== Xc_IN + i;
+			
+			// XcPosition
+			Count.Params XcPositionParam = control.count.makeParams(16)
+										.withMax(16)
+										.withEnable(EnInputCounter.getWrap());
+			Counter XcPositionCounter = control.count.makeCounter(XcPositionParam);
+			DFEVar XcPosition = XcPositionCounter.getCount();
+			
+			// dataBlock
+			final int numBlocks = 4;
+			final int Size = 4;
+			dataBlock [] DataBlock = new dataBlock[numBlocks];			
+			DFEVector<DFEVector<DFEVar>> dataX = (new DFEVectorType<DFEVector<DFEVar>>(Def.DataVecType, numBlocks)).newInstance(this);
+			DFEVar [] isValid = new DFEVar[numBlocks];
+			for (int i=0; i<numBlocks; ++i) {
+				DataBlock[i] = new dataBlock (this, i, Size, Xc, XcPosition, EnInput);
+				dataX[i] <== DataBlock[i].getData();
+				isValid[i] = DataBlock[i].isValid();
+			}
+
+			// SimPrintf
+			debug.simPrintf(EnInput, "------------------------------------------------------------------\n");
+			debug.simPrintf("[%3d] Xc[%d]=%d, dataX[0:3]=(%d,%d,%d,%d), isValid=%d \n", Tick, XcPosition, Xc_IN, dataX[0][0], dataX[1][0], dataX[2][0], dataX[3][0], isValid[0]);
+
+
+		}
+	}
+
+	private class dataBlockTestData {
+		long input [];
+		dataBlockTestData(int numTicks) {
+			input = new long[numTicks];
+			for (int i=0; i<numTicks; ++i) input[i] = i*100;
+		}
+	}
+
+	@Test 
+	public void test1() { 
+		test(200); 
+	}
+	
+	private void test(int numTicks) {
+		SimulationManager mgr = new SimulationManager("dataBlockTest");
+		dataBlockTestKernel kernel = new dataBlockTestKernel(mgr.makeKernelParameters());
+		mgr.setKernel(kernel);
+
+		dataBlockTestData data = new dataBlockTestData(numTicks);
+		mgr.setInputDataLong("Xc_IN", data.input);
+		mgr.setKernelCycles(numTicks);
+
+		mgr.runTest();
+	}
+}

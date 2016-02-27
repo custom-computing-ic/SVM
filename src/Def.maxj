@@ -16,21 +16,27 @@ import maxpower.TreeReduce;
 
 class Def {
 
-	///////////////////////// FPGA Settings /////////////////////////
+	///////////////////////// Manager Settings /////////////////////////
 
 	// Pipelining factor
 	public static final double PipeliningFactor = 0.75;
 
 	// FPGA Frequency
 	public static final int KernelFrequency = 100;
+	
+	
+	///////////////////////// Kernel Settings /////////////////////////
 
+	// Divide dataX into several blocks
+	public static final int numBlocks = 4;
+	
 
 	///////////////////////// SVM Parameters /////////////////////////
 
 	// Input Data Dimension : Number of Features
 	public static final int DataDim = 30;
 
-	// Window Size
+	// Window Size - MUST BE A MULTIPLE OF numBlocks
 	public static final int WinSize = 512;
 	
 	// RSize - theoretical maximum RSize is (WinSize+1)
@@ -58,14 +64,17 @@ class Def {
 	// CalcType
 	public static final DFEType CalcType = KernelLib.dfeFloat(11, 53);
 		
-	// Feature Vector
+	// Feature Vector of Input Data Type
 	public static final DFEVectorType<DFEVar> DataVecType = new DFEVectorType<DFEVar>(DataType, DataDim);
+	
+	// Block Vector of Calc Data Type
+	public static final DFEVectorType<DFEVar> BlockVecType = new DFEVectorType<DFEVar>(CalcType, numBlocks);
 
 	// Boolean Type
 	public static final DFEType BoolType = KernelLib.dfeBool();
 
 
-	///////////////////////// Kernel /////////////////////////
+	///////////////////////// Utility Functions /////////////////////////
 	
 	public static DFEVar RBFKernel(DFEVector<DFEVar>X1, DFEVector<DFEVar>X2) {
 		
@@ -76,7 +85,7 @@ class Def {
 		}
 		DFEVar sum = TreeReduce.reduce(new Add<DFEVar>(), summands);
 		
-		// Cast sum into floating point
+		// Cast sum into CalcType
 		DFEVar sum_float = sum.cast(CalcType);
 		
 		// Expontiation
@@ -84,5 +93,8 @@ class Def {
 		
 		return result;
 	}
+
+
+
 
 }

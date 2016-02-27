@@ -1,0 +1,128 @@
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
+
+
+/**
+ * This class maintains Matrix Q 
+ *	- Store Q in small blockDim-by-blockDim blocks for parallelised access
+ *	- Provide an interface for traversing through a certain row: Q[XcAddr][]
+ * 		XcAddr = BaseAddrXc*blockDim+OffsetAddr
+ * 		During a traverse, BaseAddr and OffsetAddr should be fixed
+ *	- EnWrite should be true only when updating Q
+ * 	- When updating, output are new values
+ *
+ *
+ * @author Patrick Shao
+ *
+ * @param <blockDim> 1D Dimension of the block - Block Size = blockDim^2
+ * @param <Q_IN> Incoming Q vector from KernelCalc - width = numBlocks
+ * @param <BaseAddrXc> Base Address of Xc, range [0, numBlocks-1]
+ * @param <OffsetAddrXc> Offset Address of Xc, range [0, blockDim-1]
+ * @param <isValid> Is the incoming Q value valid
+ * 
+ */
+
+
+class QMem extends KernelLib{
+
+	private DFEVector<DFEVar> dataOUT;
+	private DFEVar Valid;		
+	
+	public DFEVector<DFEVar> getData() 	{return dataOUT;}
+	public DFEVar isValid() 					{return Valid;}
+
+
+	QMem (KernelLib owner, int blockDim, DFEVector<DFEVar> Q_IN, DFEVar BaseAddrXc, DFEVar OffsetAddrXc, DFEVar EnWrite, DFEVar EnIterate) {
+	
+		super(owner);
+		
+		/////////////////////// Address ///////////////////////
+		
+		// VAddr: OffsetAddrXc + [0,1,2,...]*blockDim
+                AddrGenerator VAddrGen = new AddrGenerator(owner, blockDim, blockDim*blockDim, EnIterate);
+                DFEVar VAddr = VAddrGen.getAddr() + OffsetAddrXc;
+
+		// HAddr: blockDim*OffsetAddrXc + [0,1,2,...]
+                AddrGenerator HAddrGen = new AddrGenerator(owner, 1, blockDim, EnIterate);
+                DFEVar HAddr = HAddrGen.getAddr() + blockDim*OffsetAddrXc;
+                
+                // isValid
+                Valid = HAddrGen.isValid();
+                
+                // DAddr: Generated within DBlocks - min(VAddr, HAddr)
+                
+                
+                /////////////////////// Blocks ///////////////////////
+                
+                // Create QBlocks
+                DFEVar [][] blockOUT = new DFEVar[Def.numBlocks][Def.numBlocks];
+                for (int X=0; X<Def.numBlocks; ++X) {
+                	for (int Y=0; Y<=X; ++Y) {
+                		blockOUT[X][Y] = QBlock (X, Y, blockDim, Q_IN[X], Q_IN[Y], BaseAddrXc, OffsetAddrXc, VAddr, HAddr, EnWrite);
+                	}
+                }
+                
+                // Wiring Outputs
+                dataOUT = Def.BlockVecType.newInstance(this);
+                for (int pos=0; pos<Def.numBlocks; ++pos) {
+                	DFEVector<DFEVar> toMux = Def.BlockVecType.newInstance(this);
+                	// X=pos, Y=0:pos - Vertical Blocks and DBlock
+                	for (int Y=0; Y<=pos;++Y) {
+                		toMux[Y] <== blockOUT[pos][Y];
+                	}
+                	// Y=pos, X=pos+1:numBlocks-1 - Horizontal Blocks
+                	for (int X=pos+1; X<Def.numBlocks; ++X) {
+                		toMux[X] <== blockOUT[X][pos];
+                	}
+                	// Multiplexer
+                	dataOUT[pos] <== control.mux(BaseAddrXc, toMux.getElementsAsList());
+                }
+
+	
+	}
+
+
+	
+	private DFEVar QBlock (int X, int Y, int blockDim, DFEVar Q_X, DFEVar Q_Y, DFEVar BaseAddr, DFEVar OffsetAddr, DFEVar VAddr, DFEVar HAddr, DFEVar isValid) {
+	
+		// IMPORTANT: THERE MUST BE X>=Y
+		DFEVar QVal;
+		
+		if (X>Y) { 
+			//VBlock or HBlock or unrelated
+			DFEVar isVBlock = (BaseAddr===X);
+			DFEVar isHBlock = (BaseAddr===Y);
+			DFEVar isRelated = isVBlock | isHBlock;
+			
+			DFEVar Addr = isVBlock ? VAddr : HAddr;
+			DFEVar Q_IN = isVBlock ? Q_Y : Q_X;
+			DFEVar EnWrite = isRelated & isValid;
+			
+			// Memory
+			Memory<DFEVar> Q = mem.alloc(Def.CalcType, blockDim*blockDim);
+			Q.mapToCPU("QBlock["+X+"]["+Y+"]");
+			QVal = Q.port(Addr, Q_IN, EnWrite, RamWriteMode.WRITE_FIRST);
+		}
+		else{ 
+			// DBlock or unrelated		
+			DFEVar isDBlock = (BaseAddr===X);
+			DFEVar isRelated = isDBlock;
+			
+			DFEVar Addr = KernelMath.min(VAddr, HAddr);
+			DFEVar Q_IN = Q_X; 
+			DFEVar EnWrite = isRelated & isValid;
+
+			// Memory			
+			Memory<DFEVar> Q = mem.alloc(Def.CalcType, blockDim*blockDim);
+			Q.mapToCPU("QBlock["+X+"]["+Y+"]");
+			QVal = Q.port(Addr, Q_IN, EnWrite, RamWriteMode.WRITE_FIRST);
+		}
+		
+		return QVal;
+	}
+
+}

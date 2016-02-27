@@ -2,21 +2,38 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelParameters;
 import com.maxeler.maxcompiler.v2.kernelcompiler.SMIO;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
 
 class SVMKernel extends Kernel {
 
+	// Divide dataX into several blocks
+	private final int numBlocks;
+	// 1D Dimension of the block
+	private final int blockDim;
+
 	SVMKernel(KernelParameters parameters) {
+	
+		////////////////////////// Parameters /////////////////////////
 		
 		super(parameters);
+		numBlocks = Def.numBlocks;
+		blockDim = Def.WinSize/numBlocks;
+		
 		
 		////////////////////////// State Machine /////////////////////////
 		
-		/*
 		SMIO SM = addStateMachine("SVMSM", new SVMStateMachine(this));
 		
 		// Control input stream Xc
 		DFEVar EnInput = SM.getOutput("EnInput");
-
+		// Address of item Xc
+		//DFEVar XcAddr = SM.getOutput("XcAddr");
+		
+		AddrGenerator AddrGen = new AddrGenerator(this, 1, Def.WinSize, EnInput);
+		DFEVar XcAddr = AddrGen.getAddr();
+		
+		/*
 		SM.connectInput("max", max);
 		DFEVar count = SM.getOutput("count");
 		*/
@@ -24,8 +41,32 @@ class SVMKernel extends Kernel {
 
 		////////////////////////// Input /////////////////////////
 
-		// Input Vector Xc - int32*30
-		//DFEVector<DFEVar> Xc = io.input("Xc", Def.DataVecType, EnInput);
+		DFEVector<DFEVar> Xc = io.input("Xc", Def.DataVecType, EnInput);
+		DFEVar Yc = io.input("Yc", Def.CalcType, EnInput);
+		
+
+		////////////////////////// New item Xc /////////////////////////
+
+		// dataX
+		dataBlock [] DataBlock = new dataBlock[numBlocks];
+		DFEVar [] isValid = new DFEVar[numBlocks];
+		DFEVector<DFEVector<DFEVar>> dataX = (new DFEVectorType<DFEVector<DFEVar>>(Def.DataVecType, numBlocks)).newInstance(this);
+		for (int i=0; i<numBlocks; ++i) {
+			DataBlock[i] = new dataBlock(this, i, blockDim, Xc, XcAddr, EnInput);
+			dataX[i] <== DataBlock[i].getData();
+			isValid[i] = DataBlock[i].isValid();
+		}
+		
+		// Kernel Calc
+		DFEVector<DFEVar> KernelVec = Def.BlockVecType.newInstance(this);
+		for (int i=0; i<numBlocks; ++i) {
+			KernelVec[i] <== Def.RBFKernel(Xc, dataX[i]);
+		}
+		
+		// Matrix Q
+		DFEVar EnQIterate = EnInput;
+		DFEVar EnQWrite = EnInput;
+		QMem MatrixQ = QMem(this, blockDim, KernelVec, DFEVar BaseAddrXc, DFEVar OffsetAddrXc, EnQWrite, EnQIterate);
 		
 		
 

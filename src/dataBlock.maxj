@@ -3,11 +3,6 @@ import java.util.ArrayList;
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamPortMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
@@ -39,29 +34,13 @@ class dataBlock extends KernelLib{
 		
 		super(owner);
 		
-		/////////////////////// Counter ///////////////////////
-
-		// Counter: 0, 1, ... , Size-1, Size, Size ...
-		// Valid Address: [0, Size-1]
-		// Counter stops at Size to indicate data invalid 
-		int CounterBitWidth = MathUtils.bitsToRepresentUnsigned(Size);
-                Count.Params CounterParam = control.count.makeParams(CounterBitWidth)
-                							.withInitValue(0)
-                							.withMax(Size)
-                							.withWrapMode(WrapMode.STOP_AT_MAX)
-                							.withReset(EnIterate);
-                Counter AddrCounter = control.count.makeCounter(CounterParam);
-                DFEVar AddrCount = AddrCounter.getCount();
-
-		// Address is valid when it's smaller than Size                
-                Valid = AddrCount<Size;
-                
-                // Address for memory
-                DFEVar Addr = Valid ? AddrCount.cast(dfeUInt(MathUtils.bitsToAddress(Size))) : 0;
-
-
 		/////////////////////// Memory ///////////////////////
-		
+                
+                // Address
+                AddrGenerator AddrGen = new AddrGenerator(owner, 1, Size, EnIterate);
+                DFEVar Addr = AddrGen.getAddr();
+                Valid = AddrGen.isValid();
+
 		// Write Control
 		DFEVar XcAddr = KernelMath.modulo(XcPosition, Size).cast(dfeUInt(MathUtils.bitsToAddress(Size)));
 		DFEVar isThisBlock = (XcPosition>=ID*Size) & (XcPosition<(ID+1)*Size);

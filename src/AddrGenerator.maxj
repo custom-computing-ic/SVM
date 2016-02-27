@@ -1,0 +1,43 @@
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
+import com.maxeler.maxcompiler.v2.utils.MathUtils;
+
+class AddrGenerator extends KernelLib {
+
+	private DFEVar Addr;
+	private DFEVar Valid;
+		
+	public DFEVar getAddr() 		{return Addr;}
+	public DFEVar isValid() 			{return Valid;}
+	
+	AddrGenerator(KernelLib owner, int Inc, int Max, DFEVar Reset) {
+		
+		super(owner);
+		
+		/////////////////////// Counter ///////////////////////
+
+		// Counter: 0, 1, ... , Max-1, Max, Max ...
+		// Valid Address: [0, Max-1]
+		// Counter stops at Max (or 0) when invalid 
+		int CounterBitWidth = MathUtils.bitsToRepresentUnsigned(Max);
+                Count.Params CounterParam = control.count.makeParams(CounterBitWidth)
+                							.withInitValue(0)
+                							.withInc(Inc)
+                							.withMax(Max)
+                							.withWrapMode(WrapMode.STOP_AT_MAX)
+                							.withReset(Reset);
+                Counter AddrCounter = control.count.makeCounter(CounterParam);
+                DFEVar AddrCount = AddrCounter.getCount();
+
+		// Address is valid when it's smaller than Max                
+                Valid = AddrCount<Max;
+                
+                // Cast in case that Max-1 and Max have different bit-width
+                Addr = AddrCount.cast(dfeUInt(MathUtils.bitsToAddress(Max)));
+	
+	}
+
+}

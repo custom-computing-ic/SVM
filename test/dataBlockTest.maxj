@@ -29,7 +29,7 @@ public class dataBlockTest {
 			Count.Params EnInputParam = control.count.makeParams(3);
 			Counter EnInputCounter = control.count.makeCounter(EnInputParam);
 			DFEVar EnInputCount = EnInputCounter.getCount();
-			DFEVar EnInput = ( EnInputCount === 0);
+			DFEVar EnInput = (EnInputCount === 0);
 			
 			// Input
 			DFEVar Xc_IN = io.input("Xc_IN", Def.DataType, EnInput);

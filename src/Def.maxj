@@ -1,15 +1,15 @@
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEFix.SignMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
 //import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEStruct;
 //import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEStructType;
 //import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEStructType.StructFieldType;
-
-//import maxpower.*;
+import com.maxeler.maxcompiler.v2.utils.Bits;
+import java.util.List;
+import java.util.ArrayList;
 
 import maxpower.KernelBinaryOp.Add;
 import maxpower.TreeReduce;
@@ -28,6 +28,7 @@ class Def {
 	///////////////////////// Kernel Settings /////////////////////////
 
 	// Divide dataX into several blocks
+	// BlockDim = WinSize/numBlocks should >= 4
 	public static final int numBlocks = 4;
 	
 
@@ -76,6 +77,7 @@ class Def {
 
 	///////////////////////// Utility Functions /////////////////////////
 	
+	// RBF Kernel
 	public static DFEVar RBFKernel(DFEVector<DFEVar>X1, DFEVector<DFEVar>X2) {
 		
 		// Calculate Norm using Input Data Type - to save resource
@@ -88,10 +90,20 @@ class Def {
 		// Cast sum into CalcType
 		DFEVar sum_float = sum.cast(CalcType);
 		
-		// Expontiation
-		DFEVar result = KernelMath.exp(sum_float*(-0.5/sigma_sq));
-		
-		return result;
+		return KernelMath.exp(sum_float*(-0.5/sigma_sq));
+	}
+	
+	// Input Data Generator - For Tests
+	public static List<Bits> IntVectorDataGenerator(int [][] data, int numTicks, int VectorWidth) {
+		final List<Bits> encodedData = new ArrayList<Bits>(numTicks);
+		for (int i=0; i<numTicks; ++i) {
+			Bits thisStepBits = KernelLib.dfeInt(32).encodeConstant(data[i][0]);
+			for (int j=1; j<VectorWidth; ++j){
+				thisStepBits = KernelLib.dfeInt(32).encodeConstant(data[i][j]).cat(thisStepBits);
+			}
+			encodedData.add(thisStepBits);
+		}
+		return encodedData;
 	}
 
 

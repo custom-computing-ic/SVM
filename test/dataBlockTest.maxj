@@ -1,24 +1,28 @@
-import static org.junit.Assert.assertTrue;
-import java.util.Random;
+//import static org.junit.Assert.assertTrue;
+//import java.util.Random;
 import org.junit.Test;
+import java.util.List;
+import java.util.ArrayList;
 
 import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelParameters;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEFloat;
+//import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEFloat;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
+//import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
 import com.maxeler.maxcompiler.v2.managers.standard.SimulationManager;
 import com.maxeler.maxcompiler.v2.utils.MathUtils;
+import com.maxeler.maxcompiler.v2.utils.Bits;
 
 public class dataBlockTest {
 
 	private class dataBlockTestKernel extends Kernel {
 	
-		dataBlockTestKernel(KernelParameters parameters) {
+		dataBlockTestKernel(KernelParameters parameters, int numBlocks, int blockDim) {
 		
 			super(parameters);
 			
@@ -32,59 +36,66 @@ public class dataBlockTest {
 			DFEVar EnInput = (EnInputCount === 0);
 			
 			// Input
-			DFEVar Xc_IN = io.input("Xc_IN", Def.DataType, EnInput);
-			DFEVector<DFEVar> Xc = Def.DataVecType.newInstance(this);
-			for (int i=0; i<Def.DataDim; ++i) Xc[i] <== Xc_IN + i;
+			DFEVector<DFEVar> Xc = io.input("Xc", Def.DataVecType, EnInput);
 			
-			// XcPosition
-			Count.Params XcPositionParam = control.count.makeParams(16)
-										.withMax(16)
-										.withEnable(EnInputCounter.getWrap());
-			Counter XcPositionCounter = control.count.makeCounter(XcPositionParam);
-			DFEVar XcPosition = XcPositionCounter.getCount();
+			// Offset Address of Xc
+			Count.Params OffsetAddrXcParam = control.count.makeParams(MathUtils.bitsToAddress(blockDim))
+											.withMax(blockDim)
+											.withEnable(EnInputCounter.getWrap());
+			Counter OffsetAddrXcCounter = control.count.makeCounter(OffsetAddrXcParam);
+			DFEVar OffsetAddrXc = OffsetAddrXcCounter.getCount();
 			
-			// dataBlock
-			final int numBlocks = 4;
-			final int Size = 4;
-			dataBlock [] DataBlock = new dataBlock[numBlocks];			
-			DFEVector<DFEVector<DFEVar>> dataX = (new DFEVectorType<DFEVector<DFEVar>>(Def.DataVecType, numBlocks)).newInstance(this);
+			// Base Address of Xc
+			Count.Params BaseAddrXcParam = control.count.makeParams(MathUtils.bitsToAddress(blockDim))
+											.withMax(blockDim)
+											.withEnable(OffsetAddrXcCounter.getWrap());
+			Counter BaseAddrXcCounter = control.count.makeCounter(BaseAddrXcParam);
+			DFEVar BaseAddrXc = BaseAddrXcCounter.getCount();		
+			
+
+			// dataX
+			dataBlock [] DataBlock = new dataBlock[numBlocks];
 			DFEVar [] isValid = new DFEVar[numBlocks];
+			DFEVector<DFEVector<DFEVar>> dataX = (new DFEVectorType<DFEVector<DFEVar>>(Def.DataVecType, numBlocks)).newInstance(this);
 			for (int i=0; i<numBlocks; ++i) {
-				DataBlock[i] = new dataBlock (this, i, Size, Xc, XcPosition, EnInput);
+				DataBlock[i] = new dataBlock(this, i, blockDim, Xc, BaseAddrXc, OffsetAddrXc, EnInput);
 				dataX[i] <== DataBlock[i].getData();
 				isValid[i] = DataBlock[i].isValid();
 			}
 
 			// SimPrintf
+			AddrGenerator AddrGen = new AddrGenerator(this, 1, blockDim, EnInput);
+                	DFEVar Addr = AddrGen.getAddr();
 			debug.simPrintf(EnInput, "------------------------------------------------------------------\n");
-			debug.simPrintf("[%3d] Xc[%d]=%d, dataX[0:3]=(%d,%d,%d,%d), isValid=%d \n", Tick, XcPosition, Xc_IN, dataX[0][0], dataX[1][0], dataX[2][0], dataX[3][0], isValid[0]);
+			debug.simPrintf("[%3d](Dim=0) Xc[%d][%d]<=%d, dataX[0:3][%d]=(%d,%d,%d,%d), isValid=%d \n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Addr, dataX[0][0], dataX[1][0], dataX[2][0], dataX[3][0], isValid[0]);
 
 
 		}
 	}
 
-	private class dataBlockTestData {
-		long input [];
-		dataBlockTestData(int numTicks) {
-			input = new long[numTicks];
-			for (int i=0; i<numTicks; ++i) input[i] = i*100;
-		}
-	}
 
 	@Test 
-	public void test1() { 
-		test(200); 
+	public void test1() {
+		final int numTicks = 200;
+		final int VecWidth = 30;
+		final int numBlocks = 4;
+		final int blockDim = 4;
+		int [][] data = new int[numTicks][VecWidth];
+		for (int tick=0; tick<200; ++tick) {
+			for (int dim=0; dim<VecWidth; ++dim) {
+				data[tick][dim] = tick*100;
+			}
+		}
+		List<Bits> input = Def.IntVectorDataGenerator(data, numTicks, VecWidth);
+		test(numTicks, numBlocks, blockDim, input);
 	}
 	
-	private void test(int numTicks) {
+	private void test(int numTicks, int numBlocks, int blockDim, List<Bits> data) {
 		SimulationManager mgr = new SimulationManager("dataBlockTest");
-		dataBlockTestKernel kernel = new dataBlockTestKernel(mgr.makeKernelParameters());
+		dataBlockTestKernel kernel = new dataBlockTestKernel(mgr.makeKernelParameters(), numBlocks, blockDim);
 		mgr.setKernel(kernel);
-
-		dataBlockTestData data = new dataBlockTestData(numTicks);
-		mgr.setInputDataLong("Xc_IN", data.input);
+		mgr.setInputDataRaw("Xc", data);
 		mgr.setKernelCycles(numTicks);
-
 		mgr.runTest();
 	}
 }

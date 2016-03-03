@@ -1,0 +1,56 @@
+import java.util.ArrayList;
+
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
+
+
+/**
+ * Blocked storage of a 1D array for parallel access
+ *
+ * @author Patrick Shao
+ *
+ * @param <ID>  ID of this block, range [0, numBlocks-1]
+ * @param <blockDim> 1D Dimension of the block
+ * @param <BaseAddrXc> Base Address of Xc, range [0, numBlocks-1]
+ * @param <OffsetAddrXc> Offset Address of Xc, range [0, blockDim-1]
+ * @param <EnIterate> Enable Iteration - valid on the cycle that Xc arrives
+ */
+
+class dataBlock1D extends KernelLib{
+
+	private DFEVector<DFEVar> dataOUT;
+	private DFEVar Valid;
+		
+	public DFEVector<DFEVar> getData() 	{return dataOUT;}
+	public DFEVar isValid() 		{return Valid;}
+	
+	dataBlock1D (KernelLib owner, String name, int numBlocks, int blockDim, DFEVector<DFEVar> dataIn, DFEVar BaseAddrXc, DFEVar OffsetAddrXc, DFEVar EnWrite, DFEVar EnIterate) {
+		
+		super(owner);
+		
+		/////////////////////// Memory ///////////////////////
+                
+                // Address
+                AddrGenerator AddrGen = new AddrGenerator(owner, 1, blockDim, EnIterate);
+                DFEVar Addr = AddrGen.getAddr();
+                Valid = AddrGen.isValid();
+		
+		// Memory
+		DFEType dataType = dataIn[0].getType();
+		DFEVectorType<DFEVar> VecType = new DFEVectorType<DFEVar>(dataType, numBlocks);
+		dataOUT = VecType.newInstance(this);
+		for(int i=0; i<Def.numBlocks; ++i) {
+			DFEVar En = EnWrite & (BaseAddrXc === i) & (Addr === OffsetAddrXc);
+			Memory<DFEVar> block = mem.alloc(dataType, blockDim);
+			block.mapToCPU(name+i);
+			dataOUT[i] <== block.port(Addr, dataIn[i], En, RamWriteMode.WRITE_FIRST);
+		}
+
+	}
+
+}

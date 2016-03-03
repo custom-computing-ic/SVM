@@ -12,10 +12,8 @@ public class SVMManager extends CustomManager{
     SVMManager(EngineParameters ep) {
         super(ep);
 
-        KernelBlock k = addKernel(new SVMKernel(makeKernelParameters(s_kernelName)));
+        KernelBlock k = addKernel(new SVMKernel(makeKernelParameters(s_kernelName), Def.numBlocks, Def. blockDim, Def.WinSize, Def.streamLength));
 
-        k.getInput("a") <== addStreamFromCPU("a");
-        k.getInput("b") <== addStreamFromCPU("b");
         addStreamToCPU("output") <== k.getOutput("output");
     }
 
@@ -29,8 +27,6 @@ public class SVMManager extends CustomManager{
 
         engine_interface.setTicks(s_kernelName, N);
 
-        engine_interface.setStream("a", type, sizeBytes);
-        engine_interface.setStream("b", type, sizeBytes);
         engine_interface.setStream("output", type, sizeBytes);
         return engine_interface;
     }

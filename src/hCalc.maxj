@@ -1,0 +1,55 @@
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
+
+import maxpower.FloatingPointAccumulator;
+
+/**
+ * This class calculates hXi
+ *	- Floating point accumulator from MaxPower is used
+ *	- blockDim should be at least ~15 to ensure correctness, depending on pipelining factor
+ *
+ *
+ * @author Patrick Shao
+ *
+ * @param <blockDim> 1D Dimension of the block - Block Size = blockDim^2
+ * @param <Q> Incoming Q vector from KernelCalc - width = numBlocks
+ * @param <theta> Incoming theta vector - width = numBlocks
+ * @param <b> Offset b
+ * @param <Y> Yc
+ * @param <beginCalc> valid on the cycle that the first item arrives
+ * 
+ */
+
+
+
+class hCalc extends KernelLib {
+
+	private DFEVar dataOUT;
+	private DFEVar Valid;
+		
+	public DFEVar getData() 			{return dataOUT;}
+	public DFEVar isValid() 				{return Valid;}
+	
+	hCalc (KernelLib owner, int blockDim, DFEVector<DFEVar> Q, DFEVector<DFEVar> theta, DFEVar b, DFEVar Y, DFEVar beginCalc) {
+	
+		super(owner);
+		
+		/////////////////////// Control ///////////////////////
+		
+		AddrGenerator AddrGen = new AddrGenerator(owner, 1, blockDim, beginCalc);
+                DFEVar Addr = AddrGen.getAddr();
+                DFEVar EnAccumulation = AddrGen.isValid();
+                Valid = (Addr === blockDim-1);
+		
+		/////////////////////// Calculation ///////////////////////
+				
+		DFEVector<DFEVar> mult = theta * Q;
+		DFEVar offset = b - Y;
+		DFEVar sum = FloatingPointAccumulator.accumulateFixedLength(mult.getElementsAsList(), EnAccumulation, blockDim, false);
+		dataOUT = sum+offset;
+
+	}
+
+}

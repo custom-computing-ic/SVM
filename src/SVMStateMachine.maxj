@@ -5,6 +5,7 @@ import com.maxeler.maxcompiler.v2.statemachine.DFEsmStateEnum;
 import com.maxeler.maxcompiler.v2.statemachine.DFEsmStateValue;
 import com.maxeler.maxcompiler.v2.statemachine.kernel.KernelStateMachine;
 import com.maxeler.maxcompiler.v2.statemachine.types.DFEsmValueType;
+import com.maxeler.maxcompiler.v2.utils.MathUtils;
 
 class SVMStateMachine extends KernelStateMachine {
 
@@ -19,78 +20,155 @@ class SVMStateMachine extends KernelStateMachine {
 
         ////////////////////////// I/O Variables /////////////////////////
 
-	// Control input stream Xc
+	// For controlled input Xc
 	private final DFEsmOutput EnInput;
 
-//        private final DFEsmInput iMax;
-//        private final int mHoldCount;
+	// Base Address of the current item Xc: [0, numBlocks-1]
+	private final DFEsmOutput BaseAddrXc;
+
+	// Offset Address of the current item Xc: [0, blockDim-1]
+	private final DFEsmOutput OffsetAddrXc;	
+
+	// Has training finished
+	private final DFEsmInput hasFinished;
+
 
         ////////////////////////// State Variables /////////////////////////
-        
+
         // Mode
         private final DFEsmStateEnum<Modes> sMode;
-        
-        /*
+
         // Current number of samples in the window
         private final DFEsmStateValue CurSize;
-        
-        // ID of the item currently processing
-        private final DFEsmStateValue ID;
-        
-        // Read address of matrix Q blocks
-        private final DFEsmStateValue QReadAddr;
-        
-        // Write address of matrix Q blocks
-        private final DFEsmStateValue QWriteAddr;
-        */
 
-	public SVMStateMachine(KernelLib owner) {
+        // Counting Base Address of item Xc
+        private final DFEsmStateValue BaseAddrXcCount;
+
+        // Counting Offset Address of item Xc
+        private final DFEsmStateValue OffsetAddrXcCount;
+        
+        // Counting internal ticks
+        private final DFEsmStateValue TickCount;
+        
+        
+	 ////////////////////////// Parameters /////////////////////////    
+
+	// Number of blocks
+	private final int numBlocks;
+	
+	// 1D-Dimension of each block
+	private final int blockDim;
+	
+	// WinSize
+	private final int WinSize;
+
+
+	public SVMStateMachine(KernelLib owner, int numBlocks_IN, int blockDim_IN, int WinSize_IN) {
+
+	 	////////////////////////// Parameters /////////////////////////  
 
 		super(owner);
+		numBlocks = numBlocks_IN;
+		blockDim = blockDim_IN;
+		WinSize = WinSize_IN;
 
                 ////////////////////////// Types /////////////////////////
-                
+
 		DFEsmValueType BoolType = dfeUInt(1);
+		DFEsmValueType BaseAddrType = dfeUInt(MathUtils.bitsToAddress(numBlocks));
+		DFEsmValueType OffsetAddrType = dfeUInt(MathUtils.bitsToAddress(blockDim));
+		DFEsmValueType CurSizeType = dfeUInt(MathUtils.bitsToRepresentUnsigned(WinSize));
+		DFEsmValueType TickType = dfeUInt(32);
+
+
+                ////////////////////////// Inputs /////////////////////////
+
+		// Has training finished?
+		hasFinished = io.input("hasFinished", BoolType);
+		
 
                 ////////////////////////// Outputs /////////////////////////
 
-                // Control input stream Xc
+                // Control for input stream Xc
                 EnInput = io.output("EnInput", BoolType);
                 
+		// Address of Xc
+		BaseAddrXc = io.output("BaseAddrXc", BaseAddrType);
+		OffsetAddrXc = io.output("OffsetAddrXc", OffsetAddrType);
 
-//                iMax = io.input("max", counterType);
-                
-                // Initialise State Variables
-                sMode = state.enumerated(Modes.class, Modes.IDLE);
-//                sCounter = state.value(counterType, 0);
-//                sHoldCounter = state.value(counterType, 0);
+
+                ////////////////////////// Init State Variables /////////////////////////
+
+		// Mode
+		sMode = state.enumerated(Modes.class, Modes.IDLE);
+		
+		// CurSize
+		CurSize = state.value(CurSizeType, 2);
+
+		// Address of Xc - starting from the 3rd item
+		BaseAddrXcCount = state.value(BaseAddrType, 0);
+		OffsetAddrXcCount = state.value(OffsetAddrType, 2);
+		
+		// Tick
+		TickCount = state.value(TickType, 0);
+
         }
         
 	@Override
 	protected void nextState() {
+		// For sMode, TickCount
 		SWITCH(sMode) {
+			// Currently Idle
 			CASE(Modes.IDLE) {
-				sMode.next <== Modes.INC;
+				IF (CurSize<WinSize) {sMode.next <== Modes.INC;}
+				ELSE {sMode.next <== Modes.DEC;}
+				TickCount.next <== 0;
                         }
+                        // During Incremental Training
+                        CASE(Modes.INC) {
+                        	IF (hasFinished === true) {
+                        		sMode.next <== Modes.IDLE;
+                        		CurSize.next <== CurSize + 1;
+                        		IF (OffsetAddrXcCount === (blockDim-1)) {
+                        			OffsetAddrXcCount.next <== 0;
+                        			IF (BaseAddrXcCount === (numBlocks-1)) {BaseAddrXcCount.next <== 0;}
+                        			ELSE {BaseAddrXcCount.next <== BaseAddrXcCount + 1;}
+                        		}
+                        		ELSE {
+                        			OffsetAddrXcCount.next <== OffsetAddrXcCount + 1;
+                        		}
+                        	}
+                        	ELSE {
+                        		TickCount.next <== TickCount + 1;
+                        	}
+                        }
+                        // During Decremental Training
+			 CASE(Modes.DEC) {
+                        	IF (hasFinished === true) {
+                        		sMode.next <== Modes.IDLE;
+                        		CurSize.next <== CurSize - 1;
+                        	}
+                        	ELSE {
+                        		TickCount.next <== TickCount + 1;
+                        	}                    	
+
+                        }
+                        // Default
                         OTHERWISE {
-                        	sMode.next <== sMode;
-                        /*
-                                IF (sHoldCounter === mHoldCount)
-                                {
-                                        sHoldCounter.next <== 0;
-                                        sMode.next <== Modes.COUNTING_DOWN;
-                                }
-                                ELSE {
-                                        sHoldCounter.next <== sHoldCounter+1;
-                                }
-                        */
+                        	sMode.next <== Modes.IDLE;
                         }
-                }
+                        
+                } // end of SWITCH(sMode)
+
+                
         }
 
         @Override
         protected void outputFunction() {
-		EnInput <== (sMode === Modes.IDLE);
+        	EnInput <== (sMode === Modes.INC) & (TickCount === 0);
+		BaseAddrXc <== BaseAddrXcCount;
+		OffsetAddrXc <== OffsetAddrXcCount;
+		
         }
         
 }

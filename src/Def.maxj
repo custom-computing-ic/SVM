@@ -10,9 +10,11 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
 import com.maxeler.maxcompiler.v2.utils.Bits;
 import java.util.List;
 import java.util.ArrayList;
+import java.lang.Math;
 
 import maxpower.KernelBinaryOp.Add;
 import maxpower.TreeReduce;
+
 
 class Def {
 
@@ -27,30 +29,32 @@ class Def {
 	
 	///////////////////////// Kernel Settings /////////////////////////
 
-	// Divide dataX into several blocks
-	// BlockDim = WinSize/numBlocks should >= 4
+	// Divide data into several blocks
+	// IMPORTANT: WinSize = numBlocks * blockDim;
 	public static final int numBlocks = 4;
-	
+	public static final int blockDim = 4;
+	public static final int streamLength = 8;
+		
 
 	///////////////////////// SVM Parameters /////////////////////////
 
 	// Input Data Dimension : Number of Features
-	public static final int DataDim = 30;
+	public static final int DataDim = 1; // 30
 
-	// Window Size - MUST BE A MULTIPLE OF numBlocks
-	public static final int WinSize = 512;
+	// Window Size = numBlocks * blockDim
+	public static final int WinSize = numBlocks * blockDim;
 	
 	// RSize - theoretical maximum RSize is (WinSize+1)
-	public static final int RSize = 512;
+	public static final int RSize = WinSize;
 
 	// epsilon
-	public static final double ep = 50;
+	public static final double ep = 0.01;  //50
 	
 	// C
-	public static final double C = 32768;
+	public static final double C = 1000;  //32768
 	
 	// sigma_sq
-	public static final double sigma_sq = 64;
+	public static final double sigma_sq = 50;  //50
 	
 	// eps 
 	// [TODO]: Multiple EPS
@@ -69,13 +73,13 @@ class Def {
 	public static final DFEVectorType<DFEVar> DataVecType = new DFEVectorType<DFEVar>(DataType, DataDim);
 	
 	// Block Vector of Calc Data Type
-	public static final DFEVectorType<DFEVar> BlockVecType = new DFEVectorType<DFEVar>(CalcType, numBlocks);
+	//public static final DFEVectorType<DFEVar> BlockVecType = new DFEVectorType<DFEVar>(CalcType, numBlocks);
 
 	// Boolean Type
 	public static final DFEType BoolType = KernelLib.dfeBool();
 
 
-	///////////////////////// Utility Functions /////////////////////////
+	///////////////////////// Utility Functions For Hardware /////////////////////////
 	
 	// RBF Kernel
 	public static DFEVar RBFKernel(DFEVector<DFEVar>X1, DFEVector<DFEVar>X2) {
@@ -93,6 +97,10 @@ class Def {
 		return KernelMath.exp(sum_float*(-0.5/sigma_sq));
 	}
 	
+
+
+	///////////////////////// Utility Functions For Tests /////////////////////////
+
 	// Input Data Generator - For Tests
 	public static List<Bits> IntVectorDataGenerator(int [][] data, int numTicks, int VectorWidth) {
 		final List<Bits> encodedData = new ArrayList<Bits>(numTicks);
@@ -106,7 +114,12 @@ class Def {
 		return encodedData;
 	}
 
-
+	// RBFKernel
+	public static double RBFKernel (int [] X1, int [] X2, int DataDim, double sigma_sq) {
+		double sum = 0;
+		for (int i=0; i<DataDim; ++i) sum -= (X1[i] - X2[i]) * (X1[i] - X2[i]);
+		return Math.exp(sum/2/sigma_sq);
+	}
 
 
 }

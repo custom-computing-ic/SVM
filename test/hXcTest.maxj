@@ -1,0 +1,173 @@
+//import static org.junit.Assert.assertTrue;
+//import java.util.Random;
+import org.junit.Test;
+import java.util.List;
+import java.util.ArrayList;
+
+import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelParameters;
+//import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEFloat;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
+//import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
+import com.maxeler.maxcompiler.v2.managers.standard.SimulationManager;
+import com.maxeler.maxcompiler.v2.utils.MathUtils;
+import com.maxeler.maxcompiler.v2.utils.Bits;
+
+public class hXcTest {
+
+
+
+	@Test
+	public void testSimpleData() {
+	
+		/////////////////////// Settings ///////////////////////
+		
+		final int numTicks = 2000;
+		final int numBlocks = 4;
+		final int blockDim = 16;
+		final int streamLength = 8;
+
+
+		/////////////////////// Kernel and Manager ///////////////////////
+		
+		SimulationManager mgr = new SimulationManager("hXcTest");
+		SVMKernel kernel = new SVMKernel(mgr.makeKernelParameters(),  numBlocks, blockDim, numBlocks*blockDim, streamLength);
+		mgr.setKernel(kernel);
+		
+		
+		/////////////////////// Initialisation ///////////////////////
+	
+		// dataX
+		int [] dataX0 = {0};
+		int [] dataX1 = {1};
+		// init dataX
+		mgr.setMappedRam("dataXBlock0Dim0", 0, 0);
+		mgr.setMappedRam("dataXBlock0Dim0", 1, 1);
+		// init dataY
+		mgr.setMappedRam("dataY0", 0, 1455.219971);
+		mgr.setMappedRam("dataY0", 1, 1399.420044);
+		// init theta
+		mgr.setMappedRam("theta0", 0, 1000);
+		mgr.setMappedRam("theta0", 1, -1000);
+		// init Q
+		for (int X=0; X<numBlocks; ++X) {
+			for (int Y=0; Y<=X; ++Y) {
+				for (int i=0; i<blockDim*blockDim; ++i) {
+					mgr.setMappedRam("QBlockX"+X+"Y"+Y, i, 100+X*10+Y+(double)i/100.0);
+				}
+                	}
+                }
+		/*
+		mgr.setMappedRam("QBlockX0Y0", 0*blockDim+0, 1);
+		mgr.setMappedRam("QBlockX0Y0", 0*blockDim+1, Def.RBFKernel (dataX0, dataX1, 1, 50));
+		mgr.setMappedRam("QBlockX0Y0", 1*blockDim+0, Def.RBFKernel (dataX0, dataX1, 1, 50));
+		mgr.setMappedRam("QBlockX0Y0", 1*blockDim+1, 1);
+		*/
+		
+		/////////////////////// Set Input Data ///////////////////////
+
+		int [][] Xc = {{2}, {3}, {4}, {5}, {6}, {7}, {8}, {9}};
+		double [] Yc = {1402.109985, 1403.449951, 1441.469971, 1457.599976, 1438.560059, 1432.250000, 1449.680054, 1465.150024};
+		
+		List<Bits> XcRawBits = Def.IntVectorDataGenerator(Xc, 8, 1);
+		
+		mgr.setInputDataRaw("Xc", XcRawBits);
+		mgr.setInputData("Yc", Yc);
+		
+		/////////////////////// Run ///////////////////////
+		
+		mgr.setKernelCycles(numTicks);
+		mgr.runTest();
+	}
+	
+	
+/*
+	@Test 
+	public void testData2() {
+	
+		// Window Size = 16
+		final int numTicks = 100;
+		final int numInputItems = 14, VecWidth = 30;
+		final int numBlocks = 4, blockDim = 4;
+		
+		// Prepare Xc
+		int [][] dataXc = {
+		{1000, 300, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 166, 300, 275150, 275150, 275150, 275150, 50, 150, 250, 350, 166, 400, 275150, 275150, 275150, 275150, 50, 150, 250, 350},
+{1000, 500, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 166, 300, 275150, 275150, 275150, 275150, 50, 150, 250, 350, 166, 400, 275150, 275100, 275100, 275100, 50, 200, 300, 400},
+{1000, 600, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 166, 300, 275150, 275150, 275150, 275150, 50, 150, 250, 350, 166, 300, 275150, 275100, 275100, 275100, 50, 200, 300, 400},
+{1000, 800, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 100, 300, 275150, 275150, 275150, 275150, 50, 150, 250, 350, 166, 300, 275150, 275150, 275150, 275150, 50, 150, 250, 350},
+{1000, 600, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 1000, 300, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 166, 300, 275150, 275150, 275150, 275150, 50, 150, 250, 350},
+{1000, 800, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 1000, 300, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 166, 300, 275150, 275150, 275150, 275150, 50, 150, 250, 350},
+{1000, 600, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 1000, 500, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 166, 300, 275150, 275150, 275150, 275150, 50, 150, 250, 350},
+{1000, 800, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 1000, 600, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 166, 300, 275150, 275150, 275150, 275150, 50, 150, 250, 350},
+{1000, 700, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 1000, 800, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 100, 300, 275150, 275150, 275150, 275150, 50, 150, 250, 350},
+{1000, 800, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 1000, 600, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 1000, 300, 275200, 275200, 275200, 275200, 100, 200, 300, 400},
+{1000, 600, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 1000, 800, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 1000, 300, 275200, 275200, 275200, 275200, 100, 200, 300, 400},
+{1000, 800, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 1000, 600, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 1000, 500, 275200, 275200, 275200, 275200, 100, 200, 300, 400},
+{1000, 600, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 1000, 800, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 1000, 600, 275200, 275200, 275200, 275200, 100, 200, 300, 400},
+{1000, 800, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 1000, 700, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 1000, 800, 275200, 275200, 275200, 275200, 100, 200, 300, 400}
+		};
+		List<Bits> Xc = Def.IntVectorDataGenerator(dataXc, numInputItems, VecWidth);
+		
+		// Prepare Yc
+		double [] Yc = {275100, 275100, 275100, 275100, 275100, 275100, 275100, 275100, 275100, 275100, 275100, 275100, 275100, 275100};
+
+		// Run test		
+		test2(numTicks, numBlocks, blockDim, Xc, Yc);
+
+	}
+	
+	
+	private void test2(int numTicks, int numBlocks, int blockDim, List<Bits> Xc, double [] Yc) {
+
+		/////////////////////// Kernel and Manager ///////////////////////
+		
+		SimulationManager mgr = new SimulationManager("hXcTest");
+		SVMKernel kernel = new SVMKernel(mgr.makeKernelParameters(),  numBlocks, blockDim, numBlocks*blockDim);
+		mgr.setKernel(kernel);
+		
+		/////////////////////// Initialisation ///////////////////////
+		
+		// dataX
+		int [] dataX0 = {100, 300, 275150, 275150, 275150, 275150, 50, 150, 250, 350, 166, 300, 275150, 275150, 275150, 275150, 50, 150, 250, 350, 66, 400, 275150, 275150, 275150, 275200, 50, 150, 250, 400};
+		int [] dataX1 = {1000, 300, 275200, 275200, 275200, 275200, 100, 200, 300, 400, 166, 300, 275150, 275150, 275150, 275150, 50, 150, 250, 350, 166, 400, 275150, 275150, 275150, 275200, 50, 150, 250, 400};
+		// data Y
+		double [] dataY = {275100, 275100};
+	
+		// init dataX
+		for (int i=0; i<30; ++i) {
+			mgr.setMappedRam("dataXBlock0Dim"+i, 0, dataX0[i]);
+			mgr.setMappedRam("dataXBlock0Dim"+i, 1, dataX1[i]);
+		}
+		// init dataY
+		mgr.setMappedRam("dataY0", 0, dataY[0]);
+		mgr.setMappedRam("dataY0", 1, dataY[1]);
+		// init theta
+		for (int i=0; i<numBlocks; ++i) {
+			mgr.setMappedRam("theta"+i, 0);
+		}
+		// init Q
+		mgr.setMappedRam("QBlockX0Y0", 0*blockDim+0, 1);
+		mgr.setMappedRam("QBlockX0Y0", 0*blockDim+1, Def.RBFKernel (dataX0, dataX1, 30, 64));
+		mgr.setMappedRam("QBlockX0Y0", 1*blockDim+0, Def.RBFKernel (dataX0, dataX1, 30, 64));
+		mgr.setMappedRam("QBlockX0Y0", 1*blockDim+1, 1);
+		
+		
+		/////////////////////// Set Input Data ///////////////////////
+		
+		mgr.setInputDataRaw("Xc", Xc);
+		mgr.setInputData("Yc", Yc);
+		
+		/////////////////////// Run ///////////////////////
+		
+		mgr.setKernelCycles(numTicks);
+		mgr.runTest();
+	}
+*/	
+	
+}

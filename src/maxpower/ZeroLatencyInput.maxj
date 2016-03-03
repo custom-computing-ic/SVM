@@ -1,0 +1,148 @@
+package maxpower;
+
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.kernelcompiler.SMIO;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Params;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core._KernelCore;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.KernelObject;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.KernelType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFETypeFactory;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.statemachine.DFEsmInput;
+import com.maxeler.maxcompiler.v2.statemachine.DFEsmOutput;
+import com.maxeler.maxcompiler.v2.statemachine.DFEsmStateValue;
+import com.maxeler.maxcompiler.v2.statemachine.DFEsmValue;
+import com.maxeler.maxcompiler.v2.statemachine.kernel.KernelStateMachine;
+import com.maxeler.maxcompiler.v2.statemachine.types.DFEsmValueType;
+import com.maxeler.maxcompiler.v2.utils.MathUtils;
+
+/**
+ * @author Chris Jones
+ */
+public class ZeroLatencyInput {
+	/**
+	 * Creates a state machine which pre-buffers an input stream, enable the input to be read with zero latency.
+	 * Typical usage is within a loop in which the smallest possible latency is required (outside of loops input latency is irrelevant).
+	 *
+	 * It should behave identically to a standard io.input, with one <b>important</b> caveat: a scalar input specifying the number of elements
+	 * on the input stream must be set. This scalar input with be named: kernelName.streamName_ZLI_inputLength
+	 *
+	 * For a typical example usage see the ZLIRunLengthDecoder test.
+	 */
+	public static <T extends KernelObject<T>> T input(String name, KernelType<T> type, DFEVar control) {
+		KernelLib owner = control.getKernel();
+		DFEVar inputLength = owner.io.scalarInput(name+"_ZLI_inputLength", DFETypeFactory.dfeUInt(32));
+		return input(name, type, control, inputLength);
+	}
+
+	/**
+	 * Creates a state machine which pre-buffers an input stream, enable the input to be read with zero latency.
+	 * Typical usage is within a loop in which the smallest possible latency is required (outside of loops input latency is irrelevant).
+	 *
+	 * This version takes an explicit inputLength as an extra parameter.
+	 *
+	 * For a typical example usage see the ZLIRunLengthDecoder test.
+	 */
+	public static <T extends KernelObject<T>> T input(String name, KernelType<T> type, DFEVar control, DFEVar inputLength) {
+		KernelLib owner = control.getKernel();
+
+		DFEVar streamEnableLoopBack = DFETypeFactory.dfeBool().newInstance(owner);
+
+		T streamIn = owner.io.input(name, type, streamEnableLoopBack);
+		int inputLatency = _KernelCore.getInputNode(owner.io, name).getLatency();
+
+		SMIO sm = owner.addStateMachine(name+"_ZLI", new ZeroLatencyInputSM(owner, type.getTotalBits(), inputLatency));
+		sm.connectInput("inputLength", inputLength);
+		sm.connectInput("streamIn", streamIn.pack().cast(DFETypeFactory.dfeUInt(type.getTotalBits())));
+		sm.connectInput("streamEnableLoopBack", streamEnableLoopBack);
+		sm.connectInput("control", control);
+
+		Params params = owner.control.count.makeParams(MathUtils.bitsToRepresent(inputLatency))
+		                                   .withMax(inputLatency).withWrapMode(WrapMode.STOP_AT_MAX);
+		Counter count = owner.control.count.makeCounter(params);
+
+		DFEVar select    = (count.getCount() < inputLatency);
+		DFEVar initValue = (count.getCount().cast(inputLength.getType()) < inputLength);
+
+		owner.optimization.pushPipeliningFactor(0.);
+		streamEnableLoopBack <== select ? initValue : owner.stream.offset(sm.getOutput("streamEnable"), -inputLatency);
+		owner.optimization.popPipeliningFactor();
+
+		return type.unpack(sm.getOutput("dataOut").cast(DFETypeFactory.dfeRawBits(type.getTotalBits())));
+	}
+
+	static class ZeroLatencyInputSM extends KernelStateMachine {
+		private final DFEsmInput  m_streamIn;
+		private final DFEsmOutput m_dataOut;
+
+		private final DFEsmInput  m_control;
+		private final DFEsmOutput m_streamEnable;
+		private final DFEsmInput  m_streamEnableLoopBack;
+
+		private final DFEsmInput  m_inputLength;
+
+		private final SMQueue     m_buffer;
+
+		private final DFEsmStateValue m_numRequested;
+		private final DFEsmStateValue m_firstRead; // special case
+
+		private final DFEsmValue m_streamEnableVal;
+
+		public ZeroLatencyInputSM(KernelLib owner, int dataBits, int inputLatency) {
+			super(owner);
+
+			DFEsmValueType dType = dfeUInt(dataBits); // the type is irrelevant, provided bit width is correct
+
+			m_streamIn     = io.input("streamIn", dType);
+			m_dataOut      = io.output("dataOut", dType);
+			m_control      = io.input("control", dfeBool());
+			m_streamEnable = io.output("streamEnable", dfeBool());
+			m_streamEnableLoopBack = io.input("streamEnableLoopBack", dfeBool());
+			m_inputLength  = io.input("inputLength", dfeUInt(32));
+
+			m_numRequested = state.value(dfeUInt(32), inputLatency);
+			m_firstRead    = state.value(dfeBool(), true);
+			m_buffer       = new SMQueue(this, dType, inputLatency+1); // we need one extra
+
+			m_streamEnableVal = m_control & (m_numRequested < m_inputLength);
+		}
+
+		@Override
+		public void nextState() {
+			DFEsmValue push = m_streamEnableLoopBack;
+			DFEsmValue pop  = m_control & ~m_firstRead;
+			m_buffer.pushPop(push, pop, m_streamIn);
+
+			IF (m_control)
+				m_firstRead.next <== false;
+
+			IF (m_streamEnableVal)
+				m_numRequested.next <== m_numRequested + 1;
+		}
+
+		@Override
+		public void outputFunction() {
+			IF (m_control) {
+				IF (m_firstRead) { // special case
+					IF (m_buffer.isEmpty()) { // first cycle
+						m_dataOut <== m_streamIn;
+					} ELSE {
+						m_dataOut <== m_buffer[0];
+					}
+				} ELSE {
+					IF (m_buffer.size() > 1) {
+						m_dataOut <== m_buffer[1];
+					} ELSE {
+						m_dataOut <== m_streamIn;
+					}
+				}
+			} ELSE {
+				m_dataOut <== m_buffer[0];
+			}
+
+			m_streamEnable <== m_streamEnableVal;
+		}
+	}
+}

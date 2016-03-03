@@ -1,0 +1,165 @@
+package maxpower;
+
+import com.maxeler.maxcompiler.v2.statemachine.DFEsmAssignableValue;
+import com.maxeler.maxcompiler.v2.statemachine.DFEsmStateValue;
+import com.maxeler.maxcompiler.v2.statemachine.DFEsmValue;
+import com.maxeler.maxcompiler.v2.statemachine.StateMachineLib;
+import com.maxeler.maxcompiler.v2.statemachine.types.DFEsmValueType;
+import com.maxeler.maxcompiler.v2.utils.MathUtils;
+
+/**
+ * An implementation of a Java ArrayList-like container for use within state machines.
+ *
+ * It is the responsibility of the user to ensure that only one method affecting
+ * state (add, remove, clear) is called on any given cycle. Otherwise, the resulting
+ * state will be inconsistent. These methods will only affect state for the next cycle.
+ *
+ * @author Chris Jones
+ */
+public class SMArrayList extends StateMachineLib {
+	final DFEsmStateValue   size;
+	final DFEsmStateValue[] data;
+
+	/**
+	 * Constructs a new state machine array list.
+	 *
+	 * @param owner the containing state machine library
+	 * @param type the contained type
+	 * @param capacity the maximum number of values which can be contained
+	 */
+	public SMArrayList(StateMachineLib owner, DFEsmValueType type, int capacity) {
+		super(owner);
+
+		size = state.value(dfeUInt(MathUtils.bitsToRepresent(capacity)), 0);
+		data = new DFEsmStateValue[capacity];
+
+		for (int n = 0; n < capacity; ++n)
+			data[n] = state.value(type, 0);
+	}
+
+	/**
+	 * Append value to the back of the list.
+	 *
+	 * @param val the value to be added
+	 */
+	public void add(DFEsmValue val) {
+		add(size(), val);
+	}
+
+	/**
+	 * Add value to vector at the given position.
+	 *
+	 * @param idx the index at which to add the value
+	 * @param val the value to be added
+	 */
+	public void add(int idx, DFEsmValue val) {
+		add(constant.value(dfeUInt(MathUtils.bitsToAddress(capacity())), idx), val);
+	}
+
+	/**
+	 * Add value to vector at the given position.
+	 *
+	 * @param idx the index at which to add the value
+	 * @param val the value to be added
+	 */
+	public void add(DFEsmValue idx, DFEsmValue val) {
+		IF (~isFull()) {
+			size.next <== size + 1;
+
+			for (int n = 0; n < capacity(); ++n) {
+				IF (idx === n) data[n].next <== val;
+
+				// only move data if not adding to the back
+				// (and yes, this is supposed to be a reference equality check)
+				if ((n > 0) && (idx != size())) {
+					IF (idx < n) data[n].next <== data[n-1];
+				}
+			}
+		}
+	}
+
+	/**
+	 * Remove the value at the given position.
+	 *
+	 * @param idx the index of the value to be removed
+	 * @return the value being removed
+	 */
+	public DFEsmValue remove(int idx) {
+		return remove(constant.value(dfeUInt(MathUtils.bitsToAddress(capacity())), idx));
+	}
+
+	/**
+	 * Remove the value at the given position.
+	 *
+	 * @param idx the index of the value to be removed
+	 */
+	public DFEsmValue remove(DFEsmValue idx) {
+		IF (~isEmpty()) {
+			size.next <== size - 1;
+
+			for (int n = 0; n < capacity()-1; ++n) {
+				IF (idx <= n) data[n].next <== data[n+1];
+			}
+		}
+
+		return get(idx);
+	}
+
+	/**
+	 * Reset the size to zero.
+	 */
+	public void clear() {
+		size.next <== 0;
+	}
+
+	/**
+	 * @return the value at given index
+	 */
+	public DFEsmStateValue get(int idx) {
+		return data[idx];
+	}
+
+	/**
+	 * @return the value at given index
+	 */
+	public DFEsmValue get(DFEsmValue idx) {
+		DFEsmAssignableValue value = assignable.value(data[0].getType());
+		value <== 0; // prevent latch
+
+		_SWITCH(idx);
+			for (int n = 0; n < capacity(); ++n) {
+				_CASE(n); value <== data[n];
+			}
+		_END_SWITCH();
+
+		return value;
+	}
+
+	/**
+	 * @return the number of values contained
+	 */
+	public DFEsmValue size() {
+		return size;
+	}
+
+	/**
+	 * @return the maximum number of values which can be contained
+	 */
+	public int capacity() {
+		return data.length;
+	}
+
+	/**
+	 * @return <tt>true</tt> if no values are contained
+	 */
+	public DFEsmValue isEmpty() {
+		return (size() === 0);
+	}
+
+	/**
+	 * @return <tt>true</tt> if full to capacity
+	 */
+	public DFEsmValue isFull() {
+		return (size() === capacity());
+	}
+}

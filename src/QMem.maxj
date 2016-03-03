@@ -1,9 +1,11 @@
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
+import com.maxeler.maxcompiler.v2.utils.MathUtils;
 
 
 /**
@@ -33,10 +35,10 @@ class QMem extends KernelLib{
 	private DFEVar Valid;		
 	
 	public DFEVector<DFEVar> getData() 	{return dataOUT;}
-	public DFEVar isValid() 					{return Valid;}
+	public DFEVar isValid() 		{return Valid;}
 
 
-	QMem (KernelLib owner, int blockDim, DFEVector<DFEVar> Q_IN, DFEVar BaseAddrXc, DFEVar OffsetAddrXc, DFEVar EnWrite, DFEVar EnIterate) {
+	QMem (KernelLib owner, int numBlocks, int blockDim, DFEVector<DFEVar> Q_IN, DFEVar BaseAddrXc, DFEVar OffsetAddrXc, DFEVar EnWrite, DFEVar EnIterate) {
 	
 		super(owner);
 		
@@ -44,38 +46,41 @@ class QMem extends KernelLib{
 		
 		// VAddr: OffsetAddrXc + [0,1,2,...]*blockDim
                 AddrGenerator VAddrGen = new AddrGenerator(owner, blockDim, blockDim*blockDim, EnIterate);
-                DFEVar VAddr = VAddrGen.getAddr() + OffsetAddrXc;
+                DFEVar VAddr = VAddrGen.getAddr() + OffsetAddrXc.cast(dfeUInt(MathUtils.bitsToAddress(blockDim*blockDim)));
 
 		// HAddr: blockDim*OffsetAddrXc + [0,1,2,...]
                 AddrGenerator HAddrGen = new AddrGenerator(owner, 1, blockDim, EnIterate);
-                DFEVar HAddr = HAddrGen.getAddr() + blockDim*OffsetAddrXc;
+                DFEVar HAddr = HAddrGen.getAddr().cast(dfeUInt(MathUtils.bitsToAddress(blockDim*blockDim))) + blockDim*OffsetAddrXc.cast(dfeUInt(MathUtils.bitsToAddress(blockDim*blockDim)));
                 
                 // isValid
                 Valid = HAddrGen.isValid();
                 
                 // DAddr: Generated within DBlocks - min(VAddr, HAddr)
                 
-                
+                                
                 /////////////////////// Blocks ///////////////////////
                 
                 // Create QBlocks
-                DFEVar [][] blockOUT = new DFEVar[Def.numBlocks][Def.numBlocks];
-                for (int X=0; X<Def.numBlocks; ++X) {
+                DFEVar [][] blockOUT = new DFEVar[numBlocks][numBlocks];
+                for (int X=0; X<numBlocks; ++X) {
                 	for (int Y=0; Y<=X; ++Y) {
                 		blockOUT[X][Y] = QBlock (X, Y, blockDim, Q_IN[X], Q_IN[Y], BaseAddrXc, OffsetAddrXc, VAddr, HAddr, EnWrite);
+                		
+                		//debug.simPrintf("EnWrite=%d, EnIterate=%d, Valid=%d | VAddr=%d, HAddr=%d, DAddr=%d, \n", EnWrite, EnIterate, Valid, VAddr, HAddr, KernelMath.min(VAddr, HAddr));
                 	}
                 }
                 
                 // Wiring Outputs
-                dataOUT = Def.BlockVecType.newInstance(this);
-                for (int pos=0; pos<Def.numBlocks; ++pos) {
-                	DFEVector<DFEVar> toMux = Def.BlockVecType.newInstance(this);
+                DFEVectorType<DFEVar> VecType = new DFEVectorType<DFEVar>(Def.CalcType, numBlocks);
+                dataOUT = VecType.newInstance(this);
+                for (int pos=0; pos<numBlocks; ++pos) {
+                	DFEVector<DFEVar> toMux = VecType.newInstance(this);
                 	// X=pos, Y=0:pos - Vertical Blocks and DBlock
                 	for (int Y=0; Y<=pos;++Y) {
                 		toMux[Y] <== blockOUT[pos][Y];
                 	}
                 	// Y=pos, X=pos+1:numBlocks-1 - Horizontal Blocks
-                	for (int X=pos+1; X<Def.numBlocks; ++X) {
+                	for (int X=pos+1; X<numBlocks; ++X) {
                 		toMux[X] <== blockOUT[X][pos];
                 	}
                 	// Multiplexer
@@ -104,7 +109,7 @@ class QMem extends KernelLib{
 			
 			// Memory
 			Memory<DFEVar> Q = mem.alloc(Def.CalcType, blockDim*blockDim);
-			Q.mapToCPU("QBlock["+X+"]["+Y+"]");
+			Q.mapToCPU("QBlockX"+X+"Y"+Y);
 			QVal = Q.port(Addr, Q_IN, EnWrite, RamWriteMode.WRITE_FIRST);
 		}
 		else{ 
@@ -118,7 +123,7 @@ class QMem extends KernelLib{
 
 			// Memory			
 			Memory<DFEVar> Q = mem.alloc(Def.CalcType, blockDim*blockDim);
-			Q.mapToCPU("QBlock["+X+"]["+Y+"]");
+			Q.mapToCPU("QBlockX"+X+"Y"+Y);
 			QVal = Q.port(Addr, Q_IN, EnWrite, RamWriteMode.WRITE_FIRST);
 		}
 		

@@ -3,6 +3,7 @@ import java.util.ArrayList;
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
 
@@ -14,21 +15,21 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
  * @author Patrick Shao
  *
  * @param <ID>  ID of this block, range [0, numBlocks-1]
- * @param <blockDim> 1D Dimension of the block  New Sample - Xc
+ * @param <blockDim> 1D Dimension of the block
  * @param <BaseAddrXc> Base Address of Xc, range [0, numBlocks-1]
  * @param <OffsetAddrXc> Offset Address of Xc, range [0, blockDim-1]
  * @param <EnIterate> Enable Iteration - valid on the cycle that Xc arrives
  */
 
-class dataBlock extends KernelLib{
+class dataXBlock extends KernelLib{
 
 	private DFEVector<DFEVar> dataOUT;
 	private DFEVar Valid;
 		
 	public DFEVector<DFEVar> getData() 	{return dataOUT;}
-	public DFEVar isValid() 					{return Valid;}
+	public DFEVar isValid() 		{return Valid;}
 	
-	dataBlock (KernelLib owner, int ID, int blockDim, DFEVector<DFEVar> Xc, DFEVar BaseAddrXc, DFEVar OffsetAddrXc, DFEVar EnIterate) {
+	dataXBlock (KernelLib owner, int ID, int blockDim, int DataDim, DFEVector<DFEVar> Xc, DFEVar BaseAddrXc, DFEVar OffsetAddrXc, DFEVar EnIterate) {
 		
 		super(owner);
 		
@@ -44,9 +45,10 @@ class dataBlock extends KernelLib{
 		DFEVar EnWrite = isThisBlock & (Addr === OffsetAddrXc);
 		
 		// Memory
-		dataOUT = Def.DataVecType.newInstance(this);
+		DFEVectorType<DFEVar> VecType = new DFEVectorType<DFEVar>(Def.DataType, DataDim);
+		dataOUT = VecType.newInstance(this);
 		ArrayList<Memory<DFEVar>> Block = new ArrayList<Memory<DFEVar>>();
-		for(int i=0; i<Def.DataDim; ++i) {
+		for(int i=0; i<DataDim; ++i) {
 			Block.add(i, mem.alloc(Def.DataType, blockDim));
 			Block.get(i).mapToCPU("dataXBlock"+ID+"Dim"+i);
 			dataOUT[i] <== Block.get(i).port(Addr, Xc[i], EnWrite, RamWriteMode.WRITE_FIRST);

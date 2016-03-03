@@ -22,7 +22,7 @@ public class dataBlockTest {
 
 	private class dataBlockTestKernel extends Kernel {
 	
-		dataBlockTestKernel(KernelParameters parameters, int numBlocks, int blockDim) {
+		dataBlockTestKernel(KernelParameters parameters, int numBlocks, int blockDim, int dataDim) {
 		
 			super(parameters);
 			
@@ -36,7 +36,8 @@ public class dataBlockTest {
 			DFEVar EnInput = (EnInputCount === 0);
 			
 			// Input
-			DFEVector<DFEVar> Xc = io.input("Xc", Def.DataVecType, EnInput);
+			DFEVectorType<DFEVar> VecType = new DFEVectorType<DFEVar>(Def.DataType, dataDim);
+			DFEVector<DFEVar> Xc = io.input("Xc", VecType, EnInput);
 			
 			// Offset Address of Xc
 			Count.Params OffsetAddrXcParam = control.count.makeParams(MathUtils.bitsToAddress(blockDim))
@@ -54,13 +55,13 @@ public class dataBlockTest {
 			
 
 			// dataX
-			dataBlock [] DataBlock = new dataBlock[numBlocks];
+			dataXBlock [] DataXBlock = new dataXBlock[numBlocks];
 			DFEVar [] isValid = new DFEVar[numBlocks];
-			DFEVector<DFEVector<DFEVar>> dataX = (new DFEVectorType<DFEVector<DFEVar>>(Def.DataVecType, numBlocks)).newInstance(this);
+			DFEVector<DFEVector<DFEVar>> dataX = (new DFEVectorType<DFEVector<DFEVar>>(VecType, numBlocks)).newInstance(this);
 			for (int i=0; i<numBlocks; ++i) {
-				DataBlock[i] = new dataBlock(this, i, blockDim, Xc, BaseAddrXc, OffsetAddrXc, EnInput);
-				dataX[i] <== DataBlock[i].getData();
-				isValid[i] = DataBlock[i].isValid();
+				DataXBlock[i] = new dataXBlock(this, i, blockDim, dataDim, Xc, BaseAddrXc, OffsetAddrXc, EnInput);
+				dataX[i] <== DataXBlock[i].getData();
+				isValid[i] = DataXBlock[i].isValid();
 			}
 
 			// SimPrintf
@@ -87,12 +88,12 @@ public class dataBlockTest {
 			}
 		}
 		List<Bits> input = Def.IntVectorDataGenerator(data, numTicks, VecWidth);
-		test(numTicks, numBlocks, blockDim, input);
+		test(numTicks, numBlocks, blockDim, VecWidth, input);
 	}
 	
-	private void test(int numTicks, int numBlocks, int blockDim, List<Bits> data) {
+	private void test(int numTicks, int numBlocks, int blockDim, int dataDim, List<Bits> data) {
 		SimulationManager mgr = new SimulationManager("dataBlockTest");
-		dataBlockTestKernel kernel = new dataBlockTestKernel(mgr.makeKernelParameters(), numBlocks, blockDim);
+		dataBlockTestKernel kernel = new dataBlockTestKernel(mgr.makeKernelParameters(), numBlocks, blockDim, dataDim);
 		mgr.setKernel(kernel);
 		mgr.setInputDataRaw("Xc", data);
 		mgr.setKernelCycles(numTicks);

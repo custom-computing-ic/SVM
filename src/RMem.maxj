@@ -1,5 +1,4 @@
 import java.util.ArrayList;
-import java.util.List;
 
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
 import com.maxeler.maxcompiler.v2.kernelcompiler.RoundingMode;
@@ -92,7 +91,7 @@ class RMem extends KernelLib{
  		/////////////////////// REnlarge ///////////////////////
  		
  		// Base and Offset Address of Edge
- 		ConstDenominator.ConstDivModResult EdgeDivModResult = ConstDenominator.divMod(SSize+1, blockDim);
+ 		ConstDenominator.ConstDivModResult EdgeDivModResult = ConstDenominator.divMod(SSize+1, blockDim, MathUtils.bitsToAddress(blockDim));
  		DFEVar REnlargeEdgeBaseAddr = EdgeDivModResult.getQuotient();
  		DFEVar REnlargeEdgeOffsetAddr = EdgeDivModResult.getRemainder();
 		
@@ -109,7 +108,7 @@ class RMem extends KernelLib{
                 DFEVar RShrinkCount = RShrinkCounter.getAddr();
 
 		// Base and Offset Address of Edge
- 		ConstDenominator.ConstDivModResult PosDivModResult = ConstDenominator.divMod(SMaskIDToRemove+1, blockDim);
+ 		ConstDenominator.ConstDivModResult PosDivModResult = ConstDenominator.divMod(SMaskIDToRemove+1, blockDim, MathUtils.bitsToAddress(blockDim));
  		DFEVar RShrinkPosBaseAddr = PosDivModResult.getQuotient();
  		DFEVar RShrinkPosOffsetAddr = PosDivModResult.getRemainder();
 		
@@ -235,7 +234,7 @@ class RMem extends KernelLib{
 		
 		// YElem
 		for (int Y=0; Y<numBlocks; ++Y) {
-			List<DFEVector<DFEVar>> toXmux = new ArrayList<DFEVector<DFEVar>>();
+			ArrayList<DFEVector<DFEVar>> toXmux = new ArrayList<DFEVector<DFEVar>>();
 			for (int X=0; X<numBlocks; ++X) toXmux.add(portData[X][Y]);
 			DFEVector<DFEVar> toYmux = control.mux(RShrinkPosBaseAddr, toXmux);
 			toYBuffer[Y] <== control.mux(XAddr, toYmux.getElementsAsList());
@@ -366,7 +365,7 @@ class RMem extends KernelLib{
 			// Fetching
 			DFEVector<DFEVar> FetchPortAddr = blockDimAddrVec.newInstance(this);
 			for (int i=0; i<blockDim; ++i) {
-				FetchPortAddr[i] <== ((Y === RShrinkPosBaseAddr) & (i === RShrinkPosOffsetAddr)) ? XAddr : RShrinkPosOffsetAddr;
+				FetchPortAddr[i] <== RShrinkPosOffsetAddr;
 			}
 			
 			// Sequential Write - blockDim^2 cycles

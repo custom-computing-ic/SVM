@@ -15,7 +15,9 @@ import com.maxeler.maxcompiler.v2.utils.MathUtils;
  * state will be inconsistent. These methods will only affect state for the next cycle.
  *
  * @author Chris Jones
+ * @modified by Patrick Shao
  */
+
 public class SMArrayList extends StateMachineLib {
 	final DFEsmStateValue   size;
 	final DFEsmStateValue[] data;
@@ -36,6 +38,22 @@ public class SMArrayList extends StateMachineLib {
 		for (int n = 0; n < capacity; ++n)
 			data[n] = state.value(type, 0);
 	}
+
+	// Constructor that allows to set first two items
+	public SMArrayList(StateMachineLib owner, DFEsmValueType type, int capacity, int initSize, int initData0, int initData1) {
+		super(owner);
+
+		size = state.value(dfeUInt(MathUtils.bitsToRepresent(capacity)), initSize);
+		data = new DFEsmStateValue[capacity];
+
+		for (int n = 0; n < capacity; ++n) {
+			if (n==0) data[n] = state.value(type, initData0);
+			else if (n==1) data[n] = state.value(type, initData1);
+			else data[n] = state.value(type, 0);
+		}
+			
+	}
+
 
 	/**
 	 * Append value to the back of the list.

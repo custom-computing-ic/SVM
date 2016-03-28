@@ -2,63 +2,138 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelParameters;
 import com.maxeler.maxcompiler.v2.kernelcompiler.SMIO;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Stream.OffsetExpr;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Queue;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
 import com.maxeler.maxcompiler.v2.utils.MathUtils;
 
 import maxpower.ZeroLatencyInput;
 
 class SVMKernel extends Kernel {
 
-	// Divide dataX into several blocks
+	// Dimension Parameters
 	private final int numBlocks;
-	// 1D Dimension of the block
 	private final int blockDim;
-	// WinSize
 	private final int WinSize;
+	
 	// Length of Input Stream
 	private final int streamLength;
 
-	SVMKernel(KernelParameters parameters, int numBlocks_IN, int blockDim_IN, int WinSize_IN, int streamLength_IN) {
+	SVMKernel(KernelParameters parameters, int numBlocks_IN, int blockDim_IN, int streamLength_IN) {
 	
 		////////////////////////// Parameters /////////////////////////
 		
 		super(parameters);
-		numBlocks = numBlocks_IN;
-		blockDim = blockDim_IN;
-		WinSize = WinSize_IN;
+		
+		// Infinity
+		final float INF = Float.POSITIVE_INFINITY;
+		
+		// Parameters
+		numBlocks 	= numBlocks_IN;
+		blockDim 	= blockDim_IN;
+		WinSize 		= numBlocks_IN * blockDim_IN;
 		streamLength = streamLength_IN;
 		
+		// Types
+		DFEType BaseAddrType 	= dfeUInt(MathUtils.bitsToAddress(numBlocks));
+		DFEType OffsetAddrType 	= dfeUInt(MathUtils.bitsToAddress(blockDim));
+		DFEType PosType 			= dfeUInt(MathUtils.bitsToAddress(WinSize));
+		DFEType FlagType 		= dfeUInt(4);
+		DFEType BoolType			= dfeBool();
 		DFEVectorType<DFEVar> BlockVecType = new DFEVectorType<DFEVar>(Def.CalcType, numBlocks);
 		
 		
-		////////////////////////// For Debug /////////////////////////
-	
-		DFEVar Tick = control.count.simpleCounter(32);
+		////////////////////////// From State Machine /////////////////////////
 		
+		SMIO SM = addStateMachine("SVMControl", new SVMStateMachine(this, numBlocks, blockDim, WinSize));
 		
-		////////////////////////// State Machine /////////////////////////
+		// Control Signal for Input Stream Xc
+		DFEVar EnInput 				= SM.getOutput("EnInput");
 		
-		SMIO SM = addStateMachine("SVMSM", new SVMStateMachine(this, numBlocks, blockDim, WinSize));
+		// INC or DEC
+		DFEVar isInc 					= SM.getOutput("isInc");		
 		
-		// Control input stream Xc
-		DFEVar EnInput = SM.getOutput("EnInput");
+		// Size
+		DFEVar SSize 				= SM.getOutput("SSize");
+		DFEVar NSize 				= SM.getOutput("NSize");
+		DFEVar isEmptyS 				= (SSize === 0);
+
+		// QFetch: Trigger, Status and Write Address
+		DFEVar beginFetchQ 		 	= SM.getOutput("beginFetchQ");
+		DFEVar isFetchingQ 		 	= SM.getOutput("isFetchingQ");
+		DFEVar QBufWriteOffsetAddr 	= SM.getOutput("QBufWriteOffsetAddr");
 		
-		// Address of item Xc
-		DFEVar BaseAddrXc = SM.getOutput("BaseAddrXc");
-		DFEVar OffsetAddrXc = SM.getOutput("OffsetAddrXc");
+		// Base and Offset Addresses of Xc, SMask, NMask. Index of SMask and NMask
+		DFEVar BaseAddrXc 			= SM.getOutput("BaseAddrXc");
+		DFEVar OffsetAddrXc 			= SM.getOutput("OffsetAddrXc");
+		DFEVar GroupIndexXc 			= SM.getOutput("GroupIndexXc");
+		DFEVar BaseAddrSMask 		= SM.getOutput("BaseAddrSMask");
+		DFEVar OffsetAddrSMask 		= SM.getOutput("OffsetAddrSMask");
+		DFEVar IndexSMask			= SM.getOutput("IndexSMask");
+		DFEVar GroupIndexSMask 		= SM.getOutput("GroupIndexSMask");
+		DFEVar SMaskValid 			= SM.getOutput("SMaskValid");
+		DFEVar BaseAddrNMask 		= SM.getOutput("BaseAddrNMask");
+		DFEVar OffsetAddrNMask 		= SM.getOutput("OffsetAddrNMask");
+		DFEVar IndexNMask 			= SM.getOutput("IndexNMask");
+		DFEVar GroupIndexNMask 		= SM.getOutput("GroupIndexNMask");
+		DFEVar NMaskValid 	 		= SM.getOutput("NMaskValid");
 		
-		// Has training Finished
-		DFEVar hasFinished = Def.BoolType.newInstance(this);
+		// BookKeeping
+		DFEVar beginBookKeeping 		= SM.getOutput("beginBookKeeping");
+		DFEVar BookKeepingSel 		= SM.getOutput("BookKeepingSel");
+		DFEVar BookKeepingValid 		= SM.getOutput("BookKeepingValid");
+		DFEVar beginBetaCalc 			= SM.getOutput("beginBetaCalc");
+		DFEVar beginBookKeeping_S 	= SM.getOutput("beginBookKeeping_S");
+		
+		// GammaCalc
+		DFEVar beginGammaCCalc 		= SM.getOutput("beginGammaCCalc");
+		DFEVar isGammaCCalculating 	= SM.getOutput("isGammaCCalculating");
+		DFEVar beginGammaVCalc 		= SM.getOutput("beginGammaVCalc");
+		DFEVar isGammaVCalculating 	= SM.getOutput("isGammaVCalculating");
+		
+		// Updating
+		DFEVar beginUpdate 			= SM.getOutput("beginUpdate");		
+		DFEVar isUpdating 			= SM.getOutput("isUpdating");
+		
+		// Moving Data Items
+		DFEVar beginMoveFetchQ 		= SM.getOutput("beginMoveFetchQ");
+		DFEVar isMoveFetchingQ 		= SM.getOutput("isMoveFetchingQ");
+		DFEVar beginGammaKCalc 		= SM.getOutput("beginGammaKCalc");
+		DFEVar isGammaKCalculating 	= SM.getOutput("isGammaKCalculating");
+		DFEVar beginGammaCREnlarge 	= SM.getOutput("beginGammaCREnlarge");
+		DFEVar beginRInit 			= SM.getOutput("beginRInit");
+		DFEVar beginRShrink 			= SM.getOutput("beginRShrink");
+		DFEVar isRShrinking 			= SM.getOutput("isRShrinking");
+		DFEVar beginThetaKUpdate 	= SM.getOutput("beginThetaKUpdate");
+		DFEVar isThetaKUpdating 		= SM.getOutput("isThetaKUpdating"); 
+
+		
+		////////////////////////// To State Machine /////////////////////////		
+		
+		// Finish Trigger
+		DFEVar hasFinished = BoolType.newInstance(this);
+		DFEVar hasQUpdateFinished = BoolType.newInstance(this);
+		DFEVar hasBetaCalcFinished = BoolType.newInstance(this);
+		DFEVar hasGammaVCalcFinished = BoolType.newInstance(this);
+		DFEVar hasthetaKUpdateFinished = BoolType.newInstance(this);
 		SM.connectInput("hasFinished", hasFinished);
+		SM.connectInput("hasQUpdateFinished", hasQUpdateFinished);
+		SM.connectInput("hasBetaCalcFinished", hasBetaCalcFinished);
+		SM.connectInput("hasGammaVCalcFinished", hasGammaVCalcFinished);
+		SM.connectInput("hasthetaKUpdateFinished", hasthetaKUpdateFinished);
 
-
+		// BookKeeping
+		DFEVar BookKeepingFlagOffseted = FlagType.newInstance(this);
+		DFEVar BookKeepingIndexOffseted = PosType.newInstance(this);
+		SM.connectInput("BookKeepingFlag", BookKeepingFlagOffseted);
+		SM.connectInput("BookKeepingIndex", BookKeepingIndexOffseted);
+		
 
 		////////////////////////// Input /////////////////////////
 
@@ -77,59 +152,31 @@ class SVMKernel extends Kernel {
 		Queue<DFEVar> YcQueue = mem.queue(Def.CalcType, 2);
 		YcQueue.insert(Yc_IN, EnPush);
 		DFEVar Yc = YcQueue.remove(EnInput);
-		
-		
-		debug.simPrintf(EnPush, "[%3d]-----[FIFO]---------------(Xc,Yc) = (%d,%f) Pushed into FIFO----------\n", Tick, Xc_IN[0], Yc_IN);
-		debug.simPrintf(removeValid, "[%3d]-----[FIFO]---------------(Xc,Yc) = (%d,%f) Poped from FIFO----------\n", Tick, Xc[0], Yc);
-
-/*		
-		// OffsetAddr - [0, blockDim-1]
-                Count.Params OffsetAddrParam = control.count.makeParams(MathUtils.bitsToAddress(blockDim))
-                							.withInitValue(2)
-                							.withMax(blockDim)
-                							.withEnable(EnInput)
-                							.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP);
-                Counter OffsetAddrCounter = control.count.makeCounter(OffsetAddrParam);
-                DFEVar OffsetAddrXc = OffsetAddrCounter.getCount();
-
-		// BaseAddr - [0, numBlocks-1]
-                Count.Params BaseAddrParam = control.count.makeParams(MathUtils.bitsToAddress(numBlocks))
-                							.withInitValue(0)
-                							.withMax(numBlocks)
-                							.withEnable(OffsetAddrCounter.getWrap())
-                							.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP);
-                Counter BaseAddrCounter = control.count.makeCounter(BaseAddrParam);
-                DFEVar BaseAddrXc = BaseAddrCounter.getCount();
-*/                
-                
-//                debug.simPrintf("[%3d] EnInput=%d | BaseAddrXc=%d, OffsetAddrXc=%d \n", Tick, EnInput, BaseAddrXc, OffsetAddrXc);
 
 
-		////////////////////////// New item Xc /////////////////////////
+		////////////////////////// Handling New item Xc /////////////////////////
 		
 		// Counting Cycles from the Tick of Xc arrival
-		//     EnInput: 0, 0, 1, 0, 0, 0, 0, ...,                  0, 0, 0, 0,0,0
-		// blockAddr: 0, 0, 0, 1, 2, 3, 4, ..., blockDim-1
-		//          valid: 0, 0, 1, 1, 1, 1, 1, ..., 1,
+		//     EnInput: 0, 0, 1, 0, 0, 0, 0, ...,                  0, 0, 0, 0, 0...
+		// blockAddr: 0, 0, 0, 1, 2, 3, 4, ..., blockDim-1, 0, 0, 0, 0...
+		//          valid: 0, 0, 1, 1, 1, 1, 1, ...,                 1, 0, 0, 0, 0...
 		AddrGenerator blockAddrGen = new AddrGenerator(this, 1, blockDim, EnInput);
 		DFEVar blockAddr = blockAddrGen.getAddr();
 		DFEVar isProcessingNewXc = blockAddrGen.isValid();
 
-		// dataX: TODO: Add EnWrite Control
+		// dataX
 		dataXBlock [] DataXBlock = new dataXBlock[numBlocks];
 		DFEVector<DFEVector<DFEVar>> dataX = (new DFEVectorType<DFEVector<DFEVar>>(Def.DataVecType, numBlocks)).newInstance(this);
 		for (int i=0; i<numBlocks; ++i) {
 			DataXBlock[i] = new dataXBlock(this, i, blockDim, Def.DataDim, Xc, BaseAddrXc, OffsetAddrXc, EnInput);
 			dataX[i] <== DataXBlock[i].getData();
 		}
-		
+
 		// dataY
-		DFEVar EnDataYIterate = EnInput;
-		DFEVar EnDataYWrite = isProcessingNewXc;
-		DFEVector<DFEVar> YIn = BlockVecType.newInstance(this);
-		for (int i=0; i<numBlocks; ++i) YIn[i] <== Yc;
-		dataBlock1D YBlock = new dataBlock1D (this, "dataY", numBlocks, blockDim, YIn, BaseAddrXc, OffsetAddrXc, EnDataYWrite, EnDataYIterate);
-		DFEVector<DFEVar> YOut = YBlock.getData();
+		DFEVar YPortAddr = isProcessingNewXc ? GroupIndexXc : GroupIndexSMask;
+		Memory<DFEVar> dataYBlock = mem.alloc(Def.CalcType, WinSize);
+		dataYBlock.mapToCPU("dataY");
+		DFEVar dataY = dataYBlock.port(YPortAddr, Yc, EnInput, RamWriteMode.WRITE_FIRST);
 		
 		// Kernel Calc
 		DFEVector<DFEVar> KernelVec = BlockVecType.newInstance(this);
@@ -138,44 +185,284 @@ class SVMKernel extends Kernel {
 		}
 		
 		// Matrix Q
-		DFEVar EnQIterate = EnInput;
-		DFEVar EnQWrite = isProcessingNewXc;
-		QMem MatrixQ = new QMem(this, numBlocks, blockDim, KernelVec, BaseAddrXc, OffsetAddrXc, EnQWrite, EnQIterate);
-		DFEVector<DFEVar> QVector = MatrixQ.getData();
+		// NOTE: hXi[k] calculation is done during RShrink process, so Row Addr set to SMask during RShrink
+		DFEVar BaseAddrColG 		= (beginGammaVCalc | beginGammaCCalc | beginGammaKCalc) ? BaseAddrXc : BaseAddrSMask;
+		DFEVar OffsetAddrColG 	= (beginGammaVCalc | beginGammaCCalc | beginGammaKCalc) ? OffsetAddrXc : OffsetAddrSMask;
+		DFEVar BaseAddrRow 		= isRShrinking ? BaseAddrSMask   : ((isGammaVCalculating | isGammaKCalculating | isMoveFetchingQ) ? BaseAddrNMask : BaseAddrXc);
+		DFEVar OffsetAddrRow 		= isRShrinking ? OffsetAddrSMask : ((isGammaVCalculating | isGammaKCalculating | isMoveFetchingQ) ? OffsetAddrNMask : OffsetAddrXc);
+		DFEVar BaseAddrCol 		= (isFetchingQ | isMoveFetchingQ) ? BaseAddrSMask 	: BaseAddrColG;
+		DFEVar OffsetAddrCol 		= (isFetchingQ | isMoveFetchingQ) ? OffsetAddrSMask 	: OffsetAddrColG;
+		DFEVar MatQEnWrite 		= isProcessingNewXc;
+		DFEVar MatQEnIterate 		= (EnInput | beginRShrink);
+		QMem MatrixQ = new QMem(this, numBlocks, blockDim, KernelVec, BaseAddrRow, OffsetAddrRow, MatQEnWrite, MatQEnIterate, BaseAddrCol, OffsetAddrCol);
+		DFEVector<DFEVar> QVector = MatrixQ.getQValVec();
+		DFEVar QVal = MatrixQ.getQVal(); // depends on Row and Col
+		DFEVar hasQUpdateFinishedFromQMem = MatrixQ.hasFinished();
 		
-		// theta
-		DFEVar EnThetaIterate = EnInput;
-		DFEVar EnThetaWrite = constant.var(Def.BoolType, 0);
-		DFEVector<DFEVar> thetaIn = BlockVecType.newInstance(this);
-		for (int i=0; i<numBlocks; ++i) thetaIn[i] <== constant.var(Def.CalcType, 0);
-		dataBlock1D thetaBlock = new dataBlock1D (this, "theta", numBlocks, blockDim, thetaIn, BaseAddrXc, OffsetAddrXc, EnThetaWrite, EnThetaIterate);
-		DFEVector<DFEVar> thetaVector = thetaBlock.getData();
+		
+		// theta - individual write, parallel and individual access
+		DFEVar thetaIn 				= Def.CalcType.newInstance(this);
+		DFEVar thetaWrBaseAddr 		= BaseAddrType.newInstance(this);
+		DFEVar thetaWrOffsetAddr 		= OffsetAddrType.newInstance(this);
+		DFEVar thetaRdBaseAddr 		= (beginBookKeeping | beginUpdate) ? BaseAddrXc 	: BaseAddrSMask;
+		DFEVar thetaRdOffsetAddr 		= (beginBookKeeping | beginUpdate) ? OffsetAddrXc 	: OffsetAddrSMask;
+		DFEVar thetaImmediateWrite 	= BoolType.newInstance(this);
+		DFEVar EnThetaIterateWrite 	= isProcessingNewXc;
+		DFEVar EnThetaIterate 			= EnInput;
+		dataBlock1D thetaBlock = new dataBlock1D (this, "theta", numBlocks, blockDim, thetaIn, thetaWrBaseAddr, thetaWrOffsetAddr, thetaRdBaseAddr, thetaRdOffsetAddr, thetaImmediateWrite, EnThetaIterateWrite, EnThetaIterate, beginThetaKUpdate, isThetaKUpdating);
+		DFEVector<DFEVar> thetaVector = thetaBlock.getDataVec();
+		DFEVar thetaSeq = thetaBlock.getDataVal();
+		DFEVar thetaKUpdateFinishedFromThetaBlock = thetaBlock.hasThetaKUpdateFinished();
+
 		
 		// b
-		// TODO: store b in ZeroLatency Memory
-		DFEVar b = constant.var(Def.CalcType, 1427.320007);
+		Memory<DFEVar> bMem = mem.alloc(Def.CalcType, 2);
+		bMem.mapToCPU("b");
+		DFEVar b = bMem.read(constant.var(dfeUInt(1),0));
+			
 		
-		// Calculate hXc
-		DFEVar beginhXcCalc = EnInput;
-		hCalc hXcCalc = new hCalc(this, blockDim, QVector, thetaVector, b, Yc, beginhXcCalc);
-		DFEVar hXc = hXcCalc.getData();
-		DFEVar hXcValid = hXcCalc.isValid();
-		
-		//DFEVar XcJoinR = (KernelMath.abs(hXc)<Def.ep);
-		DFEVar XcJoinR = (KernelMath.abs(hXc)<10000) & hXcValid;
+		// hXi - hCalc needs blockDim cycles, WrEn enables write results to WrAddr at the end of calculation
+		DFEVar beginhCalc 		= (EnInput | beginRShrink);
+		DFEVar hXiRdAddr 		= (beginBookKeeping | beginUpdate) ? GroupIndexXc : GroupIndexNMask;
+		DFEVar hXiWrAddr 		= PosType.newInstance(this);
+		DFEVar hXiWrData 		= Def.CalcType.newInstance(this);
+		DFEVar hXiWrEn 			= BoolType.newInstance(this);
+		hCalc hXiCalc = new hCalc(this, numBlocks, blockDim, QVector, thetaVector, b, dataY, beginhCalc, hXiRdAddr, hXiWrAddr, hXiWrData, hXiWrEn);
+		DFEVar hXi = hXiCalc.getMemData();
+		DFEVar hXiCalcResult = hXiCalc.getCalcResult();
+		DFEVar hXiCalcResultValid = hXiCalc.isValid();
+		DFEVar hXcValid = hXiCalcResultValid & isProcessingNewXc;
+		DFEVar XcJoinR = (KernelMath.abs(hXiCalcResult)<Def.ep) & hXcValid;
+	
+
+		// q
+		// TODO: q is different for DEC
+		DFEVar toqStreamHold = (hXiCalcResult > 0) ? constant.var(Def.CalcType, -1) : constant.var(Def.CalcType, 1);
+		DFEVar q = Reductions.streamHold(toqStreamHold, hXcValid);
+
+
+		////////////////////////// Bookkeeping Preparation /////////////////////////
+
+		// QBuffer
+		DFEVar beginQBufRead 	= beginBetaCalc;
+		DFEVar QBufBeginFetch 	= (beginFetchQ | beginMoveFetchQ);
+		DFEVar QBufEnWrite 		= (isFetchingQ | isMoveFetchingQ);
+		QBuffer QBuf = new QBuffer (this, numBlocks, blockDim, SSize, QVal, QBufBeginFetch, QBufWriteOffsetAddr, QBufEnWrite, beginQBufRead);
+		DFEVector<DFEVar> QBufVec = QBuf.getData();
+
+		// beta Vector
+		DFEVector<DFEVar> betaX = BlockVecType.newInstance(this);
+		DFEVector<DFEVar> betaY = BlockVecType.newInstance(this);
+
+		// RMem
+		DFEVar SMaskIDToRemove 	= PosType.newInstance(this);
+		DFEVar gammaInv 		= Def.CalcType.newInstance(this);
+		DFEVar beginREnlarge 		= BoolType.newInstance(this);
+		RMem MatrixR = new RMem (this, numBlocks, blockDim, SSize, SMaskIDToRemove, betaX, betaY, gammaInv, beginRInit, beginBetaCalc, beginREnlarge, beginRShrink); 			DFEVector<DFEVector<DFEVar>> betaCalcVec = MatrixR.getBetaCalcVec();
+		DFEVar XAddr = MatrixR.getXAddr();
+		DFEVar YAddr = MatrixR.getYAddr();
+
+
+		// beta Calculation
+		DFEVar betaReadAddr = XAddr;
+		DFEVar betaPortAddr = YAddr;
+		DFEVar beginBetaSeqRead = beginGammaCCalc | beginGammaVCalc | beginBookKeeping_S | beginUpdate;
+		betaCalc betaCalcModule = new betaCalc (this, numBlocks, blockDim, QBufVec, betaCalcVec, beginBetaCalc, betaReadAddr, betaPortAddr, beginBetaSeqRead); 
+		betaX <== betaCalcModule.getReadVec();
+		betaY <== betaCalcModule.getPortVec();
+		DFEVar betaSeq = betaCalcModule.getSeqReadData();
+		DFEVar hasBetaCalcFinishedFromBetaCalc = betaCalcModule.hasBetaCalcFinished();
 		
 
-		// has Incremental Training Finished?
+		// gamma Calculation
+		DFEVar GReadAddr 	= IndexNMask;
+		DFEVar GWriteAddr 	= IndexNMask;
+		DFEVar GWriteEn 		= isGammaVCalculating;
+		DFEVar GBeginCalc 	= (beginGammaVCalc | beginGammaCCalc | beginGammaKCalc);
+		gammaCalc gammaCalcModule = new gammaCalc (this, WinSize, SSize, QVal, betaSeq, GReadAddr, GWriteAddr, GWriteEn, GBeginCalc);
+		DFEVar GammaResult 		= gammaCalcModule.getCalcResult();
+		DFEVar GammaResultValid 	= gammaCalcModule.hasFinished();
+		DFEVar gamma_c 			= Reductions.streamHold(GammaResult, isGammaCCalculating & GammaResultValid);
+		DFEVar gamma_k 			= Reductions.streamHold(GammaResult, isGammaKCalculating & GammaResultValid);
+		DFEVar gammaSeq 		= gammaCalcModule.getData();
+		DFEVar hasGammaVCalcFinishedFromGammaCalc = (IndexNMask === (NSize-1)) & isGammaVCalculating & GammaResultValid;
+
+		
+		////////////////////////// Bookkeeping /////////////////////////
+		
+		// Empty S - Incremental Training - NEED q and hXi
+		// bC
+		DFEVar bC = KernelMath.abs(hXi+q*Def.ep);
+		DFEVar FlagbC = constant.var(FlagType, 0);
+		// bE
+		DFEVar bE = (((q>0)&(hXi<-Def.ep))|((q<0)&(hXi>Def.ep))) ? KernelMath.abs(hXi+q*Def.ep) : constant.var(Def.CalcType, INF);
+		DFEVar FlagbE = (isInc) ? constant.var(FlagType, 1) : constant.var(FlagType, 3);
+		// bR
+		DFEVar bR = KernelMath.abs(hXi-q*Def.ep);
+		DFEVar FlagbR = (isInc) ? constant.var(FlagType, 2) : constant.var(FlagType, 4);
+		
+		// Empty S - Decremental Training - bE, bR same as INC, but no bC
+		
+		
+		// Non-Empty S - Incremental Training - NEED q and gamma, gamma_c, theta, beta
+		// LC1		
+		DFEVar qrc = (q > 0) ? gamma_c : -gamma_c;
+		DFEVar LC1_INC = ((qrc>0)&(hXi<-Def.ep)) ? KernelMath.abs((hXi+Def.ep)/gamma_c) : (((qrc<0)&(hXi>Def.ep)) ? KernelMath.abs((hXi-Def.ep)/gamma_c) : constant.var(Def.CalcType, INF));
+		// LC2
+		DFEVar LC2_INC = KernelMath.abs(q*Def.C-thetaSeq);
+		// LC_INC
+		DFEVar LC_INC = (LC1_INC < LC2_INC) ? LC1_INC : LC2_INC;
+		DFEVar FlagLC_INC = (LC1_INC < LC2_INC) ? constant.var(FlagType, 5) : constant.var(FlagType, 6);
+		// LiS
+		DFEVar qbi 			= (q>0) ? betaSeq : -betaSeq;
+		DFEVar LSPos 		= (thetaSeq>=0) ? (Def.C - thetaSeq) : thetaSeq;
+		DFEVar LSNeg 		= (thetaSeq<=0) ? (Def.C + thetaSeq) : thetaSeq;
+		DFEVar toLS 			= ((qbi>0) ? LSPos : LSNeg) / betaSeq;
+		DFEVar LS 			= (qbi===0) ? constant.var(Def.CalcType, INF) : KernelMath.abs(toLS);
+		DFEVar FlagLSPosINC 	= (thetaSeq>=0) ? constant.var(FlagType, 7) : constant.var(FlagType, 14);
+		DFEVar FlagLSNegINC 	= (thetaSeq<=0) ? constant.var(FlagType, 7) : constant.var(FlagType, 14);
+		DFEVar FlagLSINC 		= (qbi>0) ? FlagLSPosINC : FlagLSNegINC;
+		DFEVar FlagLSPosDEC 	= (thetaSeq>=0) ? constant.var(FlagType, 11) : constant.var(FlagType, 15);
+		DFEVar FlagLSNegDEC 	= (thetaSeq<=0) ? constant.var(FlagType, 11) : constant.var(FlagType, 15);
+		DFEVar FlagLSDEC 	= (qbi>0) ? FlagLSPosDEC : FlagLSNegDEC;		
+		DFEVar FlagLS 		= (isInc) ? FlagLSINC : FlagLSDEC;
+		// LiE
+		DFEVar qri = (q > 0) ? gammaSeq : -gammaSeq;
+		DFEVar LE = ((qri>0)&(hXi<=-Def.ep)) ? KernelMath.abs((hXi+Def.ep)/gammaSeq) : (((qri<0)&(hXi>=Def.ep)) ? KernelMath.abs((hXi-Def.ep)/gammaSeq) : constant.var(Def.CalcType, INF));
+		DFEVar FlagLE = (isInc) ? constant.var(FlagType, 8) : constant.var(FlagType, 12);
+		// LiR
+		DFEVar LR = (qri===0) ? constant.var(Def.CalcType, INF) : ((qri>0) ? KernelMath.abs((hXi-Def.ep)/gammaSeq) : KernelMath.abs((hXi+Def.ep)/gammaSeq));
+		DFEVar FlagLR = (isInc) ? constant.var(FlagType, 9) : constant.var(FlagType, 13);
+		
+		// Non-Empty S - Decremental Training - LiS, LiE, LiR same as INC, but LC2 is different, and no LC1
+		// LC_DEC
+		DFEVar LC_DEC = KernelMath.abs(thetaSeq);
+		DFEVar FlagLC_DEC = constant.var(FlagType, 10);
+		
+		// Overall LC
+		DFEVar LC = (isInc) ? LC_INC : LC_DEC;
+		DFEVar FlagLC = (isInc) ? FlagLC_INC : FlagLC_DEC;
+		
+		// BookKeeping - streamMin only supports Fix-Point
+		DFEVar BKVal 	= control.mux(BookKeepingSel, bC, bE, bR, LC, LS, LE, LR);
+		DFEVar BKFlag 	= control.mux(BookKeepingSel, FlagbC, FlagbE, FlagbR, FlagLC, FlagLS, FlagLE, FlagLR);
+		DFEVar BKIndex 	= control.mux(BookKeepingSel, GroupIndexXc, IndexNMask, IndexNMask, GroupIndexXc, IndexSMask, IndexNMask, IndexNMask);
+		// cast to fix point
+		DFEVar BKVal_cutoff = (BKVal > Def.BookKeepingTH) ? constant.var(Def.CalcType, Def.BookKeepingTH) : BKVal;
+		DFEVar BKVal_Fix = BKVal_cutoff.cast(Def.BookKeepingType);
+		Reductions.StreamMinInfo BookKeep1 = Reductions.streamMinWithMetadata(BKVal_Fix, BKFlag, beginBookKeeping, BookKeepingValid);
+		Reductions.StreamMinInfo BookKeep2 = Reductions.streamMinWithMetadata(BKVal_Fix, BKIndex, beginBookKeeping, BookKeepingValid);
+		DFEVar BookKeepingFlag 	= BookKeep1.getMetaData();
+		DFEVar BookKeepingIndex 	= BookKeep2.getMetaData();
+		DFEVar minL	= BookKeep1.getMin().cast(Def.CalcType);
+
+		
+		////////////////////////// Update /////////////////////////
+		
+		// Update Val
+		DFEVar UpdateVal 	= (q > 0) ? minL : -minL;
+		
+		// Update for Empty S
+		DFEVar bEmptyS		= UpdateVal;
+		DFEVar hXiEmptyS	= UpdateVal;
+		
+		// Update for Non-Empty S
+		DFEVar thetaCNonEmptyS 	= UpdateVal;
+		DFEVar bThetaNonEmptyS 	= betaSeq * UpdateVal;
+		DFEVar hXcNonEmptyS 	= gamma_c * UpdateVal;
+		DFEVar hXiNonEmptyS 	= gammaSeq * UpdateVal;
+		
+		// Update b
+		OffsetExpr bOffset 		= stream.makeOffsetAutoLoop("bOffset");
+		DFEVar bWrData 			= b + (isEmptyS ? bEmptyS : bThetaNonEmptyS);
+		DFEVar bWrDataOffseted 	= stream.offset(bWrData, -bOffset);
+		DFEVar bWrEnOffseted 	= stream.offset(beginUpdate, -bOffset);
+		bMem.write(constant.var(dfeUInt(1),0), bWrDataOffseted, bWrEnOffseted);
+		
+		// Update hXi
+		OffsetExpr hXiOffset 			= stream.makeOffsetAutoLoop("hXiOffset");
+		DFEVar hXiWrAddrUnOffseted 	= beginUpdate ? GroupIndexXc : GroupIndexNMask;
+		DFEVar hXiWrDataUnOffseted 	= hXi + (isEmptyS ? hXiEmptyS : (beginUpdate ? hXcNonEmptyS : hXiNonEmptyS));
+		DFEVar hXiWrEnUnOffseted 	= beginUpdate | isUpdating & NMaskValid;
+		DFEVar hXiWrAddrOffseted 		= stream.offset(hXiWrAddrUnOffseted, -hXiOffset);
+		DFEVar hXiWrDataOffseted 		= stream.offset(hXiWrDataUnOffseted, -hXiOffset);
+		DFEVar hXiWrEnOffseted 		= stream.offset(hXiWrEnUnOffseted, -hXiOffset);
+		hXiWrAddr 	<== isRShrinking ? GroupIndexSMask : (isProcessingNewXc ? GroupIndexXc : hXiWrAddrOffseted);
+		hXiWrData 	<== hXiWrDataOffseted;
+		hXiWrEn 	<== hXiWrEnOffseted;
+		
+		// Update theta
+		OffsetExpr thetaOffset 					= stream.makeOffsetAutoLoop("thetaOffset");
+		DFEVar thetaInUnOffseted 				= thetaSeq + (beginUpdate ? thetaCNonEmptyS : bThetaNonEmptyS);
+		DFEVar thetaWrBaseAddrUnOffseted 		= beginUpdate ? BaseAddrXc 	: BaseAddrSMask;
+		DFEVar thetaWrOffsetAddrUnOffseted 	= beginUpdate ? OffsetAddrXc 	: OffsetAddrSMask;		
+		DFEVar thetaImmediateWriteUnOffseted 	= beginUpdate | isUpdating & SMaskValid;
+		DFEVar thetaInOffseted 				= stream.offset(thetaInUnOffseted, -thetaOffset);
+		DFEVar thetaWrBaseAddrOffseted 		= stream.offset(thetaWrBaseAddrUnOffseted, -thetaOffset);
+		DFEVar thetaWrOffsetAddrOffseted 		= stream.offset(thetaWrOffsetAddrUnOffseted, -thetaOffset);
+		DFEVar thetaImmediateWriteOffseted 	= stream.offset(thetaImmediateWriteUnOffseted, -thetaOffset);
+		thetaIn 				<== isProcessingNewXc ? constant.var(Def.CalcType, 0) : thetaInOffseted;
+		thetaWrBaseAddr 		<== isThetaKUpdating ? BaseAddrNMask : (isProcessingNewXc ? BaseAddrXc : thetaWrBaseAddrOffseted);
+		thetaWrOffsetAddr 	<== isThetaKUpdating ? OffsetAddrNMask : (isProcessingNewXc ? OffsetAddrXc : thetaWrOffsetAddrOffseted);
+		thetaImmediateWrite 	<== isProcessingNewXc ? constant.var(dfeBool(), 0) : thetaImmediateWriteOffseted;
+		
+		
+		// REnlarge - triggered by beginGammaCREnlarge or begin automatically after gamma_k calculated
+		gammaInv 		<== 1.0 / ((BookKeepingFlag === 5) ? gamma_c : gamma_k);
+		beginREnlarge 	<== beginGammaCREnlarge | (isGammaKCalculating & GammaResultValid);
+		
+		// RShrink
+		OffsetExpr SMaskIDToRemoveOffset = stream.makeOffsetAutoLoop("SMaskIDToRemoveOffset");
+		SMaskIDToRemove <== stream.offset(BookKeepingIndex, -SMaskIDToRemoveOffset);
+
+
+		////////////////////////// Feedback /////////////////////////
+
+		// has Xc Join R?
 		OffsetExpr hXcOffset = stream.makeOffsetAutoLoop("hXcOffset");
 		DFEVar XcJoinROffseted = stream.offset(XcJoinR, -hXcOffset);
-//		EnInput <== (Tick<blockDim) ? XcJoinROffseted;
 		hasFinished <== XcJoinROffseted;
 
-
+		// has Q Update finished?
+		OffsetExpr hasQUpdateFinishedOffset = stream.makeOffsetAutoLoop("hasQUpdateFinishedOffset");
+		DFEVar hasQUpdateFinishedFromQMemOffseted = stream.offset(hasQUpdateFinishedFromQMem, -hasQUpdateFinishedOffset);
+		hasQUpdateFinished <== hasQUpdateFinishedFromQMemOffseted;
 		
-		// For hXc Test
-		debug.simPrintf(EnInput, "[%3d]--------NEW INPUT-------(Xc[%d][%d],Yc)=(%d,%f)---------------------------------------------------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
-		debug.simPrintf(isProcessingNewXc, "[%3d] Addr=%d, En=%d | Q[0:3]=(%.4f,%.4f,%.4f,%.4f) theta[0:3]=(%.4f,%.4f,%.4f,%.4f) | hXc = %f, Valid=%d | XcJoinR=%d, hasFinished=%d\n", Tick, blockAddr, isProcessingNewXc, QVector[0], QVector[1], QVector[2], QVector[3], thetaVector[0], thetaVector[1], thetaVector[2], thetaVector[3], hXc, hXcValid, XcJoinR, hasFinished);
+		// has BetaCalc finished?
+		OffsetExpr hasBetaCalcFinishedOffset = stream.makeOffsetAutoLoop("hasBetaCalcFinishedOffset");
+		DFEVar hasBetaCalcFinishedFromBetaCalcOffseted = stream.offset(hasBetaCalcFinishedFromBetaCalc, -hasBetaCalcFinishedOffset);
+		hasBetaCalcFinished <== hasBetaCalcFinishedFromBetaCalcOffseted;
+		
+		// has Gamma Vector calculation finished?
+		OffsetExpr hasGammaVCalcFinishedOffset = stream.makeOffsetAutoLoop("hasGammaVCalcFinishedOffset");
+		DFEVar hasGammaVCalcFinishedFromGammaCalcOffseted = stream.offset(hasGammaVCalcFinishedFromGammaCalc, -hasGammaVCalcFinishedOffset);
+		hasGammaVCalcFinished <== hasGammaVCalcFinishedFromGammaCalcOffseted;
+
+		// BookKeeping result
+		OffsetExpr BookKeepingOffset = stream.makeOffsetAutoLoop("BookKeepingOffset");
+		BookKeepingFlagOffseted <== stream.offset(BookKeepingFlag, -BookKeepingOffset);
+		BookKeepingIndexOffseted <== stream.offset(BookKeepingIndex, -BookKeepingOffset);
+
+		// has Theta[k] update finished?
+		hasthetaKUpdateFinished <== thetaKUpdateFinishedFromThetaBlock;
+			
+
+		////////////////////////// Debug /////////////////////////
+	
+		DFEVar Tick = control.count.simpleCounter(32);
+		
+		// From Input FIFO
+		debug.simPrintf(EnPush, "[%4d]-----[FIFO]---------------data[%d][%d] = (%f,%f) Pushed into FIFO----------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc_IN[0], Yc_IN);
+		debug.simPrintf(removeValid, "[%4d]-----[FIFO]---------------data[%d][%d] = (%f,%f) Poped from FIFO----------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
+		
+		// hXc calculation
+		debug.simPrintf(EnInput, "[%4d]--------NEW INPUT-------(Xc[%d][%d],Yc)=(%f,%f)---------------------------------------------------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
+		debug.simPrintf(hXcValid, "[%4d] Addr=%d, En=%d | Q[0:3]=(%.4f,%.4f,%.4f,%.4f) theta[0:3]=(%.4f,%.4f,%.4f,%.4f) | hXc = %f, Valid=%d | XcJoinR=%d, hasFinished=%d\n", Tick, blockAddr, isProcessingNewXc, QVector[0], QVector[1], QVector[2], QVector[3], thetaVector[0], thetaVector[1], thetaVector[2], thetaVector[3], hXiCalcResult, hXcValid, XcJoinR, hasFinished);
+		debug.simPrintf(hasFinished, "[%4d] (Xc[%d][%d],Yc) = (%f,%f) joins R. \n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
+		
+		// BookKeeping
+		debug.simPrintf(BookKeepingValid, "[%4d] --- BookKeeping Flag = %d, Index = %d, minL = %f\n", Tick, BookKeepingFlag, BookKeepingIndex, minL);
+
 
 		////////////////////////// Simple Kernel /////////////////////////
 

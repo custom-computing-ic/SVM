@@ -1,12 +1,10 @@
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEFix.SignMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
-//import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEStruct;
-//import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEStructType;
-//import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEStructType.StructFieldType;
 import com.maxeler.maxcompiler.v2.utils.Bits;
 import java.util.List;
 import java.util.ArrayList;
@@ -29,17 +27,14 @@ class Def {
 	
 	///////////////////////// Kernel Settings /////////////////////////
 
-	// Divide data into several blocks
 	// IMPORTANT: WinSize = numBlocks * blockDim;
-	public static final int numBlocks = 4;
-	public static final int blockDim = 4;
-	public static final int streamLength = 8;
-		
+	public static final int DataDim 		= 1; // 30
+	public static final int numBlocks 		= 4;
+	public static final int blockDim 		= 20;
+	public static final int streamLength 	= 8;
+
 
 	///////////////////////// SVM Parameters /////////////////////////
-
-	// Input Data Dimension : Number of Features
-	public static final int DataDim = 1; // 30
 
 	// Window Size = numBlocks * blockDim
 	public static final int WinSize = numBlocks * blockDim;
@@ -57,23 +52,23 @@ class Def {
 	public static final double sigma_sq = 50;  //50
 	
 	// eps 
-	// [TODO]: Multiple EPS
 	public static final double eps = 1e-6;
 	
 
 	///////////////////////// Types /////////////////////////
 
 	// Input Data Type
-	public static final DFEType DataType = KernelLib.dfeInt(32);
+	public static final DFEType DataType = KernelLib.dfeFloat(8, 24);
 
 	// CalcType
-	public static final DFEType CalcType = KernelLib.dfeFloat(11, 53);
-		
+	public static final DFEType CalcType = KernelLib.dfeFloat(8, 24);
+	
+	// BookKeeping Type
+	public static final double BookKeepingTH = 30000;
+	public static final DFEType BookKeepingType = KernelLib.dfeFixMax(40, 30000, SignMode.UNSIGNED);
+
 	// Feature Vector of Input Data Type
 	public static final DFEVectorType<DFEVar> DataVecType = new DFEVectorType<DFEVar>(DataType, DataDim);
-	
-	// Block Vector of Calc Data Type
-	//public static final DFEVectorType<DFEVar> BlockVecType = new DFEVectorType<DFEVar>(CalcType, numBlocks);
 
 	// Boolean Type
 	public static final DFEType BoolType = KernelLib.dfeBool();
@@ -102,12 +97,12 @@ class Def {
 	///////////////////////// Utility Functions For Tests /////////////////////////
 
 	// Input Data Generator - For Tests
-	public static List<Bits> IntVectorDataGenerator(int [][] data, int numTicks, int VectorWidth) {
+	public static List<Bits> FloatVectorDataGenerator(float [][] data, int numTicks, int VectorWidth) {
 		final List<Bits> encodedData = new ArrayList<Bits>(numTicks);
 		for (int i=0; i<numTicks; ++i) {
-			Bits thisStepBits = KernelLib.dfeInt(32).encodeConstant(data[i][0]);
+			Bits thisStepBits = KernelLib.dfeFloat(8, 24).encodeConstant(data[i][0]);
 			for (int j=1; j<VectorWidth; ++j){
-				thisStepBits = KernelLib.dfeInt(32).encodeConstant(data[i][j]).cat(thisStepBits);
+				thisStepBits = KernelLib.dfeFloat(8, 24).encodeConstant(data[i][j]).cat(thisStepBits);
 			}
 			encodedData.add(thisStepBits);
 		}

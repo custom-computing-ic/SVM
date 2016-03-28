@@ -41,8 +41,7 @@ class dataXBlock extends KernelLib{
                 Valid = AddrGen.isValid();
 
 		// Write Control
-		DFEVar isThisBlock = (BaseAddrXc === ID);
-		DFEVar EnWrite = isThisBlock & (Addr === OffsetAddrXc);
+		DFEVar EnWrite = (BaseAddrXc === ID) & (Addr === OffsetAddrXc) & Valid;
 		
 		// Memory
 		DFEVectorType<DFEVar> VecType = new DFEVectorType<DFEVar>(Def.DataType, DataDim);
@@ -53,17 +52,6 @@ class dataXBlock extends KernelLib{
 			Block.get(i).mapToCPU("dataXBlock"+ID+"Dim"+i);
 			dataOUT[i] <== Block.get(i).port(Addr, Xc[i], EnWrite, RamWriteMode.WRITE_FIRST);
 		}
-		
-		/*
-		// Doesn't work because port() doesn't support DFEVector
-		Memory<DFEVar> Block = mem.alloc(Def.DataVecType, Size);
-		Block.mapToCPU("dataXBlock"+ID);
-		dataOUT = Block.port(Addr, Xc, EnWrite, RamWriteMode.WRITE_FIRST);
-		
-		// Doesn't work because bit-width of RAM must not exceed 64
-		Mem.RamPortParams<DFEVector<DFEVar>> BlockParam = mem.makeRamPortParams(RamPortMode.READ_WRITE, Addr, Xc).withWriteEnable(EnWrite);
-		dataOUT = mem.ramMapped("dataXBlock"+ID, Size, RamWriteMode.WRITE_FIRST, BlockParam);
-		*/
 
 	}
 

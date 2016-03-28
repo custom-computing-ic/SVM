@@ -1,17 +1,11 @@
-//import static org.junit.Assert.assertTrue;
-//import java.util.Random;
 import org.junit.Test;
 import java.util.List;
-import java.util.ArrayList;
 
 import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelParameters;
-//import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEFloat;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
-//import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
 import com.maxeler.maxcompiler.v2.managers.standard.SimulationManager;
@@ -68,7 +62,7 @@ public class dataBlockTest {
 			AddrGenerator AddrGen = new AddrGenerator(this, 1, blockDim, EnInput);
                 	DFEVar Addr = AddrGen.getAddr();
 			debug.simPrintf(EnInput, "------------------------------------------------------------------\n");
-			debug.simPrintf("[%3d](Dim=0) Xc[%d][%d]<=%d, dataX[0:3][%d]=(%d,%d,%d,%d), isValid=%d \n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Addr, dataX[0][0], dataX[1][0], dataX[2][0], dataX[3][0], isValid[0]);
+			debug.simPrintf("[%3d](Dim=0) Xc[%d][%d]<=%f, dataX[0:3][%d]=(%f,%f,%f,%f), isValid=%d \n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Addr, dataX[0][0], dataX[1][0], dataX[2][0], dataX[3][0], isValid[0]);
 
 
 		}
@@ -81,13 +75,13 @@ public class dataBlockTest {
 		final int VecWidth = 30;
 		final int numBlocks = 4;
 		final int blockDim = 4;
-		int [][] data = new int[numTicks][VecWidth];
+		float [][] data = new float[numTicks][VecWidth];
 		for (int tick=0; tick<200; ++tick) {
 			for (int dim=0; dim<VecWidth; ++dim) {
 				data[tick][dim] = tick*100;
 			}
 		}
-		List<Bits> input = Def.IntVectorDataGenerator(data, numTicks, VecWidth);
+		List<Bits> input = Def.FloatVectorDataGenerator(data, numTicks, VecWidth);
 		test(numTicks, numBlocks, blockDim, VecWidth, input);
 	}
 	

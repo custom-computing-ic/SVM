@@ -1,6 +1,7 @@
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
 
 import maxpower.FloatingPointAccumulator;
 
@@ -25,13 +26,27 @@ import maxpower.FloatingPointAccumulator;
 
 class hCalc extends KernelLib {
 
-	private DFEVar dataOUT;
+	private DFEVar Result;
+	private DFEVar fromMem;
 	private DFEVar Valid;
 		
-	public DFEVar getData() 			{return dataOUT;}
+	public DFEVar getCalcResult() 			{return Result;}
+	public DFEVar getMemData() 			{return fromMem;}
 	public DFEVar isValid() 				{return Valid;}
 	
-	hCalc (KernelLib owner, int blockDim, DFEVector<DFEVar> Q, DFEVector<DFEVar> theta, DFEVar b, DFEVar Y, DFEVar beginCalc) {
+	hCalc ( 	KernelLib owner, 
+			int numBlocks, 
+			int blockDim, 
+			DFEVector<DFEVar> Q, 
+			DFEVector<DFEVar> theta, 
+			DFEVar b, 
+			DFEVar Y, 
+			DFEVar beginCalc, 
+			DFEVar RdAddr,
+			DFEVar WrAddr,
+			DFEVar ExtWrData,
+			DFEVar WrEn) 
+	{
 	
 		super(owner);
 		
@@ -47,8 +62,16 @@ class hCalc extends KernelLib {
 		DFEVector<DFEVar> mult = theta * Q;
 		DFEVar offset = b - Y;
 		DFEVar sum = FloatingPointAccumulator.accumulateFixedLength(mult.getElementsAsList(), EnAccumulation, blockDim, false);
-		dataOUT = sum+offset;
-
+		Result = sum+offset;
+		
+		/////////////////////// Memory ///////////////////////
+		
+		Memory<DFEVar> hXiMem = mem.alloc(Def.CalcType, numBlocks*blockDim);
+		hXiMem.mapToCPU("hXi");
+		DFEVar WrData 	= EnAccumulation ? Result : ExtWrData;
+		DFEVar EnWrite 	= EnAccumulation ? Valid : WrEn;
+		hXiMem.write(WrAddr, WrData, EnWrite);
+		fromMem = hXiMem.read(RdAddr);
 	}
 
 }

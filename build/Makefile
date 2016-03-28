@@ -31,8 +31,8 @@ MANAGER=$(PRJ)Manager
 
 
 # Using known hardware settings
-#include $(WHEREISROOT)/Makefile.Max3.hardware
-include $(WHEREISROOT)/Makefile.Maia.hardware
+include $(WHEREISROOT)/Makefile.Max3.hardware
+#include $(WHEREISROOT)/Makefile.Maia.hardware
 
 
 # Using common compillation targets and compiler settings

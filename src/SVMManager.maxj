@@ -2,39 +2,57 @@ import com.maxeler.maxcompiler.v2.managers.engine_interfaces.CPUTypes;
 import com.maxeler.maxcompiler.v2.managers.engine_interfaces.EngineInterface;
 import com.maxeler.maxcompiler.v2.managers.engine_interfaces.InterfaceParam;
 import com.maxeler.maxcompiler.v2.managers.custom.CustomManager;
+import com.maxeler.maxcompiler.v2.managers.BuildConfig;
 import com.maxeler.maxcompiler.v2.managers.custom.blocks.KernelBlock;
 import com.maxeler.maxcompiler.v2.build.EngineParameters;
 
 public class SVMManager extends CustomManager{
 
-    private static final String s_kernelName  = "DemoKernel";
+	private static final String Name  = "SVMKernel";
 
-    SVMManager(EngineParameters ep) {
-        super(ep);
+	SVMManager(EngineParameters ep) {
+	
+		super(ep);
 
-        KernelBlock k = addKernel(new SVMKernel(makeKernelParameters(s_kernelName), Def.numBlocks, Def. blockDim, Def.WinSize, Def.streamLength));
+		KernelBlock k = addKernel(new SVMKernel(makeKernelParameters(Name), Def.numBlocks, Def.blockDim, Def.streamLength));
 
-        addStreamToCPU("output") <== k.getOutput("output");
-    }
+		k.getInput("Xc") <== addStreamFromCPU("Xc");
+		k.getInput("Yc") <== addStreamFromCPU("Yc");
+		addStreamToCPU("output") <== k.getOutput("output");
+	}
 
-    private static EngineInterface interfaceDefault() {
-        EngineInterface engine_interface = new EngineInterface();
-        CPUTypes type = CPUTypes.INT32;
-        int size = type.sizeInBytes();
+	private static EngineInterface interfaceDefault() {
+	
+		EngineInterface engine_interface = new EngineInterface();
 
-        InterfaceParam N = engine_interface.addParam("N", CPUTypes.INT);
-        InterfaceParam sizeBytes = N * size;
+		// Ticks
+		InterfaceParam numTicks = engine_interface.addParam("numTicks", CPUTypes.INT);
+		engine_interface.setTicks(Name, numTicks);
+		
+		// Inputs
+		InterfaceParam numItems 	= engine_interface.addConstant(Def.streamLength);
+		InterfaceParam dataDim 	= engine_interface.addConstant(Def.DataDim);
+		engine_interface.setStream("Xc", CPUTypes.FLOAT, numItems * dataDim * CPUTypes.FLOAT.sizeInBytes());
+		engine_interface.setStream("Yc", CPUTypes.FLOAT, numItems * CPUTypes.FLOAT.sizeInBytes());
+		
+		// Output
+		engine_interface.setStream("output", CPUTypes.INT32, numTicks * CPUTypes.INT32.sizeInBytes());
+		
+		return engine_interface;
+	}
 
-        engine_interface.setTicks(s_kernelName, N);
-
-        engine_interface.setStream("output", type, sizeBytes);
-        return engine_interface;
-    }
-
-
-    public static void main(String[] args) {
-        SVMManager manager = new SVMManager(new EngineParameters(args));
-        manager.createSLiCinterface(interfaceDefault());
-        manager.build();
-    }
+	public static void main(String[] args) {
+	
+		SVMManager manager = new SVMManager(new EngineParameters(args));
+		
+		BuildConfig Config = new BuildConfig(BuildConfig.Level.FULL_BUILD);
+                Config.setBuildEffort(BuildConfig.Effort.HIGH);
+                Config.setMPPRCostTableSearchRange(1, 4);
+                Config.setMPPRParallelism(4);
+                manager.setBuildConfig(Config);
+		
+		manager.createSLiCinterface(interfaceDefault());
+		manager.build();
+	}
+	
 }

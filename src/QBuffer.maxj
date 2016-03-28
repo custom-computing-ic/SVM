@@ -1,0 +1,80 @@
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
+import com.maxeler.maxcompiler.v2.utils.MathUtils;
+
+
+
+/**
+ * Buffering one row of Matrix Q for beta Calculation
+ *
+ * @author Patrick Shao
+ *
+ * @param <numBlocks> number of blocks
+ * @param <blockDim> 1D Dimension of the block
+ * @param <dataIn> Incoming data , i.e. a row of Q
+ * @param <beginFetch> Trigger for Q Fetching - resets Write Base Address Generator
+ * @param <WriteOffsetAddr> Offset Address of Buffer Write: 1, 2, ... , blockDim-1, 0, 1, 2, ... , blockDim-1, 0, 1, ... 
+ * @param <EnWrite> Control Variable for Buffer Write - true during Fetching
+ * @param <beginRead> Trigger for Q Buffer Read - resets Read Address Generator
+ */
+
+class QBuffer extends KernelLib{
+
+	private DFEVector<DFEVar> dataOUT;
+	private DFEVar Valid;
+		
+	public DFEVector<DFEVar> getData() 	{return dataOUT;}
+	public DFEVar isValid() 		{return Valid;}
+	
+	QBuffer (KernelLib owner, int numBlocks, int blockDim, DFEVar SSize, DFEVar dataIn, DFEVar BeginFetch, DFEVar WriteOffsetAddr, DFEVar EnWrite, DFEVar beginRead) {
+		
+		super(owner);
+		
+		/////////////////////// Address for Data Read ///////////////////////
+                
+                // Address for data read
+                AddrGenerator AddrGen = new AddrGenerator(owner, 1, blockDim, beginRead);
+                DFEVar AddrRead = AddrGen.getAddr();
+                Valid = AddrGen.isValid();
+                
+		/////////////////////// Address for Data Write ///////////////////////                
+                
+                // OffsetAddr - [0, blockDim-1]
+                DFEVar OffsetAddr = WriteOffsetAddr;
+
+		// BaseAddr - [0, numBlocks-1]
+                Count.Params BaseAddrParam = control.count.makeParams(MathUtils.bitsToAddress(numBlocks))
+                							.withInitValue(0)
+                							.withReset(BeginFetch)
+                							.withMax(numBlocks)
+                							.withEnable(OffsetAddr === (blockDim-1))
+                							.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP);
+                Counter BaseAddrCounter = control.count.makeCounter(BaseAddrParam);
+                DFEVar BaseAddr = BaseAddrCounter.getCount();
+
+                
+ 		/////////////////////// Memory ///////////////////////
+		DFEVectorType<DFEVar> VecType = new DFEVectorType<DFEVar>(Def.CalcType, numBlocks);
+		dataOUT = VecType.newInstance(this);
+		for(int i=0; i<numBlocks; ++i) {
+			DFEVar isPadZero = (i*blockDim+OffsetAddr.cast(SSize.getType())) > SSize;
+			DFEVar PortWrData = isPadZero ? constant.var(Def.CalcType, 0) : dataIn;
+			DFEVar PortWrEn = EnWrite & (BaseAddr === i);
+			DFEVar PortAddr = PortWrEn ? OffsetAddr : AddrRead;
+			Memory<DFEVar> block = mem.alloc(Def.CalcType, blockDim);
+			DFEVar portData = block.port(PortAddr, PortWrData, PortWrEn, RamWriteMode.WRITE_FIRST);
+			// Special first block: beta[0]=1
+			if (i==0) dataOUT[i] <== (PortAddr === 0) ? constant.var(Def.CalcType, 0) : portData;
+			else dataOUT[i] <== portData;
+		}
+
+	}
+
+}

@@ -1,0 +1,121 @@
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
+import com.maxeler.maxcompiler.v2.utils.MathUtils;
+
+import maxpower.FloatingPointAccumulator;
+
+/**
+ * Calculating vector beta and provide parallel access
+ *
+ * @author Patrick Shao
+ *
+ * @param <numBlocks> number of blocks
+ * @param <blockDim> 1D Dimension of the block
+ * @param <QBufVec> Q values for SMask items, coming from QBuffer
+ * @param <RVec> R values from RMem
+ * @param <beginBetaCalc> Trigger signal for beta calculation
+ * @param <readAddr> external address for read port - used when not calculating and not sequential reading
+ * @param <portAddr> external address for read-write port - used when not calculating and not sequential reading
+ * @param <beginSeqRead> Trigger signal for sequential read - ignores readAddr and portAddr
+ * 			- Here we assume blockDim >= numBlocks, as is usually the case
+ */
+
+class betaCalc extends KernelLib{
+
+	private DFEVector<DFEVar> portVec;
+	private DFEVector<DFEVar> readVec;
+	private DFEVar seqRead;
+	private DFEVar hasFinished;
+		
+	public DFEVector<DFEVar> getPortVec() 		{return portVec;}
+	public DFEVector<DFEVar> getReadVec() 		{return readVec;}
+	public DFEVar getSeqReadData() 		{return seqRead;}
+	public DFEVar hasBetaCalcFinished() 		{return hasFinished;}
+	
+	betaCalc ( 	KernelLib owner, 
+				int numBlocks, 
+				int blockDim,
+				DFEVector<DFEVar> QBufVec, 
+				DFEVector<DFEVector<DFEVar>> RVec,
+				DFEVar beginBetaCalc,
+				DFEVar readAddr,
+				DFEVar portAddr,
+				DFEVar beginSeqRead) 
+	{
+		
+		super(owner);
+		
+		/////////////////////// Write Address ///////////////////////
+                
+                // Control Variable for beta calculation
+                AddrGenerator betaCalcCounter = new AddrGenerator(owner, 1, blockDim*blockDim, beginBetaCalc);
+                DFEVar betaCalaCount = betaCalcCounter.getAddr();
+		DFEVar isCalculating = betaCalcCounter.isValid();
+		hasFinished = (betaCalaCount === blockDim*blockDim-1);
+               
+		// Control Variable for sequential read
+                AddrGenerator seqReadCounter = new AddrGenerator(owner, 1, numBlocks*blockDim, beginSeqRead);
+		DFEVar isSeqReading = seqReadCounter.isValid();		
+		
+		// Counter Reset
+		DFEVar Reset = beginBetaCalc | beginSeqRead;
+                
+                // XAddr - inner loop address
+		Count.Params XAddrCounterParam = control.count.makeParams(MathUtils.bitsToAddress(blockDim))
+                							.withInitValue(0)
+                							.withMax(blockDim)
+                							.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP)
+                							.withReset(Reset);
+                Counter XAddrCounter = control.count.makeCounter(XAddrCounterParam);
+                DFEVar XAddr = XAddrCounter.getCount();
+                
+                // YAddr - outer loop address
+                Count.Params YAddrCounterParam = control.count.makeParams(MathUtils.bitsToAddress(blockDim))
+                							.withInitValue(0)
+                							.withMax(blockDim)
+                							.withEnable(XAddrCounter.getWrap())
+                							.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP)
+                							.withReset(Reset);
+                Counter YAddrCounter = control.count.makeCounter(YAddrCounterParam);
+                DFEVar YAddr = YAddrCounter.getCount();
+                DFEVar muxSelect = YAddr.cast(dfeUInt(MathUtils.bitsToAddress(numBlocks)));
+                
+                
+ 		/////////////////////// Calculation ///////////////////////
+
+		DFEVectorType<DFEVar> VecType = new DFEVectorType<DFEVar>(Def.CalcType, numBlocks);
+		DFEVector<DFEVar> WrData = VecType.newInstance(this);
+		for (int i=0; i<numBlocks; ++i) {
+			DFEVector<DFEVar> mult = VecType.newInstance(this);
+			for (int j=0; j<numBlocks; ++j) mult[j] <== QBufVec[j] * RVec[i][j];
+			DFEVar sum = FloatingPointAccumulator.accumulateFixedLength(mult.getElementsAsList(), isCalculating, blockDim, false);
+			WrData[i] <== -sum;
+		}
+
+                
+ 		/////////////////////// Memory ///////////////////////
+                
+		portVec = VecType.newInstance(this);
+		readVec = VecType.newInstance(this);
+		for(int i=0; i<numBlocks; ++i) {
+			// Write on the last cycle of processing a row
+			DFEVar WrEn = isCalculating & XAddrCounter.getWrap();
+			DFEVar WrAddr = isCalculating ? YAddr : portAddr;
+			DFEVar RdAddr = isSeqReading ? XAddr : readAddr;
+			Memory<DFEVar> block = mem.alloc(Def.CalcType, blockDim);
+			portVec[i] <== block.port(WrAddr, WrData[i], WrEn, RamWriteMode.WRITE_FIRST);
+			readVec[i] <== block.read(RdAddr);
+		}
+		// For sequential read
+		seqRead = control.mux(muxSelect, readVec.getElementsAsList());
+		
+	}
+
+}

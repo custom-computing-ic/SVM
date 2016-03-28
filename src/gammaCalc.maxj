@@ -1,0 +1,83 @@
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
+
+import maxpower.FloatingPointAccumulator;
+
+/**
+ * This class calculates gamma
+ *
+ * @author Patrick Shao
+ *
+ * @param <blockDim> 1D Dimension of the block - Block Size = blockDim^2
+ * @param <Q> Incoming Q values
+ * 		- If calculating gamma_k, Q should be Q[k][k] on the first cycle
+ * 		- If calculating ith element for gamma vector, Q should be Q[NMask[i]][Xc] on the first cycle 
+ * @param <beta> beta Vector
+ * @param <isDataValid> is incoming data valid, true during calculation
+ * @param <beginGammaVCalc> Trigger of gamma vector calculation, also resets accumulator
+ * @param <beginGammaCCalc> Trigger of gamma_c calculation, also resets accumulator
+ * 
+ */
+
+
+
+class gammaCalc extends KernelLib {
+
+	private DFEVar Result;
+	private DFEVar Data;
+	private DFEVar hasFinish;
+	
+	public DFEVar getCalcResult() 			{return Result;}
+	public DFEVar getData() 		{return Data;}
+	public DFEVar hasFinished() 		{return hasFinish;}
+	
+	gammaCalc ( 	KernelLib owner,
+				int WinSize, 
+				DFEVar SSize, 
+				DFEVar Q, 
+				DFEVar beta, 
+				DFEVar GammaReadAddr, 
+				DFEVar GammaWriteAddr,
+				DFEVar GammaWriteEn,
+				DFEVar Reset) 
+	{
+	
+		super(owner);
+		
+		/////////////////////// Control ///////////////////////
+		
+		DFEVar Max = SSize.cast(dfeUInt(16)) + 1;
+                Count.Params GammaCounterParam = control.count.makeParams(16)
+                							.withInitValue(0)
+                							.withMax(Max)
+                							.withWrapMode(WrapMode.STOP_AT_MAX)
+                							.withReset(Reset);
+                Counter GammaCounter = control.count.makeCounter(GammaCounterParam);
+                DFEVar GammaCount = GammaCounter.getCount();
+
+		// Address is valid when it's smaller than Max                
+                DFEVar Valid = Reset | (GammaCount>0) & (GammaCount<Max);
+                hasFinish = Valid & (GammaCount === SSize.cast(dfeUInt(16)));
+		
+		
+		/////////////////////// Calculation ///////////////////////
+		
+		DFEVar toAccumulator = Reset ? (Q+beta) : (Q*beta);
+		Result = FloatingPointAccumulator.accumulateWithReset(toAccumulator, Valid, Reset, true);
+		
+		
+		/////////////////////// Memory ///////////////////////
+		
+		Memory<DFEVar> GammaMem = mem.alloc(Def.CalcType, WinSize);
+		Data = GammaMem.read(GammaReadAddr);
+		DFEVar WrEn = GammaWriteEn & hasFinish;
+		GammaMem.write(GammaWriteAddr, Result, WrEn);
+
+
+	}
+
+}

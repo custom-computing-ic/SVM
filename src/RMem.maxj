@@ -1,7 +1,6 @@
 import java.util.ArrayList;
 
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
-import com.maxeler.maxcompiler.v2.kernelcompiler.RoundingMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
@@ -12,7 +11,6 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Stream.OffsetExpr;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
 import com.maxeler.maxcompiler.v2.utils.MathUtils;
 
 import maxpower.ConstDenominator;
@@ -44,8 +42,13 @@ import maxpower.ConstDenominator;
 class RMem extends KernelLib{
 
 	private DFEVector<DFEVector<DFEVar>> BetaCalcVec;
+	private DFEVar XAddr;
+	private DFEVar YAddr;
 	
 	public DFEVector<DFEVector<DFEVar>> getBetaCalcVec() 	{return BetaCalcVec;}
+	public DFEVar getXAddr() 		{return XAddr;}
+	public DFEVar getYAddr() 		{return YAddr;}
+
 
 	RMem ( 	KernelLib owner,
 			int numBlocks,
@@ -65,20 +68,17 @@ class RMem extends KernelLib{
 		super(owner);
 		
 		/////////////////////// Definitions ///////////////////////
-				
-		int WinSize = numBlocks * blockDim;
+
 		DFEVectorType<DFEVar> numBlocksVec = new DFEVectorType<DFEVar>(Def.CalcType, numBlocks);
 		DFEVectorType<DFEVar> blockDimDataVec = new DFEVectorType<DFEVar>(Def.CalcType, blockDim);
-		DFEVectorType<DFEVar> blockDimAddrVec = new DFEVectorType<DFEVar>(dfeUInt(MathUtils.bitsToAddress(blockDim)), blockDim);
-		DFEVectorType<DFEVar> blockDimBoolVec = new DFEVectorType<DFEVar>(dfeBool(), blockDim);
-		DFEVar XAddr = dfeUInt(MathUtils.bitsToAddress(blockDim)).newInstance(this);
-		DFEVar YAddr = dfeUInt(MathUtils.bitsToAddress(blockDim)).newInstance(this);
+		XAddr = dfeUInt(MathUtils.bitsToAddress(blockDim)).newInstance(this);
+		YAddr = dfeUInt(MathUtils.bitsToAddress(blockDim)).newInstance(this);
 
                 
 		/////////////////////// Beta Calc ///////////////////////
 
 		// BetaCalcVec[Y][X]
-		DFEVector<DFEVector<DFEVar>> BetaCalcVec = (new DFEVectorType<DFEVector<DFEVar>>(numBlocksVec, numBlocks)).newInstance(this);
+		BetaCalcVec = (new DFEVectorType<DFEVector<DFEVar>>(numBlocksVec, numBlocks)).newInstance(this);
 
 
  		/////////////////////// RInit ///////////////////////
@@ -109,7 +109,7 @@ class RMem extends KernelLib{
 
 		// Base and Offset Address of Edge
  		ConstDenominator.ConstDivModResult PosDivModResult = ConstDenominator.divMod(SMaskIDToRemove+1, blockDim, MathUtils.bitsToAddress(blockDim));
- 		DFEVar RShrinkPosBaseAddr = PosDivModResult.getQuotient();
+ 		DFEVar RShrinkPosBaseAddr = PosDivModResult.getQuotient().cast(dfeUInt(MathUtils.bitsToAddress(numBlocks)));
  		DFEVar RShrinkPosOffsetAddr = PosDivModResult.getRemainder();
 		
 
@@ -415,9 +415,9 @@ class RMem extends KernelLib{
 
 			/////////////////////// Memory - Write ///////////////////////
 			
+			// Stream Offset
+			OffsetExpr RBlockOffset = stream.makeOffsetAutoLoop("OffsetRBlockX"+X+"Y"+Y);
 			for (int i=0; i<blockDim; ++i) {
-				// Stream Offset
-				OffsetExpr RBlockOffset = stream.makeOffsetAutoLoop("OffsetRBlockX"+X+"Y"+Y+"Row"+i);
 				// Write Data
 				DFEVar PortDataUnOffseted = isInit ? RInitPortData[i] : (isEnlarging ? REnlargePortData[i] : RShrinkPortData[i]);
 				DFEVar PortData = stream.offset(PortDataUnOffseted, -RBlockOffset);

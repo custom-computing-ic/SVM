@@ -78,8 +78,8 @@ class RMem extends KernelLib{
 
  		/////////////////////// RInit ///////////////////////
 
-		// Control Signal for RInit - blockDim^2 cycles
-		AddrGenerator RInitCounter = new AddrGenerator(owner, 1, blockDim*blockDim, beginRInit);
+		// Control Signal for RInit - blockDim*2 cycles
+		AddrGenerator RInitCounter = new AddrGenerator(owner, 1, blockDim*2, beginRInit);
 		DFEVar isInit = RInitCounter.isValid();
 
 		
@@ -329,8 +329,9 @@ class RMem extends KernelLib{
 			
 			// Write - blockDim^2 cycles
 			// Write Data - PortAddr = blockAddr
-			DFEVar RInitPortData = (XAddr===0) ? (	(YAddr===0) ? constant.var(Def.CalcType, -1) : constant.var(Def.CalcType, 1)	) 
-											 : (	(YAddr===0) ? constant.var(Def.CalcType, 1) : constant.var(Def.CalcType, 0)	);  
+			DFEVar RInitPortData = Def.CalcType.newInstance(this);
+			if ((X==0)&&(Y==0)) RInitPortData <== counterReset ? -1 : (((XAddr===0)&(YAddr===1)) | ((XAddr===1)&(YAddr===0))) ? constant.var(Def.CalcType, 1) : 0;
+			else RInitPortData <== constant.var(Def.CalcType, 0);
 			DFEVar RInitPortEn = blockAddrValid;
 
 
@@ -343,10 +344,12 @@ class RMem extends KernelLib{
 			DFEVar isREnlargeCorner 	= isREnlargeXEdge & isREnlargeYEdge;
 			
 			// Write Data - PortAddr = blockAddr
+			optimization.pushDSPFactor(Def.DSPFactor);
 			DFEVar REnlargeInnerData		= readItem + betaX * betaY * gammaInv;
 			DFEVar REnlargeXEdgeData 	= betaY * gammaInv;
 			DFEVar REnlargeYEdgeData 	= betaX * gammaInv;
 			DFEVar REnlargeCornerData 	= gammaInv;
+			optimization.popDSPFactor();
 			DFEVar REnlargePortData = isREnlargeCorner ? REnlargeCornerData : (isREnlargeXEdge ? REnlargeXEdgeData : (isREnlargeYEdge ? REnlargeYEdgeData : REnlargeInnerData));
 			DFEVar REnlargePortEn = isEnlarging & blockAddrValid;
 
@@ -363,7 +366,9 @@ class RMem extends KernelLib{
 
 			// Sequential Write - blockDim^2 cycles
 			// Shrinking - PortAddr = blockAddr
+			optimization.pushDSPFactor(Def.DSPFactor);
 			DFEVar ShrinkPortData = readItem - XElem * YElem * KElemInv;
+			optimization.popDSPFactor();
 			DFEVar ShrinkPortEn = isShrinking & blockAddrValid;
 			
 			// There is a latency of calculating ShrinkPortData - must ensure the result is written to the memory before shifting.
@@ -408,19 +413,25 @@ class RMem extends KernelLib{
 			OffsetExpr RBlockOffset = stream.makeOffsetAutoLoop("OffsetRBlockX"+X+"Y"+Y);
 
 			// Write Data
-			DFEVar PortDataUnOffseted = isInit ? RInitPortData : (isEnlarging ? REnlargePortData : RShrinkPortData);
-			DFEVar PortData = stream.offset(PortDataUnOffseted, -RBlockOffset);
+			DFEVar PortDataUnOffseted = isEnlarging ? REnlargePortData : RShrinkPortData;
+			DFEVar PortData = isInit ? RInitPortData : stream.offset(PortDataUnOffseted, -RBlockOffset);
 			// Write Addr
 			DFEVar PortAddrUnOffseted = (isUpShifting | isLeftShifting) ? ShiftPortAddr : blockAddr;
-			DFEVar PortAddr = stream.offset(PortAddrUnOffseted, -RBlockOffset);
+			DFEVar PortAddr = isInit ? blockAddr : stream.offset(PortAddrUnOffseted, -RBlockOffset);
 			// Write Enable
-			DFEVar PortWrEnUnOffseted = RInitPortEn | REnlargePortEn | RShrinkPortEn;
-			DFEVar PortWrEn = stream.offset(PortWrEnUnOffseted, -RBlockOffset);
+			DFEVar PortWrEnUnOffseted = REnlargePortEn | RShrinkPortEn;
+			DFEVar PortWrEn = isInit ? RInitPortEn : stream.offset(PortWrEnUnOffseted, -RBlockOffset);
 			// Write
 			block.write(PortAddr, PortData, PortWrEn);
 
+/*
+			if ((X==0) && (Y==0)) {
+				DFEVar Tick = control.count.simpleCounter(32);
+				debug.simPrintf(isInit, "[%4d] [RBlock00] Block[%d] <= %f, En = %d \n", Tick, PortAddr, PortData, PortWrEn);
+			}
+*/
 
-		}	
+		}
 	
 	}
 

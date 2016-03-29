@@ -43,7 +43,8 @@ class gammaCalc extends KernelLib {
 				DFEVar GammaReadAddr, 
 				DFEVar GammaWriteAddr,
 				DFEVar GammaWriteEn,
-				DFEVar Reset) 
+				DFEVar Reset,
+				DFEVar Enable) 
 	{
 	
 		super(owner);
@@ -53,6 +54,7 @@ class gammaCalc extends KernelLib {
 		DFEVar Max = SSize.cast(dfeUInt(16)) + 1;
                 Count.Params GammaCounterParam = control.count.makeParams(16)
                 							.withInitValue(0)
+                							.withEnable(Enable)
                 							.withMax(Max)
                 							.withWrapMode(WrapMode.STOP_AT_MAX)
                 							.withReset(Reset);
@@ -77,6 +79,8 @@ class gammaCalc extends KernelLib {
 		DFEVar WrEn = GammaWriteEn & hasFinish;
 		GammaMem.write(GammaWriteAddr, Result, WrEn);
 
+//		DFEVar Tick = control.count.simpleCounter(32);
+//		debug.simPrintf(Valid, "[%4d] [GAMMACALC] Reset=%d, GammaCount=%d | Result = %f, WrEn=%d | hasFinish=%d \n", Tick, Reset, GammaCount, Result, WrEn, hasFinish);
 
 	}
 

@@ -58,7 +58,7 @@ class hCalc extends KernelLib {
                 Valid = (Addr === blockDim-1);
 		
 		/////////////////////// Calculation ///////////////////////
-				
+		
 		DFEVector<DFEVar> mult = theta * Q;
 		DFEVar offset = b - Y;
 		DFEVar sum = FloatingPointAccumulator.accumulateFixedLength(mult.getElementsAsList(), EnAccumulation, blockDim, false);

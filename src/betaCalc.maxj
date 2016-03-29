@@ -56,9 +56,9 @@ class betaCalc extends KernelLib{
                 
                 // Control Variable for beta calculation
                 AddrGenerator betaCalcCounter = new AddrGenerator(owner, 1, blockDim*blockDim, beginBetaCalc);
-                DFEVar betaCalaCount = betaCalcCounter.getAddr();
+                DFEVar betaCalcCount = betaCalcCounter.getAddr();
 		DFEVar isCalculating = betaCalcCounter.isValid();
-		hasFinished = (betaCalaCount === blockDim*blockDim-1);
+		hasFinished = (betaCalcCount === blockDim*blockDim-1);
                
 		// Control Variable for sequential read
                 AddrGenerator seqReadCounter = new AddrGenerator(owner, 1, numBlocks*blockDim, beginSeqRead);
@@ -95,7 +95,8 @@ class betaCalc extends KernelLib{
 		for (int i=0; i<numBlocks; ++i) {
 			DFEVector<DFEVar> mult = VecType.newInstance(this);
 			for (int j=0; j<numBlocks; ++j) mult[j] <== QBufVec[j] * RVec[i][j];
-			DFEVar sum = FloatingPointAccumulator.accumulateFixedLength(mult.getElementsAsList(), isCalculating, blockDim, false);
+//			DFEVar sum = FloatingPointAccumulator.accumulateFixedLength(mult.getElementsAsList(), isCalculating, blockDim, true);
+			DFEVar sum = FloatingPointAccumulator.accumulateWithReset(mult.getElementsAsList(), isCalculating, (XAddr===0), false);
 			WrData[i] <== -sum;
 		}
 
@@ -115,6 +116,10 @@ class betaCalc extends KernelLib{
 		}
 		// For sequential read
 		seqRead = control.mux(muxSelect, readVec.getElementsAsList());
+		
+		// Debug
+		DFEVar Tick = control.count.simpleCounter(32);
+		debug.simPrintf(isCalculating & XAddrCounter.getWrap(), "[%4d] [BetaCalc] Bg=%d, X=%2d, Y=%2d | QBuf[0:3] = (%.4f, %.4f, %.4f, %.4f) | R[0:3][0] = (%.4f, %.4f, %.4f, %.4f) | Wr[0:3][%d] = (%.4f, %.4f, %.4f, %.4f), En=%d \n", Tick, beginBetaCalc, XAddr, YAddr, QBufVec[0], QBufVec[1], QBufVec[2], QBufVec[3], RVec[0][0], RVec[0][1], RVec[0][2], RVec[0][3], YAddr, WrData[0], WrData[1], WrData[2], WrData[3], isCalculating & XAddrCounter.getWrap());
 		
 	}
 

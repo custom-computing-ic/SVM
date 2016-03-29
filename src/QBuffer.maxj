@@ -28,21 +28,29 @@ import com.maxeler.maxcompiler.v2.utils.MathUtils;
 class QBuffer extends KernelLib{
 
 	private DFEVector<DFEVar> dataOUT;
-	private DFEVar Valid;
 		
 	public DFEVector<DFEVar> getData() 	{return dataOUT;}
-	public DFEVar isValid() 		{return Valid;}
 	
 	QBuffer (KernelLib owner, int numBlocks, int blockDim, DFEVar SSize, DFEVar dataIn, DFEVar BeginFetch, DFEVar WriteOffsetAddr, DFEVar EnWrite, DFEVar beginRead) {
 		
 		super(owner);
 		
 		/////////////////////// Address for Data Read ///////////////////////
+
+                // Control for Data Read
+                AddrGenerator QBufReadCounter = new AddrGenerator(owner, 1, blockDim*blockDim, beginRead);
+                DFEVar isReading = QBufReadCounter.isValid();
                 
-                // Address for data read
-                AddrGenerator AddrGen = new AddrGenerator(owner, 1, blockDim, beginRead);
-                DFEVar AddrRead = AddrGen.getAddr();
-                Valid = AddrGen.isValid();
+                // Address for Data Read
+		Count.Params ReadAddrParam = control.count.makeParams(MathUtils.bitsToAddress(blockDim))
+                							.withInitValue(0)
+                							.withReset(beginRead)
+                							.withMax(blockDim)
+                							.withEnable(isReading)
+                							.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP);
+		Counter ReadAddrCounter = control.count.makeCounter(ReadAddrParam);
+                DFEVar AddrRead = ReadAddrCounter.getCount();
+                
                 
 		/////////////////////// Address for Data Write ///////////////////////                
                 
@@ -61,17 +69,18 @@ class QBuffer extends KernelLib{
 
                 
  		/////////////////////// Memory ///////////////////////
+ 		
 		DFEVectorType<DFEVar> VecType = new DFEVectorType<DFEVar>(Def.CalcType, numBlocks);
 		dataOUT = VecType.newInstance(this);
 		for(int i=0; i<numBlocks; ++i) {
-			DFEVar isPadZero = (i*blockDim+OffsetAddr.cast(SSize.getType())) > SSize;
+			DFEVar isPadZero = (i*blockDim+OffsetAddr.cast(dfeUInt(16))) > SSize.cast(dfeUInt(16));
 			DFEVar PortWrData = isPadZero ? constant.var(Def.CalcType, 0) : dataIn;
 			DFEVar PortWrEn = EnWrite & (BaseAddr === i);
 			DFEVar PortAddr = PortWrEn ? OffsetAddr : AddrRead;
 			Memory<DFEVar> block = mem.alloc(Def.CalcType, blockDim);
 			DFEVar portData = block.port(PortAddr, PortWrData, PortWrEn, RamWriteMode.WRITE_FIRST);
 			// Special first block: beta[0]=1
-			if (i==0) dataOUT[i] <== (PortAddr === 0) ? constant.var(Def.CalcType, 0) : portData;
+			if (i==0) dataOUT[i] <== (PortAddr === 0) ? constant.var(Def.CalcType, 1) : portData;
 			else dataOUT[i] <== portData;
 		}
 

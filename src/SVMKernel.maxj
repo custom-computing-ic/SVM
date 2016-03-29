@@ -139,20 +139,16 @@ class SVMKernel extends Kernel {
 
 		////////////////////////// Input /////////////////////////
 
-		// FIFO Control: Push and Pop at the same cycle
-		DFEVar EnPush = EnInput;
-
 		// Xc FIFO
-		DFEVector<DFEVar> Xc_IN = ZeroLatencyInput.input("Xc", Def.DataVecType, EnPush, constant.var(dfeUInt(32), streamLength));
+		DFEVector<DFEVar> Xc_IN = ZeroLatencyInput.input("Xc", Def.DataVecType, EnInput, constant.var(dfeUInt(32), streamLength));
 		Queue<DFEVector<DFEVar>> XcQueue = mem.queue(Def.DataVecType, 2);
-		XcQueue.insert(Xc_IN, EnPush);
+		XcQueue.insert(Xc_IN, EnInput);
 		DFEVector<DFEVar> Xc = XcQueue.remove(EnInput);
-		DFEVar removeValid = XcQueue.valid();
 		
 		// Yc FIFO
-		DFEVar Yc_IN = ZeroLatencyInput.input("Yc", Def.CalcType, EnPush, constant.var(dfeUInt(32), streamLength));
+		DFEVar Yc_IN = ZeroLatencyInput.input("Yc", Def.CalcType, EnInput, constant.var(dfeUInt(32), streamLength));
 		Queue<DFEVar> YcQueue = mem.queue(Def.CalcType, 2);
-		YcQueue.insert(Yc_IN, EnPush);
+		YcQueue.insert(Yc_IN, EnInput);
 		DFEVar Yc = YcQueue.remove(EnInput);
 
 
@@ -264,7 +260,6 @@ class SVMKernel extends Kernel {
 		DFEVar XAddr = MatrixR.getXAddr();
 		DFEVar YAddr = MatrixR.getYAddr();
 
-
 		// beta Calculation
 		DFEVar betaReadAddr = XAddr;
 		DFEVar betaPortAddr = YAddr;
@@ -273,8 +268,7 @@ class SVMKernel extends Kernel {
 		betaX <== betaCalcModule.getReadVec();
 		betaY <== betaCalcModule.getPortVec();
 		DFEVar betaSeq = betaCalcModule.getSeqReadData();
-		DFEVar hasBetaCalcFinishedFromBetaCalc = betaCalcModule.hasBetaCalcFinished();
-		
+		DFEVar hasBetaCalcFinishedFromBetaCalc = betaCalcModule.hasBetaCalcFinished();		
 
 		// gamma Calculation
 		DFEVar GReadAddr 	= IndexNMask;
@@ -455,8 +449,8 @@ class SVMKernel extends Kernel {
 		DFEVar Tick = control.count.simpleCounter(32);
 		
 		// From Input FIFO
-//		debug.simPrintf(EnPush, "[%4d]-----[FIFO]---------------data[%d][%d] = (%f,%f) Pushed into FIFO----------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc_IN[0], Yc_IN);
-//		debug.simPrintf(removeValid, "[%4d]-----[FIFO]---------------data[%d][%d] = (%f,%f) Poped from FIFO----------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
+//		debug.simPrintf(EnInput, "[%4d]-----[FIFO]---------------data[%d][%d] = (%f,%f) Pushed into FIFO----------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc_IN[0], Yc_IN);
+//		debug.simPrintf(XcQueue.valid(), "[%4d]-----[FIFO]---------------data[%d][%d] = (%f,%f) Poped from FIFO----------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
 		
 		// hXc calculation
 		debug.simPrintf(EnInput, "[%4d]--------NEW INPUT-------(Xc[%d][%d],Yc)=(%f,%f)---------------------------------------------------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
@@ -480,7 +474,7 @@ class SVMKernel extends Kernel {
 	// RBF Kernel
 	private DFEVar RBFKernel(DFEVector<DFEVar>X1, DFEVector<DFEVar>X2) {
 		
-		optimization.pushDSPFactor(0.8);
+		optimization.pushDSPFactor(Def.DSPFactor);
 		DFEVector<DFEVar> temp = X1 - X2;
 		DFEVector<DFEVar> summands = temp * temp;
 		DFEVar sum = TreeReduce.reduce(new Add<DFEVar>(), summands.getElementsAsList());

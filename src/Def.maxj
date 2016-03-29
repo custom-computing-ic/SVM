@@ -15,6 +15,9 @@ class Def {
 
 	// Pipelining factor
 	public static final double PipeliningFactor = 0.75;
+	
+	// DSP Factor
+	public static final double DSPFactor = 0.8;
 
 	// FPGA Frequency
 	public static final int KernelFrequency = 100;

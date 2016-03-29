@@ -1,6 +1,5 @@
-import java.util.ArrayList;
-
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
@@ -67,24 +66,20 @@ class RMem extends KernelLib{
 
 		super(owner);
 		
-		/////////////////////// Definitions ///////////////////////
+		/////////////////////// Vectors ///////////////////////
 
 		DFEVectorType<DFEVar> numBlocksVec = new DFEVectorType<DFEVar>(Def.CalcType, numBlocks);
-		DFEVectorType<DFEVar> blockDimDataVec = new DFEVectorType<DFEVar>(Def.CalcType, blockDim);
+		DFEVectorType<DFEVector<DFEVar>> GridVec = new DFEVectorType<DFEVector<DFEVar>>(numBlocksVec, numBlocks);
+		BetaCalcVec = GridVec.newInstance(this);
+		
 		XAddr = dfeUInt(MathUtils.bitsToAddress(blockDim)).newInstance(this);
 		YAddr = dfeUInt(MathUtils.bitsToAddress(blockDim)).newInstance(this);
-
-                
-		/////////////////////// Beta Calc ///////////////////////
-
-		// BetaCalcVec[Y][X]
-		BetaCalcVec = (new DFEVectorType<DFEVector<DFEVar>>(numBlocksVec, numBlocks)).newInstance(this);
 
 
  		/////////////////////// RInit ///////////////////////
 
-		// Control Signal for RInit - blockDim cycles
-		AddrGenerator RInitCounter = new AddrGenerator(owner, 1, blockDim, beginRInit);
+		// Control Signal for RInit - blockDim^2 cycles
+		AddrGenerator RInitCounter = new AddrGenerator(owner, 1, blockDim*blockDim, beginRInit);
 		DFEVar isInit = RInitCounter.isValid();
 
 		
@@ -103,7 +98,7 @@ class RMem extends KernelLib{
 		/////////////////////// RShrink ///////////////////////
 		
 		// Control Signal for RShrink -  cycles
-		int RShrinkCycles = blockDim*blockDim + 3*blockDim + 150;
+		int RShrinkCycles = 2*blockDim + 100 + (blockDim*blockDim + 300)*3;
                 AddrGenerator RShrinkCounter = new AddrGenerator(owner, 1, RShrinkCycles, beginRShrink);
                 DFEVar RShrinkCount = RShrinkCounter.getAddr();
 
@@ -117,15 +112,19 @@ class RMem extends KernelLib{
 				
 		// Control Signal for Fetching
 		DFEVar beginFetch = beginRShrink;
-		AddrGenerator FetchingCounter = new AddrGenerator(owner, 1, blockDim, beginFetch);
+		AddrGenerator FetchingCounter = new AddrGenerator(owner, 1, blockDim*2, beginFetch);
+		DFEVar FetchingCount = FetchingCounter.getAddr();
 		DFEVar isFetching = FetchingCounter.isValid();
+		DFEVar isFetchingX = isFetching & (FetchingCount<blockDim);
+		DFEVar isFetchingY = isFetching & (FetchingCount>=blockDim);
 		
 		// XElem - prefetched R[k][:] for RShrink
 		DFEVector<DFEVar> XElem = numBlocksVec.newInstance(this);
 		DFEVector<DFEVar> toXBuffer = numBlocksVec.newInstance(this);
 		for (int i=0; i<numBlocks; ++i) {
 			Memory<DFEVar> XBuffer = mem.alloc(Def.CalcType, blockDim);
-			XElem[i] <== XBuffer.port(XAddr, toXBuffer[i], isFetching, RamWriteMode.READ_FIRST);
+			XBuffer.write(XAddr, toXBuffer[i], isFetchingX);
+			XElem[i] <== XBuffer.read(XAddr);
 		}
 
 		// YElem - prefetched R[:][k] for RShrink
@@ -133,20 +132,21 @@ class RMem extends KernelLib{
 		DFEVector<DFEVar> toYBuffer = numBlocksVec.newInstance(this);
 		for (int i=0; i<numBlocks; ++i) {
 			Memory<DFEVar> YBuffer = mem.alloc(Def.CalcType, blockDim);
+			YBuffer.write(XAddr, toYBuffer[i], isFetchingY);
 			YElem[i] <== YBuffer.read(YAddr);
-			YBuffer.write(XAddr, toYBuffer[i], isFetching);
 		}
 		
 		// 1/R[k][k] for RShrink
 		DFEVar toKElemInvStreamHold = 1.0 / control.mux(RShrinkPosBaseAddr, toXBuffer.getElementsAsList());
-		DFEVar enKElemInvStreamHold = (XAddr === RShrinkPosOffsetAddr) & isFetching;
-		DFEVar KElemInv = Reductions.streamHold(toKElemInvStreamHold, enKElemInvStreamHold);		
+		DFEVar enKElemInvStreamHold = (XAddr === RShrinkPosOffsetAddr) & isFetchingX;
+		DFEVar KElemInv = Reductions.streamHold(toKElemInvStreamHold, enKElemInvStreamHold);
+		OffsetExpr KElemInvLatency = stream.measureDistance("KElemInvLatency", toXBuffer[0], toKElemInvStreamHold);
 		
 		
 		/////////////////////// RShrink - Shrinking ///////////////////////
 		
 		// Control Signal for Shrinking
-		DFEVar beginShrink = (RShrinkCount === blockDim + 50);
+		DFEVar beginShrink = (RShrinkCount === 2*blockDim + 100);
 		AddrGenerator ShrinkCounter = new AddrGenerator(owner, 1, blockDim*blockDim, beginShrink);
 		DFEVar isShrinking = ShrinkCounter.isValid();
 
@@ -154,126 +154,104 @@ class RMem extends KernelLib{
 		/////////////////////// RShrink - UpShifting ///////////////////////	
 		
 		// Control Signal for UpShifting
-		DFEVar beginUpShift = (RShrinkCount === blockDim*blockDim + blockDim + 120);
-		AddrGenerator UpShiftCounter = new AddrGenerator(owner, 1, blockDim, beginUpShift);
+		DFEVar beginUpShift = (RShrinkCount === 2*blockDim + 100 + blockDim*blockDim + 300);
+		AddrGenerator UpShiftCounter = new AddrGenerator(owner, 1, blockDim*blockDim, beginUpShift);
 		DFEVar isUpShifting = UpShiftCounter.isValid();
 
 
 		/////////////////////// RShrink - LeftShifting ///////////////////////	
 		
 		// Control Signal for LeftShifting
-		DFEVar beginLeftShift = (RShrinkCount === blockDim*blockDim + 2*blockDim + 130);
-		AddrGenerator LeftShiftCounter = new AddrGenerator(owner, 1, blockDim, beginLeftShift);
+		DFEVar beginLeftShift = (RShrinkCount === 2*blockDim + 100 + (blockDim*blockDim + 300)*2);
+		AddrGenerator LeftShiftCounter = new AddrGenerator(owner, 1, blockDim*blockDim, beginLeftShift);
 		DFEVar isLeftShifting = LeftShiftCounter.isValid();
 
 
 		/////////////////////// Address ///////////////////////
-		
-    		// XAddr - inner loop
-		DFEVar XAddrCounterReset = beginBetaCalc | beginRInit | beginREnlarge | beginFetch | beginShrink | beginUpShift | beginLeftShift;
+			
+		// Counter Reset Trigger
+		DFEVar counterReset = beginBetaCalc | beginRInit | beginREnlarge | beginFetch | beginShrink | beginUpShift | beginLeftShift;
+
+    		// XAddr - inner loop		
                 Count.Params XAddrCounterParam = control.count.makeParams(MathUtils.bitsToAddress(blockDim))
                 							.withInitValue(0)
                 							.withMax(blockDim)
                 							.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP)
-                							.withReset(XAddrCounterReset);
+                							.withReset(counterReset);
                 Counter XAddrCounter = control.count.makeCounter(XAddrCounterParam);
                 XAddr <== XAddrCounter.getCount();
                 
                 // YAddr - outer loop
-               	DFEVar YAddrCounterReset = XAddrCounterReset;
                 Count.Params YAddrCounterParam = control.count.makeParams(MathUtils.bitsToAddress(blockDim))
                 							.withInitValue(0)
                 							.withMax(blockDim)
                 							.withEnable(XAddrCounter.getWrap())
                 							.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP)
-                							.withReset(YAddrCounterReset);
+                							.withReset(counterReset);
                 Counter YAddrCounter = control.count.makeCounter(YAddrCounterParam);
-                YAddr <== isFetching ? RShrinkPosOffsetAddr : YAddrCounter.getCount();
+                YAddr <== YAddrCounter.getCount();
 		
 
 		/////////////////////// R Blocks ///////////////////////
-
-		// Outputs from block
-		DFEVector<DFEVar> [][] toLeftBlock = new DFEVector [numBlocks][numBlocks];
-		DFEVector<DFEVar> [][] portData = new DFEVector [numBlocks][numBlocks];
-		DFEVar [][] toUpBlock = new DFEVar [numBlocks][numBlocks];
-
-		// RShrinkDatafromDown	
-		DFEVar [][] RShrinkDatafromDown = new DFEVar [numBlocks][numBlocks];
-		for (int i=0; i<numBlocks; ++i) {
-			for (int j=0; j<numBlocks; ++j) RShrinkDatafromDown[i][j] = Def.CalcType.newInstance(this);
-		}
 		
-		// RShrinkDatafromRight
-		DFEVector<DFEVar> [][] RShrinkDatafromRight = new DFEVector [numBlocks][numBlocks];
-		for (int i=0; i<numBlocks; ++i) {
-			for (int j=0; j<numBlocks; ++j) RShrinkDatafromRight[i][j] = blockDimDataVec.newInstance(this);
-		}
+		// Internal Connections
+		DFEVector<DFEVector<DFEVar>> fromDownBlock = GridVec.newInstance(this);
+		DFEVector<DFEVector<DFEVar>> fromRightBlock = GridVec.newInstance(this);
 		
-
 		// RBlocks
 		RBlock [][] RGrid = new RBlock[numBlocks][numBlocks];
 		for (int X=0; X<numBlocks; ++X) {
 			for (int Y=0; Y<numBlocks; ++Y) {
 				RGrid[X][Y] = new RBlock (owner, X, Y, blockDim,
 				REnlargeEdgeBaseAddr, REnlargeEdgeOffsetAddr, RShrinkPosBaseAddr, RShrinkPosOffsetAddr,
-				betaX[X], betaY[Y], gammaInv, XElem[X], YElem[Y], KElemInv, RShrinkDatafromDown[X][Y], RShrinkDatafromRight[X][Y],
-				XAddr, YAddr, isInit, isEnlarging, isFetching, isShrinking, isUpShifting, isLeftShifting);
+				betaX[X], betaY[Y], gammaInv, XElem[X], YElem[Y], KElemInv, fromDownBlock[X][Y], fromRightBlock[X][Y],
+				counterReset, isInit, isEnlarging, isFetching, isShrinking, isUpShifting, isLeftShifting);
 				
-				toUpBlock[X][Y] = RGrid[X][Y].getDataToUpBlock();
-				toLeftBlock[X][Y] = RGrid[X][Y].getReadVec();
-				portData[X][Y] = RGrid[X][Y].getPortVec();
-				BetaCalcVec[Y][X] <== RGrid[X][Y].getCurXYItem();
+				BetaCalcVec[Y][X] <== RGrid[X][Y].getData();
 			}
-		}		
-		
-		/////////////////////// Wiring Outputs ///////////////////////
+		}
 		
 		// XElem
-		toXBuffer <== control.mux(RShrinkPosBaseAddr, BetaCalcVec.getElementsAsList());
+		for (int X=0; X<numBlocks; ++X) {
+			DFEVector<DFEVar> toMux = numBlocksVec.newInstance(this);
+			for (int Y=0; Y<numBlocks; ++Y) toMux[Y] <== RGrid[X][Y].getData();
+			toXBuffer[X] <== control.mux(RShrinkPosBaseAddr, toMux.getElementsAsList());
+		}
 		
 		// YElem
 		for (int Y=0; Y<numBlocks; ++Y) {
-			ArrayList<DFEVector<DFEVar>> toXmux = new ArrayList<DFEVector<DFEVar>>();
-			for (int X=0; X<numBlocks; ++X) toXmux.add(portData[X][Y]);
-			DFEVector<DFEVar> toYmux = control.mux(RShrinkPosBaseAddr, toXmux);
-			toYBuffer[Y] <== control.mux(XAddr, toYmux.getElementsAsList());
+			DFEVector<DFEVar> toMux = numBlocksVec.newInstance(this);
+			for (int X=0; X<numBlocks; ++X) toMux[X] <== RGrid[X][Y].getData();
+			toYBuffer[Y] <== control.mux(RShrinkPosBaseAddr, toMux.getElementsAsList());
 		}
-
-		// Zero Vector
-		DFEVector<DFEVar> blockDimZeroDataVec = blockDimDataVec.newInstance(this);
-		for (int i=0; i<blockDim; ++i) blockDimZeroDataVec[i] <== constant.var(Def.CalcType, 0);
 		
-		// RShrinkDatafromDown and RShrinkDatafromRight
+		// Internal Connections
 		for (int X=0; X<numBlocks-1; ++X) {
 			for (int Y=0; Y<numBlocks-1; ++Y) {
-				RShrinkDatafromDown[X][Y] <== toUpBlock[X][Y+1];
-				RShrinkDatafromRight[X][Y] <== Reductions.streamHold(toLeftBlock[X+1][Y], beginLeftShift);
+				fromDownBlock[X][Y] <== RGrid[X][Y+1].getData();
+				fromRightBlock[X][Y] <== RGrid[X+1][Y].forLeftBlock();
 			}
-			RShrinkDatafromDown[X][numBlocks-1] <== constant.var(Def.CalcType, 0);
-			RShrinkDatafromRight[X][numBlocks-1] <== Reductions.streamHold(toLeftBlock[X+1][numBlocks-1], beginLeftShift);
+			fromDownBlock[X][numBlocks-1] <== constant.var(Def.CalcType, 0);
+			fromRightBlock[X][numBlocks-1] <== RGrid[X+1][numBlocks-1].forLeftBlock();
 		}
 		for (int Y=0; Y<numBlocks-1; ++Y) {
-			RShrinkDatafromDown[numBlocks-1][Y] <== toUpBlock[numBlocks-1][Y+1];
-			RShrinkDatafromRight[numBlocks-1][Y] <== blockDimZeroDataVec;
+			fromDownBlock[numBlocks-1][Y] <== RGrid[numBlocks-1][Y+1].getData();
+			fromRightBlock[numBlocks-1][Y] <== constant.var(Def.CalcType, 0);
 		}
-		RShrinkDatafromDown[numBlocks-1][numBlocks-1] <== constant.var(Def.CalcType, 0);
-		RShrinkDatafromRight[numBlocks-1][numBlocks-1] <== blockDimZeroDataVec;
+		fromDownBlock[numBlocks-1][numBlocks-1] <== constant.var(Def.CalcType, 0);
+		fromRightBlock[numBlocks-1][numBlocks-1] <== constant.var(Def.CalcType, 0);
 
 	
 	}
 
+
 	private class RBlock extends KernelLib {
 	
-		private final DFEVector<DFEVar> readVec;
-		private final DFEVector<DFEVar> portVec;
-		private final DFEVar toUpBlock;
-		private final DFEVar curXYItem;
+		private final DFEVar readItem;
+		private final DFEVar toLeftBlock;
 
-		public DFEVector<DFEVar> getReadVec() 		{return readVec;}
-		public DFEVector<DFEVar> getPortVec() 		{return portVec;}
-		public DFEVar getDataToUpBlock() 		{return toUpBlock;}
-		public DFEVar getCurXYItem() 		{return curXYItem;}
+		public DFEVar getData() 		{return readItem;}
+		public DFEVar forLeftBlock() 		{return toLeftBlock;}
 
 		RBlock ( 	KernelLib owner, 
 				int X, 
@@ -289,10 +267,9 @@ class RMem extends KernelLib{
 				DFEVar XElem, 								// RShrink: Elem from Vertical Line
 				DFEVar YElem, 								// RShrink: Elem from Horizontal Line
 				DFEVar KElemInv, 								// RShrink: 1/R[k][k]
-				DFEVar RShrinkDatafromDown, 					// Data for RShrink - UpShifting
-				DFEVector<DFEVar> RShrinkDatafromRight, 		// Data for RShrink - LeftShifting
-				DFEVar XAddr, 								// XAddr - inner loop
-				DFEVar YAddr, 								// YAddr - outer loop
+				DFEVar fromDownBlock, 						// Data for RShrink - UpShifting
+				DFEVar fromRightBlock, 						// Data for RShrink - LeftShifting
+				DFEVar counterReset,							// Counter Reset Trigger
 				DFEVar isInit, 								// Control Variable for RInit
 				DFEVar isEnlarging, 							// Control Variable for REnlarge
 				DFEVar isFetching,  							// Control Variable for RShrink - Fetching
@@ -303,133 +280,145 @@ class RMem extends KernelLib{
 		{
 			
 			super(owner);
+
 			
-			DFEVectorType<DFEVar> blockDimDataVec = new DFEVectorType<DFEVar>(Def.CalcType, blockDim);
-			DFEVectorType<DFEVar> blockDimAddrVec = new DFEVectorType<DFEVar>(dfeUInt(MathUtils.bitsToAddress(blockDim)), blockDim);
-			DFEVectorType<DFEVar> blockDimBoolVec = new DFEVectorType<DFEVar>(dfeBool(), blockDim);
+			/////////////////////// Address ///////////////////////
 			
+			// blockAddress Type
+			DFEType blockAddrType = dfeUInt(MathUtils.bitsToAddress(blockDim*blockDim));
+			
+			// Block Addr - whole block
+			AddrGenerator BlockAddrCounter = new AddrGenerator(owner, 1, blockDim*blockDim, counterReset);
+			DFEVar blockAddr = BlockAddrCounter.getAddr();
+			DFEVar blockAddrValid = BlockAddrCounter.isValid();
+		
+    			// XAddr - inner loop
+    			DFEVar XAddrCounterReset = counterReset | (isUpShifting & (blockAddr===blockDim));
+			Count.Params XAddrCounterParam = control.count.makeParams(MathUtils.bitsToAddress(blockDim))
+                									.withInitValue(0)
+                									.withMax(blockDim)
+                									.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP)
+                									.withReset(XAddrCounterReset);
+			Counter XAddrCounter = control.count.makeCounter(XAddrCounterParam);
+			DFEVar XAddr = XAddrCounter.getCount();
+                
+			// YAddr - outer loop
+			DFEVar YAddrCounterReset = counterReset | (isUpShifting & (blockAddr===blockDim));
+                	Count.Params YAddrCounterParam = control.count.makeParams(MathUtils.bitsToAddress(blockDim))
+                									.withInitValue(0)
+                									.withMax(blockDim)
+                									.withEnable(XAddrCounter.getWrap())
+                									.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP)
+                									.withReset(YAddrCounterReset);
+			Counter YAddrCounter = control.count.makeCounter(YAddrCounterParam);
+			DFEVar YAddr = YAddrCounter.getCount();
+		
 			
 			/////////////////////// Memory - Read ///////////////////////
 			
-			readVec = blockDimDataVec.newInstance(this);
-			portVec = blockDimDataVec.newInstance(this);
-			ArrayList<Memory<DFEVar>> Block = new ArrayList<Memory<DFEVar>>();
-			for (int i=0; i<blockDim; ++i) {
-				Block.add(i, mem.alloc(Def.CalcType, blockDim));
-				readVec[i] <== Block.get(i).read(XAddr);
-			}
-			curXYItem = control.mux(YAddr, readVec.getElementsAsList());
-			toUpBlock = portVec[0];
+			Memory<DFEVar> block = mem.alloc(Def.CalcType, blockDim*blockDim);
+			DFEVar readAddr = dfeUInt(MathUtils.bitsToAddress(blockDim*blockDim)).newInstance(this);
+			readItem = block.read(readAddr);
+			
+			Memory<DFEVar> buffer = mem.alloc(Def.CalcType, blockDim);
+			DFEVar bufferItem = buffer.read(XAddr);
+			buffer.write(XAddr, fromDownBlock, isUpShifting & (blockAddr<blockDim));
 
 
 			/////////////////////// RInit ///////////////////////
 			
-			// Parallel Write - blockDim cycles
-			// Write Data - PortAddr = XAddr
-			DFEVector<DFEVar> RInitPortData = blockDimDataVec.newInstance(this);
-			DFEVector<DFEVar> RInitPortEn = blockDimBoolVec.newInstance(this);
-			for (int i=0; i<blockDim; ++i) {
-				if ((Y==0)&&(i==0)) RInitPortData[i] <== (XAddr===0) ? constant.var(Def.CalcType, -1) : constant.var(Def.CalcType, 1);
-				else RInitPortData[i] <== (XAddr===0) ? constant.var(Def.CalcType, 1) : constant.var(Def.CalcType, 0);
-				RInitPortEn[i] <== isInit;
-			}
+			// Write - blockDim^2 cycles
+			// Write Data - PortAddr = blockAddr
+			DFEVar RInitPortData = (XAddr===0) ? (	(YAddr===0) ? constant.var(Def.CalcType, -1) : constant.var(Def.CalcType, 1)	) 
+											 : (	(YAddr===0) ? constant.var(Def.CalcType, 1) : constant.var(Def.CalcType, 0)	);  
+			DFEVar RInitPortEn = blockAddrValid;
 
 
 			/////////////////////// REnlarge ///////////////////////
 			
-			// Sequential Write - blockDim^2 cycles
+			// Write - blockDim^2 cycles
 			// Judge the location
-			DFEVar isREnlargeXEdge = (X === REnlargeEdgeBaseAddr) & (XAddr === REnlargeEdgeOffsetAddr);
-			DFEVar isREnlargeYEdge = (Y === REnlargeEdgeBaseAddr) & (YAddr === REnlargeEdgeOffsetAddr);
-			DFEVar isREnlargeCorner = isREnlargeXEdge & isREnlargeYEdge;
+			DFEVar isREnlargeXEdge 	= (X === REnlargeEdgeBaseAddr) & (XAddr === REnlargeEdgeOffsetAddr);
+			DFEVar isREnlargeYEdge 	= (Y === REnlargeEdgeBaseAddr) & (YAddr === REnlargeEdgeOffsetAddr);
+			DFEVar isREnlargeCorner 	= isREnlargeXEdge & isREnlargeYEdge;
 			
-			// Data to Write
-			DFEVar REnlargeInnerData = curXYItem + betaX * betaY * gammaInv;
-			DFEVar REnlargeXEdgeData = betaY * gammaInv;
-			DFEVar REnlargeYEdgeData = betaX * gammaInv;
-			DFEVar REnlargeCornerData = gammaInv;
-			DFEVar sharedREnlargePortData = isREnlargeCorner ? REnlargeCornerData : (isREnlargeXEdge ? REnlargeXEdgeData : (isREnlargeYEdge ? REnlargeYEdgeData : REnlargeInnerData));
-
-			// EnWrite - PortAddr = XAddr
-			DFEVector<DFEVar> REnlargePortData = blockDimDataVec.newInstance(this);
-			DFEVector<DFEVar> REnlargePortEn = blockDimBoolVec.newInstance(this);
-			for (int i=0; i<blockDim; ++i) {
-				REnlargePortData[i] <== sharedREnlargePortData;
-				REnlargePortEn[i] <== (YAddr === i) & isEnlarging;
-			}
+			// Write Data - PortAddr = blockAddr
+			DFEVar REnlargeInnerData		= readItem + betaX * betaY * gammaInv;
+			DFEVar REnlargeXEdgeData 	= betaY * gammaInv;
+			DFEVar REnlargeYEdgeData 	= betaX * gammaInv;
+			DFEVar REnlargeCornerData 	= gammaInv;
+			DFEVar REnlargePortData = isREnlargeCorner ? REnlargeCornerData : (isREnlargeXEdge ? REnlargeXEdgeData : (isREnlargeYEdge ? REnlargeYEdgeData : REnlargeInnerData));
+			DFEVar REnlargePortEn = isEnlarging & blockAddrValid;
 
 
 			/////////////////////// RShrink ///////////////////////
 
 			// blockDim cycles
 			// Fetching
-			DFEVector<DFEVar> FetchPortAddr = blockDimAddrVec.newInstance(this);
-			for (int i=0; i<blockDim; ++i) {
-				FetchPortAddr[i] <== RShrinkPosOffsetAddr;
-			}
-			
+			DFEVar FetchReadAddrH 	= RShrinkPosOffsetAddr.cast(blockAddrType) * blockDim + XAddr.cast(blockAddrType); // horizontal items
+			DFEVar FetchReadAddrV 	= XAddr.cast(blockAddrType) * blockDim + RShrinkPosOffsetAddr.cast(blockAddrType); // vertical items
+			DFEVar FetchReadAddr 	= (blockAddr < blockDim) ? FetchReadAddrH : FetchReadAddrV;
+			OffsetExpr RShrinkFetchLatencyH = stream.measureDistance("RShrinkFetchLatencyH"+X+Y, RShrinkPosOffsetAddr, FetchReadAddr);
+			OffsetExpr RShrinkFetchLatencyV = stream.measureDistance("RShrinkFetchLatencyV"+X+Y, XAddr, FetchReadAddr);
+
 			// Sequential Write - blockDim^2 cycles
-			// Shrinking - PortAddr = XAddr
-			DFEVar sharedShrinkPortData = curXYItem - XElem * YElem * KElemInv;
-			DFEVector<DFEVar> ShrinkPortData = blockDimDataVec.newInstance(this);
-			DFEVector<DFEVar> ShrinkPortEn = blockDimBoolVec.newInstance(this);
-			for (int i=0; i<blockDim; ++i) {
-				ShrinkPortData[i] <== sharedShrinkPortData;
-				ShrinkPortEn[i] <== (YAddr === i) & isShrinking;
-			}
+			// Shrinking - PortAddr = blockAddr
+			DFEVar ShrinkPortData = readItem - XElem * YElem * KElemInv;
+			DFEVar ShrinkPortEn = isShrinking & blockAddrValid;
 			
 			// There is a latency of calculating ShrinkPortData - must ensure the result is written to the memory before shifting.
 			// Therefore, blockDim should be greater than that latency, or we need to wait for a number of cycles.
+			OffsetExpr RShrinkCalcLatency = stream.measureDistance("RShrinkCalcLatency"+X+Y, readItem, ShrinkPortData);
+
+			// blockDim^2 cycles
+			// Up Shifting - readAddr = blockAddr
+			DFEVar UpShiftCounterReset = (blockAddr===blockDim);
+			AddrGenerator UpShiftWriteAddrCounter = new AddrGenerator(owner, 1, blockDim*blockDim, UpShiftCounterReset);
+			DFEVar UpShiftWriteAddr = UpShiftWriteAddrCounter.getAddr();
+			DFEVar UpShiftWriteAddrValid = UpShiftWriteAddrCounter.isValid();
+			
+			DFEVar UpShiftPortData = (YAddr===blockDim-1) ? bufferItem : readItem;
+			DFEVar UpShiftPortEn = ((Y>RShrinkPosBaseAddr) | (  (Y===RShrinkPosBaseAddr) & (YAddr>=RShrinkPosOffsetAddr) )) & isUpShifting;		
 
 			// blockDim cycles
-			// Up Shifting - PortAddr = XAddr
-			DFEVector<DFEVar> UpShiftPortData = blockDimDataVec.newInstance(this);
-			DFEVector<DFEVar> UpShiftPortEn = blockDimBoolVec.newInstance(this);
-			for (int i=0; i<blockDim; ++i) {
-				if (i==(blockDim-1)) UpShiftPortData[i] <== RShrinkDatafromDown;
-				else UpShiftPortData[i] <== portVec[i+1];
-				UpShiftPortEn[i] <== ((Y>RShrinkPosBaseAddr)|((Y===RShrinkPosBaseAddr)&(i>=RShrinkPosOffsetAddr))) & isUpShifting;
-			}
+			// Left Shifting - readAddr = blockAddr
+			toLeftBlock = Reductions.streamHold(readItem, XAddr===0);
+			DFEVar LeftShiftCounterReset = (blockAddr===1);
+			AddrGenerator LeftShiftWriteAddrCounter = new AddrGenerator(owner, 1, blockDim*blockDim, LeftShiftCounterReset);
+			DFEVar LeftShiftWriteAddr = LeftShiftWriteAddrCounter.getAddr();
+			DFEVar LeftShiftWriteAddrValid = LeftShiftWriteAddrCounter.isValid();			
 
-			// blockDim cycles
-			// Left Shifting
-			DFEVar sharedLeftShiftPortAddr = stream.offset(XAddr, -1);
-			DFEVar sharedLeftShiftPortEn = stream.offset(isLeftShifting, -1) & ((X>RShrinkPosBaseAddr) | ((X===RShrinkPosBaseAddr) & (sharedLeftShiftPortAddr >= RShrinkPosOffsetAddr)) );
-			DFEVector<DFEVar> LeftShiftPortData = blockDimDataVec.newInstance(this);
-			DFEVector<DFEVar> LeftShiftPortEn = blockDimBoolVec.newInstance(this);
-			for (int i=0; i<blockDim; ++i) {
-				LeftShiftPortData[i] <== (sharedLeftShiftPortAddr === (blockDim-1)) ? RShrinkDatafromRight[i] : readVec[i];
-				LeftShiftPortEn[i] <== sharedLeftShiftPortEn;
-			}
+			DFEVar LeftShiftPortData = (XAddr===0)	? fromRightBlock : readItem;
+			DFEVar LeftShiftPortEn = LeftShiftWriteAddrValid & ((X>RShrinkPosBaseAddr) | ((X===RShrinkPosBaseAddr) & ((XAddr > RShrinkPosOffsetAddr) | (XAddr===0))) );
 
-			// RShrink - Overall
-			DFEVector<DFEVar> FetchLeftShiftPortAddr = blockDimAddrVec.newInstance(this);
-			DFEVector<DFEVar> RShrinkPortData = blockDimDataVec.newInstance(this);
-			DFEVector<DFEVar> RShrinkPortEn = blockDimBoolVec.newInstance(this);			
-			for (int i=0; i<blockDim; ++i) {
-				FetchLeftShiftPortAddr[i] <== isFetching ? FetchPortAddr[i] : sharedLeftShiftPortAddr;
-				RShrinkPortData[i] <== isShrinking ? ShrinkPortData[i] : (isUpShifting ? UpShiftPortData[i] : LeftShiftPortData[i]);
-				RShrinkPortEn[i] <== ShrinkPortEn[i] | UpShiftPortEn[i] | LeftShiftPortEn[i];
-			}
+			// Write Data - RShrink Overall 
+			DFEVar ShiftPortAddr = isUpShifting ? UpShiftWriteAddr : LeftShiftWriteAddr;
+			DFEVar RShrinkPortData = isShrinking ? ShrinkPortData : (isUpShifting ? UpShiftPortData : LeftShiftPortData);
+			DFEVar RShrinkPortEn = ShrinkPortEn | UpShiftPortEn | LeftShiftPortEn;
 
 
-			/////////////////////// Memory - Write ///////////////////////
+			/////////////////////// Memory ///////////////////////
+			
+			// ReadAddr
+			optimization.pushPipeliningFactor(0);
+			readAddr <== isFetching ? FetchReadAddr : blockAddr;
+			optimization.popPipeliningFactor();
 			
 			// Stream Offset
 			OffsetExpr RBlockOffset = stream.makeOffsetAutoLoop("OffsetRBlockX"+X+"Y"+Y);
-			for (int i=0; i<blockDim; ++i) {
-				// Write Data
-				DFEVar PortDataUnOffseted = isInit ? RInitPortData[i] : (isEnlarging ? REnlargePortData[i] : RShrinkPortData[i]);
-				DFEVar PortData = stream.offset(PortDataUnOffseted, -RBlockOffset);
-				// Write Addr
-				DFEVar PortAddrUnOffseted = (isFetching | stream.offset(isLeftShifting, -1)) ? FetchLeftShiftPortAddr[i] : XAddr;
-				DFEVar PortAddr = stream.offset(PortAddrUnOffseted, -RBlockOffset);
-				// Write Enable
-				DFEVar PortWrEnUnOffseted = RInitPortEn[i] | REnlargePortEn[i] | RShrinkPortEn[i];
-				DFEVar PortWrEn = stream.offset(PortWrEnUnOffseted, -RBlockOffset);
-				// Write - READ_FIRST is required by UpShifting
-				portVec[i] <== Block.get(i).port(PortAddr, PortData, PortWrEn, RamWriteMode.READ_FIRST);
-			}
+
+			// Write Data
+			DFEVar PortDataUnOffseted = isInit ? RInitPortData : (isEnlarging ? REnlargePortData : RShrinkPortData);
+			DFEVar PortData = stream.offset(PortDataUnOffseted, -RBlockOffset);
+			// Write Addr
+			DFEVar PortAddrUnOffseted = (isUpShifting | isLeftShifting) ? ShiftPortAddr : blockAddr;
+			DFEVar PortAddr = stream.offset(PortAddrUnOffseted, -RBlockOffset);
+			// Write Enable
+			DFEVar PortWrEnUnOffseted = RInitPortEn | REnlargePortEn | RShrinkPortEn;
+			DFEVar PortWrEn = stream.offset(PortWrEnUnOffseted, -RBlockOffset);
+			// Write
+			block.write(PortAddr, PortData, PortWrEn);
+
 
 		}	
 	

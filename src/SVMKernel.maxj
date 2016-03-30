@@ -453,16 +453,20 @@ class SVMKernel extends Kernel {
 //		debug.simPrintf(XcQueue.valid(), "[%4d]-----[FIFO]---------------data[%d][%d] = (%f,%f) Poped from FIFO----------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
 		
 		// hXc calculation
-		debug.simPrintf(EnInput, "[%4d]--------NEW INPUT-------(Xc[%d][%d],Yc)=(%f,%f)---------------------------------------------------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
+		debug.simPrintf(EnInput, "[%4d]--------[NEW INPUT]-------(Xc[%d][%d],Yc)=(%f,%f)---------------------------------------------------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
 		debug.simPrintf(isProcessingNewXc, "[%4d] Addr=%2d, En=%d | Q[0:3]=(%.4f,%.4f,%.4f,%.4f) theta[0:3]=(%.4f,%.4f,%.4f,%.4f) | b = %f | hXc = %f, Valid=%d | XcJoinR=%d, hasFinished=%d\n", Tick, blockAddr, isProcessingNewXc, QVector[0], QVector[1], QVector[2], QVector[3], thetaVector[0], thetaVector[1], thetaVector[2], thetaVector[3], b, hXiCalcResult, hXcValid, XcJoinR, hasFinished);
-		debug.simPrintf(hasQUpdateFinished, "[%4d]-----------QUpdateFinished------------\n", Tick);
+		debug.simPrintf(hasQUpdateFinished, "[%4d] ----------- QUpdate Finished ------------\n", Tick);
 		debug.simPrintf(hasFinished, "[%4d] (Xc[%d][%d],Yc) = (%f,%f) joins R. \n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
 		
 		// BookKeeping
-		debug.simPrintf(BookKeepingValid, "[%4d] --- BookKeeping Flag = %d, Index = %d, minL = %f\n", Tick, BookKeepingFlag, BookKeepingIndex, minL);
+		debug.simPrintf(beginBookKeeping, "[%4d] ----------- Begin BookKeeping ------------\n", Tick);
+		debug.simPrintf(BookKeepingValid, "[%4d] NMask[%d] SMask[%d] Sel=%d | hXi[%d] =%4.6f | bC=%3.6f, bE=%3.6f, bR=%3.6f, LC=%f, LS=%f, LE=%f, LR=%f | Flag = %d, Index = %d, minL = %f\n", Tick, IndexNMask, IndexSMask, BookKeepingSel, hXiRdAddr, hXi, bC, bE, bR, LC, LS, LE, LR, BookKeepingFlag, BookKeepingIndex, minL);
+		
+		// Q Fetch
+//		debug.simPrintf(QBufEnWrite, "[%4d] [QBuffer] SMask[%d] - Base=%d, Offset=%d, GroupIndex=%d | Q[%d][%d][%d][%d] => %f | QBuffer[Base][%d] <= %f \n", Tick, IndexSMask, BaseAddrSMask, OffsetAddrSMask, GroupIndexSMask, BaseAddrRow, OffsetAddrRow, BaseAddrCol, OffsetAddrCol, QVal, QBufWriteOffsetAddr, QVal);
 		
 		// gamma Calc
-		debug.simPrintf(GCalculating, "[%4d] [GammaCalc] BEGIN: CVK=%d%d%d | CALC: CVK=%d%d%d | NSize=%d, SSize=%d | NMask[%d], SMask[%d] | Beta=%f, Result=%f, Valid=%d | Gamma[C]=%f, Gamma[K]=%f\n", Tick, beginGammaCCalc, beginGammaVCalc, beginGammaKCalc, isGammaCCalculating, isGammaVCalculating, isGammaKCalculating, NSize, SSize, IndexNMask, IndexSMask, betaSeq, GammaResult, GammaResultValid, gamma_c, gamma_k);
+		debug.simPrintf(GCalculating, "[%4d] [GammaCalc] BEGIN: CVK=%d%d%d | CALC: CVK=%d%d%d | NSize=%d, SSize=%d | NMask[%d], SMask[%d] | Beta=%2.6f, Result=%3.6f, Valid=%d | Gamma[C]=%f, Gamma[K]=%f\n", Tick, beginGammaCCalc, beginGammaVCalc, beginGammaKCalc, isGammaCCalculating, isGammaVCalculating, isGammaKCalculating, NSize, SSize, IndexNMask, IndexSMask, betaSeq, GammaResult, GammaResultValid, gamma_c, gamma_k);
 
 
 		////////////////////////// Simple Kernel /////////////////////////

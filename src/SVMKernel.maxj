@@ -92,6 +92,7 @@ class SVMKernel extends Kernel {
 		DFEVar BookKeepingValid 		= SM.getOutput("BookKeepingValid");
 		DFEVar beginBetaCalc 			= SM.getOutput("beginBetaCalc");
 		DFEVar beginBookKeeping_S 	= SM.getOutput("beginBookKeeping_S");
+		DFEVar isBookKeeping_N 		= SM.getOutput("isBookKeeping_N");
 		
 		// GammaCalc
 		DFEVar beginGammaCCalc 		= SM.getOutput("beginGammaCCalc");
@@ -340,11 +341,12 @@ class SVMKernel extends Kernel {
 		DFEVar LC = (isInc) ? LC_INC : LC_DEC;
 		DFEVar FlagLC = (isInc) ? FlagLC_INC : FlagLC_DEC;
 		
-		// BookKeeping - streamMin only supports Fix-Point
-		DFEVar BKVal 	= control.mux(BookKeepingSel, bC, bE, bR, LC, LS, LE, LR);
-		DFEVar BKFlag 	= control.mux(BookKeepingSel, FlagbC, FlagbE, FlagbR, FlagLC, FlagLS, FlagLE, FlagLR);
-		DFEVar BKIndex 	= control.mux(BookKeepingSel, GroupIndexXc, IndexNMask, IndexNMask, GroupIndexXc, IndexSMask, IndexNMask, IndexNMask);
-		// cast to fix point
+		// BookKeeping - must offset BookKeepingSel by 1 when iterating over NMask, as Group RAM in StateMachine has latency 1
+		DFEVar BKSel 	= isBookKeeping_N ? stream.offset(BookKeepingSel, 1) : BookKeepingSel;
+		DFEVar BKVal 	= control.mux(BKSel, bC, bE, bR, LC, LS, LE, LR);
+		DFEVar BKFlag 	= control.mux(BKSel, FlagbC, FlagbE, FlagbR, FlagLC, FlagLS, FlagLE, FlagLR);
+		DFEVar BKIndex 	= control.mux(BKSel, GroupIndexXc, IndexNMask, IndexNMask, GroupIndexXc, IndexSMask, IndexNMask, IndexNMask);
+		// cast to fix point - streamMin only supports Fix-Point
 		DFEVar BKVal_cutoff = (BKVal > Def.BookKeepingTH) ? constant.var(Def.CalcType, Def.BookKeepingTH) : BKVal;
 		DFEVar BKVal_Fix = BKVal_cutoff.cast(Def.BookKeepingType);
 		Reductions.StreamMinInfo BookKeep1 = Reductions.streamMinWithMetadata(BKVal_Fix, BKFlag, beginBookKeeping, BookKeepingValid);
@@ -460,7 +462,7 @@ class SVMKernel extends Kernel {
 		
 		// BookKeeping
 		debug.simPrintf(beginBookKeeping, "[%4d] ----------- Begin BookKeeping ------------\n", Tick);
-		debug.simPrintf(BookKeepingValid, "[%4d] NMask[%d] SMask[%d] Sel=%d | hXi[%d] =%4.6f | bC=%3.6f, bE=%3.6f, bR=%3.6f, LC=%f, LS=%f, LE=%f, LR=%f | Flag = %d, Index = %d, minL = %f\n", Tick, IndexNMask, IndexSMask, BookKeepingSel, hXiRdAddr, hXi, bC, bE, bR, LC, LS, LE, LR, BookKeepingFlag, BookKeepingIndex, minL);
+		debug.simPrintf(BookKeepingValid, "[%4d] NMask[%d] SMask[%d] Sel=%d | hXi[%d] =%4.6f | bC=%3.6f, bE=%3.6f, bR=%3.6f, LC=%f, LS=%f, LE=%f, LR=%f | Flag = %d, Index = %d, minL = %f\n", Tick, IndexNMask, IndexSMask, BKSel, hXiRdAddr, hXi, bC, bE, bR, LC, LS, LE, LR, BookKeepingFlag, BookKeepingIndex, minL);
 		
 		// Q Fetch
 //		debug.simPrintf(QBufEnWrite, "[%4d] [QBuffer] SMask[%d] - Base=%d, Offset=%d, GroupIndex=%d | Q[%d][%d][%d][%d] => %f | QBuffer[Base][%d] <= %f \n", Tick, IndexSMask, BaseAddrSMask, OffsetAddrSMask, GroupIndexSMask, BaseAddrRow, OffsetAddrRow, BaseAddrCol, OffsetAddrCol, QVal, QBufWriteOffsetAddr, QVal);

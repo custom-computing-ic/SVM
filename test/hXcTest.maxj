@@ -53,8 +53,8 @@ public class hXcTest {
                 mgr.setStateMachineMappedRam("SVMControl", "Group", 0, 2);
                 mgr.setStateMachineMappedRam("SVMControl", "Group", 1, 2); 
                 // init hXi
-                mgr.setMappedRam("hXi", 0, -27.8999635);
-                mgr.setMappedRam("hXi", 1, 27.8999635);
+                mgr.setMappedRam("hXi", 0, -17.949707);
+                mgr.setMappedRam("hXi", 1, 17.9498291);
 		
 		/////////////////////// Set Input Data ///////////////////////
 

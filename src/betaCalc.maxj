@@ -42,6 +42,7 @@ class betaCalc extends KernelLib{
 	betaCalc ( 	KernelLib owner, 
 				int numBlocks, 
 				int blockDim,
+				DFEVar SSize,
 				DFEVector<DFEVar> QBufVec, 
 				DFEVector<DFEVector<DFEVar>> RVec,
 				DFEVar beginBetaCalc,
@@ -57,8 +58,9 @@ class betaCalc extends KernelLib{
                 // Control Variable for beta calculation
                 AddrGenerator betaCalcCounter = new AddrGenerator(owner, 1, blockDim*blockDim, beginBetaCalc);
                 DFEVar betaCalcCount = betaCalcCounter.getAddr();
-		DFEVar isCalculating = betaCalcCounter.isValid();
-		hasFinished = (betaCalcCount === blockDim*blockDim-1);
+                DFEVar cyclesToRun = (SSize.cast(betaCalcCount.getType())+1)*blockDim;
+		DFEVar isCalculating = betaCalcCounter.isValid() & (betaCalcCount < cyclesToRun);
+		hasFinished = (betaCalcCount === cyclesToRun);
                
 		// Control Variable for sequential read
                 AddrGenerator seqReadCounter = new AddrGenerator(owner, 1, numBlocks*blockDim, beginSeqRead);
@@ -95,8 +97,7 @@ class betaCalc extends KernelLib{
 		for (int i=0; i<numBlocks; ++i) {
 			DFEVector<DFEVar> mult = VecType.newInstance(this);
 			for (int j=0; j<numBlocks; ++j) mult[j] <== QBufVec[j] * RVec[i][j];
-//			DFEVar sum = FloatingPointAccumulator.accumulateFixedLength(mult.getElementsAsList(), isCalculating, blockDim, true);
-			DFEVar sum = FloatingPointAccumulator.accumulateWithReset(mult.getElementsAsList(), isCalculating, (XAddr===0), false);
+			DFEVar sum = FloatingPointAccumulator.accumulateFixedLength(mult.getElementsAsList(), isCalculating, blockDim, false);
 			WrData[i] <== -sum;
 		}
 

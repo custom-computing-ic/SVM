@@ -265,7 +265,7 @@ class SVMKernel extends Kernel {
 		DFEVar betaReadAddr = XAddr;
 		DFEVar betaPortAddr = YAddr;
 		DFEVar beginBetaSeqRead = beginGammaCCalc | beginGammaVCalc | beginBookKeeping_S | beginUpdate;
-		betaCalc betaCalcModule = new betaCalc (this, numBlocks, blockDim, QBufVec, betaCalcVec, beginBetaCalc, betaReadAddr, betaPortAddr, beginBetaSeqRead); 
+		betaCalc betaCalcModule = new betaCalc (this, numBlocks, blockDim, SSize, QBufVec, betaCalcVec, beginBetaCalc, betaReadAddr, betaPortAddr, beginBetaSeqRead); 
 		betaX <== betaCalcModule.getReadVec();
 		betaY <== betaCalcModule.getPortVec();
 		DFEVar betaSeq = betaCalcModule.getSeqReadData();
@@ -462,7 +462,7 @@ class SVMKernel extends Kernel {
 		
 		// BookKeeping
 		debug.simPrintf(beginBookKeeping, "[%4d] ----------- Begin BookKeeping ------------\n", Tick);
-		debug.simPrintf(BookKeepingValid, "[%4d] NMask[%d] SMask[%d] Sel=%d | hXi[%d] =%4.6f | bC=%3.6f, bE=%3.6f, bR=%3.6f, LC=%f, LS=%f, LE=%f, LR=%f | Flag = %d, Index = %d, minL = %f\n", Tick, IndexNMask, IndexSMask, BKSel, hXiRdAddr, hXi, bC, bE, bR, LC, LS, LE, LR, BookKeepingFlag, BookKeepingIndex, minL);
+		debug.simPrintf(BookKeepingValid, "[%4d] NMask[%d] SMask[%d] Sel=%d | hXi[%d] =%4.6f | bC=%3.6f, bE=%3.6f, bR=%3.6f, LC=%f, LS=%f, LE=%f, LR=%f | Flag=%d, Index=%d, minL = %f\n", Tick, IndexNMask, IndexSMask, BKSel, hXiRdAddr, hXi, bC, bE, bR, LC, LS, LE, LR, BookKeepingFlag, BookKeepingIndex, minL);
 		
 		// Q Fetch
 //		debug.simPrintf(QBufEnWrite, "[%4d] [QBuffer] SMask[%d] - Base=%d, Offset=%d, GroupIndex=%d | Q[%d][%d][%d][%d] => %f | QBuffer[Base][%d] <= %f \n", Tick, IndexSMask, BaseAddrSMask, OffsetAddrSMask, GroupIndexSMask, BaseAddrRow, OffsetAddrRow, BaseAddrCol, OffsetAddrCol, QVal, QBufWriteOffsetAddr, QVal);

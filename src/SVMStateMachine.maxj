@@ -333,7 +333,7 @@ class SVMStateMachine extends KernelStateMachine {
 		////////////////////////// Debug /////////////////////////	
 		
 		Tick.next <== Tick + 1;
-		IF (subTick===0) {
+		IF (subTick===0 | subMode === subModes.BOOKKEEPING_PRE) {
 		debug.simPrintf("[%4d] sMode = %4s | [%4d] subMode = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d \n", Tick, sMode, subTick, subMode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos);
 		}
 
@@ -544,6 +544,8 @@ class SVMStateMachine extends KernelStateMachine {
 										SMaskOffset.add(OffsetAddrXcCount);
 										SMaskGroupIndex.add(GroupIndexXcCount);
 										sMode.next <== Modes.INCFINISH;
+										
+										debug.simPrintf("[%4d] =======> Item[%d] joins S, becomes SMask[%d] (Base=%d, Offset=%d, GroupIndex=%d).\n", Tick, GroupIndexXcCount, SMaskBase.size(), BaseAddrXcCount, OffsetAddrXcCount, GroupIndexXcCount);
                         						}
 								}
 								CASE(6) {
@@ -555,6 +557,8 @@ class SVMStateMachine extends KernelStateMachine {
 									NMaskOffset.add(OffsetAddrXcCount);
 									NMaskGroupIndex.add(GroupIndexXcCount);
 									sMode.next <== Modes.INCFINISH;
+									
+									debug.simPrintf("[%4d] =======> Item[%d] joins E, becomes NMask[%d] (Base=%d, Offset=%d, GroupIndex=%d).\n", Tick, GroupIndexXcCount, NMaskBase.size(), BaseAddrXcCount, OffsetAddrXcCount, GroupIndexXcCount);
 								}
 								CASE(7) {
 									// N[index] moves from S to E

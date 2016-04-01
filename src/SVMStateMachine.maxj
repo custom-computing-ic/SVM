@@ -333,9 +333,10 @@ class SVMStateMachine extends KernelStateMachine {
 		////////////////////////// Debug /////////////////////////	
 		
 		Tick.next <== Tick + 1;
-		IF (subTick===0 | subMode === subModes.BOOKKEEPING_PRE) {
-		debug.simPrintf("[%4d] sMode = %4s | [%4d] subMode = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d \n", Tick, sMode, subTick, subMode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos);
-		}
+		IF (subTick===0) debug.simPrintf("[%4d] sMode = %4s | [%4d] subMode = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d \n", Tick, sMode, subTick, subMode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos);
+//		IF (subMode === subModes.BOOKKEEPING_PRE | subMode === subModes.BOOKKEEPING_C | subMode === subModes.BOOKKEEPING_N | subMode === subModes.BOOKKEEPING_S) debug.simPrintf("[%4d] sMode = %4s | [%4d] subMode = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d \n", Tick, sMode, subTick, subMode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos);
+		
+		
 
 		// Don't write to Group unless told to do so.	
 		Group.writeEnableB <== false;
@@ -536,7 +537,7 @@ class SVMStateMachine extends KernelStateMachine {
 								CASE(5) {
 									// Xc joins S and terminate
 									subTick.next <== subTick + 1;
-									IF (subTick === blockDim*blockDim + 100) {
+									IF (subTick === blockDim*blockDim + 160) {  // TODO: REnlarge Latency is 260
                         							Group.addressB <== GroupIndexXcCount;
 										Group.dataInB <== 1;
 										Group.writeEnableB <== true;
@@ -639,7 +640,7 @@ class SVMStateMachine extends KernelStateMachine {
                         			// Waiting for REnlarge to Finish
                         			CASE(subModes.RENLARGEWAIT) {
                         				subTick.next <== subTick + 1;
-                        				IF (subTick === blockDim*blockDim + 100) {
+                        				IF (subTick === blockDim*blockDim + 260) { // TODO: REnlarge Latency is 260
                         					subTick.next <== 0;
                         					subMode.next <== subModes.MOVEN2S;
                         				}

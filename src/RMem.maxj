@@ -171,6 +171,8 @@ class RMem extends KernelLib{
 			
 		// Counter Reset Trigger
 		DFEVar counterReset = beginBetaCalc | beginRInit | beginREnlarge | beginFetch | beginShrink | beginUpShift | beginLeftShift;
+		
+		debug.simPrintf(counterReset, "[%4d] ****** RMem: counter Reseted ****** beginBetaCalc=%d | beginRInit=%d | beginREnlarge=%d | beginFetch=%d | beginShrink=%d | beginUpShift=%d | beginLeftShift=%d \n", control.count.simpleCounter(32), beginBetaCalc, beginRInit, beginREnlarge, beginFetch, beginShrink, beginUpShift, beginLeftShift);
 
     		// XAddr - inner loop		
                 Count.Params XAddrCounterParam = control.count.makeParams(MathUtils.bitsToAddress(blockDim))
@@ -327,12 +329,12 @@ class RMem extends KernelLib{
 
 			/////////////////////// RInit ///////////////////////
 			
-			// Write - blockDim^2 cycles
+			// Write - blockDim*2 cycles
 			// Write Data - PortAddr = blockAddr
 			DFEVar RInitPortData = Def.CalcType.newInstance(this);
 			if ((X==0)&&(Y==0)) RInitPortData <== counterReset ? -1 : (((XAddr===0)&(YAddr===1)) | ((XAddr===1)&(YAddr===0))) ? constant.var(Def.CalcType, 1) : 0;
 			else RInitPortData <== constant.var(Def.CalcType, 0);
-			DFEVar RInitPortEn = blockAddrValid;
+			DFEVar RInitPortEn = isInit & blockAddrValid;
 
 
 			/////////////////////// REnlarge ///////////////////////
@@ -352,6 +354,7 @@ class RMem extends KernelLib{
 			optimization.popDSPFactor();
 			DFEVar REnlargePortData = isREnlargeCorner ? REnlargeCornerData : (isREnlargeXEdge ? REnlargeXEdgeData : (isREnlargeYEdge ? REnlargeYEdgeData : REnlargeInnerData));
 			DFEVar REnlargePortEn = isEnlarging & blockAddrValid;
+			OffsetExpr REnlargeLatency = stream.measureDistance("REnlargeLatency"+X+Y, readItem, REnlargeInnerData);
 
 
 			/////////////////////// RShrink ///////////////////////
@@ -394,7 +397,7 @@ class RMem extends KernelLib{
 			DFEVar LeftShiftWriteAddrValid = LeftShiftWriteAddrCounter.isValid();			
 
 			DFEVar LeftShiftPortData = (XAddr===0)	? fromRightBlock : readItem;
-			DFEVar LeftShiftPortEn = LeftShiftWriteAddrValid & ((X>RShrinkPosBaseAddr) | ((X===RShrinkPosBaseAddr) & ((XAddr > RShrinkPosOffsetAddr) | (XAddr===0))) );
+			DFEVar LeftShiftPortEn = isLeftShifting & LeftShiftWriteAddrValid & ((X>RShrinkPosBaseAddr) | ((X===RShrinkPosBaseAddr) & ((XAddr > RShrinkPosOffsetAddr) | (XAddr===0))) );
 
 			// Write Data - RShrink Overall 
 			DFEVar ShiftPortAddr = isUpShifting ? UpShiftWriteAddr : LeftShiftWriteAddr;
@@ -424,12 +427,12 @@ class RMem extends KernelLib{
 			// Write
 			block.write(PortAddr, PortData, PortWrEn);
 
-/*
+
 			if ((X==0) && (Y==0)) {
 				DFEVar Tick = control.count.simpleCounter(32);
-				debug.simPrintf(isInit, "[%4d] [RBlock00] Block[%d] <= %f, En = %d \n", Tick, PortAddr, PortData, PortWrEn);
+				//debug.simPrintf("[%4d] [RBlock00] UnOffseted: Block[%d] <= %f, En=%d (Enlarge=%d, Shrink=%d) | Offseted: Block[%d] <= %f, En=%d \n", Tick, PortAddrUnOffseted, PortDataUnOffseted, PortWrEnUnOffseted, REnlargePortEn, RShrinkPortEn, PortAddr, PortData, PortWrEn);				
 			}
-*/
+
 
 		}
 	

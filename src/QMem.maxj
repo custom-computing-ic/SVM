@@ -81,7 +81,7 @@ class QMem extends KernelLib{
                 DFEVar HAddr = HAddrGen.getAddr().cast(dfeUInt(MathUtils.bitsToAddress(blockDim*blockDim))) + blockDim*OffsetAddrRow_CAST;
 
                 // hasQUpdateFinished - true on the last cycle of Q Update
-                hasQUpdateFinished = (HAddrGen.getAddr() === blockDim-1);
+                hasQUpdateFinished = (HAddrGen.getAddr() === blockDim-1) & EnWrite;
 
 
     		/////////////////////// External Column Address ///////////////////////            
@@ -100,7 +100,6 @@ class QMem extends KernelLib{
                 		QBlock block = new QBlock (owner, X, Y, blockDim, Q_IN[X], Q_IN[Y], BaseAddrRow, OffsetAddrRow, VAddr, HAddr, VAddrExt, HAddrExt, EnWrite);
                 		QVecElemFromBlock[X][Y] = block.getQVecElem();
                 		QElemFromBlock[X][Y] = block.getQElem();
-                		//debug.simPrintf("EnWrite=%d, EnIterate=%d, Valid=%d | VAddr=%d, HAddr=%d, DAddr=%d, \n", EnWrite, EnIterate, Valid, VAddr, HAddr, KernelMath.min(VAddr, HAddr));
                 	}
                 }
                 

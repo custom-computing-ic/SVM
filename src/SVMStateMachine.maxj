@@ -180,15 +180,24 @@ class SVMStateMachine extends KernelStateMachine {
 	private final int blockDim;
 	private final int WinSize;
 
+	// Scheduling Parameters
+	private final int RShrinkLatency;
+
 
 	public SVMStateMachine(KernelLib owner, int numBlocks_IN, int blockDim_IN, int WinSize_IN) {
 
 	 	////////////////////////// Parameters /////////////////////////  
 
 		super(owner);
+		
+		// Dimension Parameters
 		numBlocks = numBlocks_IN;
 		blockDim = blockDim_IN;
 		WinSize = WinSize_IN;
+		
+		// Scheduling Parameters
+		RShrinkLatency = 2*blockDim + 100 + 3*(blockDim*blockDim+300);
+		
 
                 ////////////////////////// Types /////////////////////////
 
@@ -566,7 +575,7 @@ class SVMStateMachine extends KernelStateMachine {
 									subTick.next <== subTick + 1;							
 									// begin RShrink and hXi update when subTick===1
 									SMaskPos.next <== BookKeepingIndex;
-									IF (subTick === (blockDim*blockDim + 3*blockDim + 150)) {
+									IF (subTick === RShrinkLatency) {
 										subMode.next <== subModes.MOVES2E;
 									}
 								}
@@ -604,7 +613,7 @@ class SVMStateMachine extends KernelStateMachine {
 									subTick.next <== subTick + 1;							
 									// begin RShrink and hXi update when subTick===1
 									SMaskPos.next <== BookKeepingIndex;
-									IF (subTick === (2*blockDim + 100 + (blockDim*blockDim + 300)*3)) {
+									IF (subTick === RShrinkLatency) {
 										subMode.next <== subModes.MOVES2R;
 									}
 								}

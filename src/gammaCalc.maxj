@@ -82,8 +82,7 @@ class gammaCalc extends KernelLib {
 		DFEVar WrEn = GammaWriteEn & hasFinish;
 		GammaMem.write(GammaWriteAddr, Result, WrEn);
 
-//		DFEVar Tick = control.count.simpleCounter(32);
-//		debug.simPrintf(Valid, "[%4d] [GAMMACALC] beginCalc=%d, GammaCount=%d | Result = %f, WrEn=%d | hasFinish=%d \n", Tick, beginCalc, GammaCount, Result, WrEn, hasFinish);
+		//debug.simPrintf(Valid, "[%4d] [GAMMACALC] beginCalc=%d, GammaCount=%d | Q=%f, beta=%f, Result=%f, WrEn=%d | hasFinish=%d \n", control.count.simpleCounter(32), beginCalc, GammaCount, Q, beta, Result, WrEn, hasFinish);
 
 	}
 

@@ -185,8 +185,8 @@ class SVMKernel extends Kernel {
 		
 		// Matrix Q
 		// NOTE: hXi[k] calculation is done during RShrink process, so Row Addr set to SMask during RShrink
-		DFEVar BaseAddrColG 		= (beginGammaVCalc | beginGammaCCalc | beginGammaKCalc) ? BaseAddrXc : BaseAddrSMask;
-		DFEVar OffsetAddrColG 	= (beginGammaVCalc | beginGammaCCalc | beginGammaKCalc) ? OffsetAddrXc : OffsetAddrSMask;
+		DFEVar BaseAddrColG 		= beginGammaKCalc ? BaseAddrNMask : ((beginGammaVCalc | beginGammaCCalc) ? BaseAddrXc : BaseAddrSMask);
+		DFEVar OffsetAddrColG 	= beginGammaKCalc ? OffsetAddrNMask : ((beginGammaVCalc | beginGammaCCalc) ? OffsetAddrXc : OffsetAddrSMask);
 		DFEVar BaseAddrRow 		= isRShrinking ? BaseAddrSMask   : ((isGammaVCalculating | isGammaKCalculating | isMoveFetchingQ) ? BaseAddrNMask : BaseAddrXc);
 		DFEVar OffsetAddrRow 		= isRShrinking ? OffsetAddrSMask : ((isGammaVCalculating | isGammaKCalculating | isMoveFetchingQ) ? OffsetAddrNMask : OffsetAddrXc);
 		DFEVar BaseAddrCol 		= (isFetchingQ | isMoveFetchingQ) ? BaseAddrSMask 	: BaseAddrColG;
@@ -264,7 +264,7 @@ class SVMKernel extends Kernel {
 		// beta Calculation
 		DFEVar betaReadAddr = XAddr;
 		DFEVar betaPortAddr = YAddr;
-		DFEVar beginBetaSeqRead = beginGammaCCalc | beginGammaVCalc | stream.offset(beginBookKeeping_S, 1) | beginUpdate;
+		DFEVar beginBetaSeqRead = beginGammaCCalc | beginGammaVCalc | beginGammaKCalc | stream.offset(beginBookKeeping_S, 1) | beginUpdate;
 		betaCalc betaCalcModule = new betaCalc (this, numBlocks, blockDim, SSize, QBufVec, betaCalcVec, beginBetaCalc, betaReadAddr, betaPortAddr, beginBetaSeqRead); 
 		betaX <== betaCalcModule.getReadVec();
 		betaY <== betaCalcModule.getPortVec();
@@ -408,7 +408,7 @@ class SVMKernel extends Kernel {
 		
 		// REnlarge - triggered by beginGammaCREnlarge or begin automatically after gamma_k calculated
 		gammaInv 		<== 1.0 / ((BookKeepingFlag === 5) ? gamma_c : gamma_k);
-		beginREnlarge 	<== beginGammaCREnlarge | (isGammaKCalculating & GammaResultValid);
+		beginREnlarge 	<== beginGammaCREnlarge | stream.offset((isGammaKCalculating & GammaResultValid), -1);
 		
 		// RShrink
 		OffsetExpr SMaskIDToRemoveOffset = stream.makeOffsetAutoLoop("SMaskIDToRemoveOffset");
@@ -462,7 +462,7 @@ class SVMKernel extends Kernel {
 		
 		// BookKeeping
 		debug.simPrintf(beginBookKeeping, "[%4d] ----------- Begin BookKeeping ------------\n", Tick);
-		debug.simPrintf(BookKeepingValid, "[%4d] N[%d] S[%d] Sel=%d | hXi[%d]=%f, betaSeq=%f, thetaSeq=%f | bC=%.4f, bE=%.4f, bR=%.4f, LC=%.4f, LS=%.4f, LE=%.4f, LR=%.4f\n", Tick, IndexNMask, IndexSMask, BKSel, hXiRdAddr, hXi, betaSeq, thetaSeq, bC, bE, bR, LC, LS, LE, LR);
+		debug.simPrintf(BookKeepingValid, "[%4d] N[%d] S[%d] Sel=%d | hXi[%d]=%f, betaSeq=%f, thetaSeq=%f | bC=%f, bE=%f, bR=%f, LC=%f, LS=%f, LE=%f, LR=%f\n", Tick, IndexNMask, IndexSMask, BKSel, hXiRdAddr, hXi, betaSeq, thetaSeq, bC, bE, bR, LC, LS, LE, LR);
 		debug.simPrintf(beginUpdate, "[%4d] =======> BookKeeping Result: Flag=%d, Index=%d, minL = %f ------------\n", Tick, BookKeepingFlag, BookKeepingIndex, minL);
 		
 		// Q Fetch
@@ -473,6 +473,9 @@ class SVMKernel extends Kernel {
 
 		// hXi update
 		debug.simPrintf(hXiWrEn, "[%4d] [hXiUpdate] hXi[%d] <= %f, En=%d \n", Tick, hXiWrAddr, hXiWrData, hXiWrEn);
+		
+		// b update
+		debug.simPrintf(bWrEnOffseted, "[%4d] [bUpdate] b <= %f \n", Tick, bWrDataOffseted);
 
 
 		////////////////////////// Simple Kernel /////////////////////////

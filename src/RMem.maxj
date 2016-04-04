@@ -428,10 +428,7 @@ class RMem extends KernelLib{
 			block.write(PortAddr, PortData, PortWrEn);
 
 
-			if ((X==0) && (Y==0)) {
-				DFEVar Tick = control.count.simpleCounter(32);
-				//debug.simPrintf("[%4d] [RBlock00] UnOffseted: Block[%d] <= %f, En=%d (Enlarge=%d, Shrink=%d) | Offseted: Block[%d] <= %f, En=%d \n", Tick, PortAddrUnOffseted, PortDataUnOffseted, PortWrEnUnOffseted, REnlargePortEn, RShrinkPortEn, PortAddr, PortData, PortWrEn);				
-			}
+//			if ((X==0) && (Y==0)) debug.simPrintf(PortWrEnUnOffseted | PortWrEn, "[%4d] [RBlock00] Block[%d]=>%f, beta[%d]=%f, beta[%d]=%f, gammaInv=%f, Block[%d]<=%f, En=%d (R+=%d, R-=%d) | Offseted: Block[%d]<=%f, En=%d \n", control.count.simpleCounter(32), readAddr, readItem, XAddr, betaX, YAddr, betaY, gammaInv, PortAddrUnOffseted, PortDataUnOffseted, PortWrEnUnOffseted, REnlargePortEn, RShrinkPortEn, PortAddr, PortData, PortWrEn);
 
 
 		}

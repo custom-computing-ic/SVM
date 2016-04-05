@@ -57,13 +57,15 @@ class Def {
 
 	// Input Data Type
 	public static final DFEType DataType = KernelLib.dfeFloat(8, 24);
+	//public static final DFEType DataType = KernelLib.dfeFloat(11, 53);
 
 	// CalcType
 	public static final DFEType CalcType = KernelLib.dfeFloat(8, 24);
+	//public static final DFEType CalcType = KernelLib.dfeFloat(11, 53);
 	
-	// BookKeeping Type
-	public static final double BookKeepingTH = 30000;
-	public static final DFEType BookKeepingType = KernelLib.dfeFixMax(40, 30000, SignMode.UNSIGNED);
+	// BookKeeping Types
+	public static final double BookKeepingTH = 16000;
+	public static final DFEType BookKeepingType = KernelLib.dfeFixOffset(48, -32, SignMode.TWOSCOMPLEMENT);
 
 	// Feature Vector of Input Data Type
 	public static final DFEVectorType<DFEVar> DataVecType = new DFEVectorType<DFEVar>(DataType, DataDim);
@@ -74,13 +76,13 @@ class Def {
 
 	///////////////////////// Utility Functions For Tests /////////////////////////
 
-	// Input Data Generator - For Tests
-	public static List<Bits> FloatVectorDataGenerator(float [][] data, int numTicks, int VectorWidth) {
+	// Float Input Data Generator
+	public static List<Bits> FloatVectorDataGenerator(double [][] data, int numTicks, int VectorWidth) {
 		final List<Bits> encodedData = new ArrayList<Bits>(numTicks);
 		for (int i=0; i<numTicks; ++i) {
-			Bits thisStepBits = KernelLib.dfeFloat(8, 24).encodeConstant(data[i][0]);
+			Bits thisStepBits = DataType.encodeConstant(data[i][0]);
 			for (int j=1; j<VectorWidth; ++j){
-				thisStepBits = KernelLib.dfeFloat(8, 24).encodeConstant(data[i][j]).cat(thisStepBits);
+				thisStepBits = DataType.encodeConstant(data[i][j]).cat(thisStepBits);
 			}
 			encodedData.add(thisStepBits);
 		}

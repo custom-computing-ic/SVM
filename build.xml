@@ -81,6 +81,8 @@
 	<target name="clean">
 		<delete dir="${bin.dir}"/>
 		<delete dir="${report.dir}"/>
+		<delete dir="dataBlockTest"/>
+		<delete dir="hXcTest"/>
 	</target>
 	
 </project>

@@ -75,7 +75,7 @@ public class dataBlockTest {
 		final int VecWidth = 30;
 		final int numBlocks = 4;
 		final int blockDim = 4;
-		float [][] data = new float[numTicks][VecWidth];
+		double [][] data = new double [numTicks][VecWidth];
 		for (int tick=0; tick<200; ++tick) {
 			for (int dim=0; dim<VecWidth; ++dim) {
 				data[tick][dim] = tick*100;

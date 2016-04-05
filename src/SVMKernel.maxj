@@ -147,8 +147,8 @@ class SVMKernel extends Kernel {
 		DFEVector<DFEVar> Xc = XcQueue.remove(EnInput);
 		
 		// Yc FIFO
-		DFEVar Yc_IN = ZeroLatencyInput.input("Yc", Def.CalcType, EnInput, constant.var(dfeUInt(32), streamLength));
-		Queue<DFEVar> YcQueue = mem.queue(Def.CalcType, 2);
+		DFEVar Yc_IN = ZeroLatencyInput.input("Yc", Def.DataYType, EnInput, constant.var(dfeUInt(32), streamLength));
+		Queue<DFEVar> YcQueue = mem.queue(Def.DataYType, 2);
 		YcQueue.insert(Yc_IN, EnInput);
 		DFEVar Yc = YcQueue.remove(EnInput);
 
@@ -173,12 +173,12 @@ class SVMKernel extends Kernel {
 
 		// dataY
 		DFEVar YPortAddr = isProcessingNewXc ? GroupIndexXc : GroupIndexSMask;
-		Memory<DFEVar> dataYBlock = mem.alloc(Def.CalcType, WinSize);
+		Memory<DFEVar> dataYBlock = mem.alloc(Def.DataYType, WinSize);
 		dataYBlock.mapToCPU("dataY");
 		DFEVar dataY = dataYBlock.port(YPortAddr, Yc, EnInput, RamWriteMode.WRITE_FIRST);
 		
 		// Kernel Calc
-		DFEVector<DFEVar> KernelVec = BlockVecType.newInstance(this);
+		DFEVector<DFEVar> KernelVec = (new DFEVectorType<DFEVar>(Def.QType, numBlocks)).newInstance(this);
 		for (int i=0; i<numBlocks; ++i) {
 			KernelVec[i] <== RBFKernel(Xc, dataX[i]);
 		}
@@ -195,12 +195,12 @@ class SVMKernel extends Kernel {
 		DFEVar MatQEnIterate 		= (EnInput | beginRShrink);
 		QMem MatrixQ = new QMem(this, numBlocks, blockDim, KernelVec, BaseAddrRow, OffsetAddrRow, MatQEnWrite, MatQEnIterate, BaseAddrCol, OffsetAddrCol);
 		DFEVector<DFEVar> QVector = MatrixQ.getQValVec();
-		DFEVar QVal = MatrixQ.getQVal();
+		DFEVar QVal = MatrixQ.getQVal().cast(Def.CalcType);
 		DFEVar hasQUpdateFinishedFromQMem = MatrixQ.hasFinished();
 		
 		
 		// theta - individual write, parallel and individual access
-		DFEVar thetaIn 				= Def.CalcType.newInstance(this);
+		DFEVar thetaIn 				= Def.thetaType.newInstance(this);
 		DFEVar thetaWrBaseAddr 		= BaseAddrType.newInstance(this);
 		DFEVar thetaWrOffsetAddr 		= OffsetAddrType.newInstance(this);
 		DFEVar thetaRdBaseAddr 		= (beginBookKeeping | beginUpdate) ? BaseAddrXc 	: BaseAddrSMask;
@@ -215,7 +215,7 @@ class SVMKernel extends Kernel {
 
 		
 		// b
-		Memory<DFEVar> bMem = mem.alloc(Def.CalcType, 2);
+		Memory<DFEVar> bMem = mem.alloc(Def.DataYType, 2);
 		bMem.mapToCPU("b");
 		DFEVar b = bMem.read(constant.var(dfeUInt(1),0));
 			
@@ -224,7 +224,7 @@ class SVMKernel extends Kernel {
 		DFEVar beginhCalc 		= (EnInput | beginRShrink);
 		DFEVar hXiRdAddr 		= (beginBookKeeping | beginUpdate) ? GroupIndexXc : GroupIndexNMask;
 		DFEVar hXiWrAddr 		= PosType.newInstance(this);
-		DFEVar hXiWrData 		= Def.CalcType.newInstance(this);
+		DFEVar hXiWrData 		= Def.hXiType.newInstance(this);
 		DFEVar hXiWrEn 			= BoolType.newInstance(this);
 		hCalc hXiCalc = new hCalc(this, numBlocks, blockDim, QVector, thetaVector, b, dataY, beginhCalc, hXiRdAddr, hXiWrAddr, hXiWrData, hXiWrEn);
 		DFEVar hXi = hXiCalc.getMemData();
@@ -236,7 +236,7 @@ class SVMKernel extends Kernel {
 
 		// q
 		// TODO: q is different for DEC
-		DFEVar toqStreamHold = (hXiCalcResult > 0) ? constant.var(Def.CalcType, -1) : constant.var(Def.CalcType, 1);
+		DFEVar toqStreamHold = (hXiCalcResult > 0) ? constant.var(dfeInt(2), -1) : constant.var(dfeInt(2), 1);
 		DFEVar q = Reductions.streamHold(toqStreamHold, hXcValid);
 
 
@@ -288,53 +288,61 @@ class SVMKernel extends Kernel {
 		
 		////////////////////////// Bookkeeping /////////////////////////
 		
+		DFEVar BKINF = constant.var(Def.BookKeepingType, Def.BookKeepingTH);
+		
 		// Empty S - Incremental Training - NEED q and hXi
+		DFEVar qep = (q>0) ? constant.var(Def.BookKeepingType, Def.ep) : constant.var(Def.BookKeepingType, -Def.ep);
 		// bC
-		DFEVar bC = KernelMath.abs(hXi+q*Def.ep);
+		DFEVar bC = KernelMath.abs(hXi+qep);
 		DFEVar FlagbC = constant.var(FlagType, 0);
 		// bE
-		DFEVar bE = (((q>0)&(hXi<-Def.ep))|((q<0)&(hXi>Def.ep))) ? KernelMath.abs(hXi+q*Def.ep) : constant.var(Def.CalcType, INF);
+		DFEVar bE = (((q>0)&(hXi<-Def.ep))|((q<0)&(hXi>Def.ep))) ? KernelMath.abs(hXi+qep) : BKINF;
 		DFEVar FlagbE = (isInc) ? constant.var(FlagType, 1) : constant.var(FlagType, 3);
 		// bR
-		DFEVar bR = KernelMath.abs(hXi-q*Def.ep);
+		DFEVar bR = KernelMath.abs(hXi-qep);
 		DFEVar FlagbR = (isInc) ? constant.var(FlagType, 2) : constant.var(FlagType, 4);
 		
 		// Empty S - Decremental Training - bE, bR same as INC, but no bC
 		
 		
 		// Non-Empty S - Incremental Training - NEED q and gamma, gamma_c, theta, beta
+		DFEVar BKgamma_c 	= gamma_c.cast(Def.BookKeepingType);
+		DFEVar BKthetaSeq 	= thetaSeq.cast(Def.BookKeepingType);
+		DFEVar BKbetaSeq 	= betaSeq.cast(Def.BookKeepingType);
+		DFEVar BKgammaSeq 	= gammaSeq.cast(Def.BookKeepingType);
 		// LC1		
-		DFEVar qrc = (q > 0) ? gamma_c : -gamma_c;
-		DFEVar LC1_INC = ((qrc>0)&(hXi<-Def.ep)) ? KernelMath.abs((hXi+Def.ep)/gamma_c) : (((qrc<0)&(hXi>Def.ep)) ? KernelMath.abs((hXi-Def.ep)/gamma_c) : constant.var(Def.CalcType, INF));
+		DFEVar qrc = (q>0) ? BKgamma_c : -BKgamma_c;
+		DFEVar LC1_INC = ((qrc>0)&(hXi<-Def.ep)) ? KernelMath.abs((hXi+Def.ep)/BKgamma_c) : (((qrc<0)&(hXi>Def.ep)) ? KernelMath.abs((hXi-Def.ep)/BKgamma_c) : BKINF);
 		// LC2
-		DFEVar LC2_INC = KernelMath.abs(q*Def.C-thetaSeq);
+		DFEVar qC = (q>0) ? constant.var(Def.BookKeepingType, Def.C) : constant.var(Def.BookKeepingType, -Def.C);
+		DFEVar LC2_INC = KernelMath.abs(qC-BKthetaSeq);
 		// LC_INC
 		DFEVar LC_INC = (LC1_INC < LC2_INC) ? LC1_INC : LC2_INC;
 		DFEVar FlagLC_INC = (LC1_INC < LC2_INC) ? constant.var(FlagType, 5) : constant.var(FlagType, 6);
 		// LiS
-		DFEVar qbi 			= (q>0) ? betaSeq : -betaSeq;
-		DFEVar LSPos 		= (thetaSeq>=0) ? (Def.C - thetaSeq) : thetaSeq;
-		DFEVar LSNeg 		= (thetaSeq<=0) ? (Def.C + thetaSeq) : thetaSeq;
-		DFEVar toLS 			= ((qbi>0) ? LSPos : LSNeg) / betaSeq;
-		DFEVar LS 			= (qbi===0) ? constant.var(Def.CalcType, INF) : KernelMath.abs(toLS);
-		DFEVar FlagLSPosINC 	= (thetaSeq>=0) ? constant.var(FlagType, 7) : constant.var(FlagType, 14);
-		DFEVar FlagLSNegINC 	= (thetaSeq<=0) ? constant.var(FlagType, 7) : constant.var(FlagType, 14);
+		DFEVar qbi 			= (q>0) ? BKbetaSeq : -BKbetaSeq;
+		DFEVar LSPos 		= (BKthetaSeq>=0) ? (Def.C - BKthetaSeq) : BKthetaSeq;
+		DFEVar LSNeg 		= (BKthetaSeq<=0) ? (Def.C + BKthetaSeq) : BKthetaSeq;
+		DFEVar toLS 			= ((qbi>0) ? LSPos : LSNeg) / BKthetaSeq;
+		DFEVar LS 			= (qbi===0) ? BKINF : KernelMath.abs(toLS);
+		DFEVar FlagLSPosINC 	= (BKthetaSeq>=0) ? constant.var(FlagType, 7) : constant.var(FlagType, 14);
+		DFEVar FlagLSNegINC 	= (BKthetaSeq<=0) ? constant.var(FlagType, 7) : constant.var(FlagType, 14);
 		DFEVar FlagLSINC 		= (qbi>0) ? FlagLSPosINC : FlagLSNegINC;
-		DFEVar FlagLSPosDEC 	= (thetaSeq>=0) ? constant.var(FlagType, 11) : constant.var(FlagType, 15);
-		DFEVar FlagLSNegDEC 	= (thetaSeq<=0) ? constant.var(FlagType, 11) : constant.var(FlagType, 15);
+		DFEVar FlagLSPosDEC 	= (BKthetaSeq>=0) ? constant.var(FlagType, 11) : constant.var(FlagType, 15);
+		DFEVar FlagLSNegDEC 	= (BKthetaSeq<=0) ? constant.var(FlagType, 11) : constant.var(FlagType, 15);
 		DFEVar FlagLSDEC 	= (qbi>0) ? FlagLSPosDEC : FlagLSNegDEC;		
 		DFEVar FlagLS 		= (isInc) ? FlagLSINC : FlagLSDEC;
 		// LiE
-		DFEVar qri = (q > 0) ? gammaSeq : -gammaSeq;
-		DFEVar LE = ((qri>0)&(hXi<=-Def.ep)) ? KernelMath.abs((hXi+Def.ep)/gammaSeq) : (((qri<0)&(hXi>=Def.ep)) ? KernelMath.abs((hXi-Def.ep)/gammaSeq) : constant.var(Def.CalcType, INF));
+		DFEVar qri = (q>0) ? BKgammaSeq : -BKgammaSeq;
+		DFEVar LE = ((qri>0)&(hXi<=-Def.ep)) ? KernelMath.abs((hXi+Def.ep)/BKgammaSeq) : (((qri<0)&(hXi>=Def.ep)) ? KernelMath.abs((hXi-Def.ep)/BKgammaSeq) : BKINF);
 		DFEVar FlagLE = (isInc) ? constant.var(FlagType, 8) : constant.var(FlagType, 12);
 		// LiR
-		DFEVar LR = (qri===0) ? constant.var(Def.CalcType, INF) : ((qri>0) ? KernelMath.abs((hXi-Def.ep)/gammaSeq) : KernelMath.abs((hXi+Def.ep)/gammaSeq));
+		DFEVar LR = (qri===0) ? BKINF : ((qri>0) ? KernelMath.abs((hXi-Def.ep)/BKgammaSeq) : KernelMath.abs((hXi+Def.ep)/BKgammaSeq));
 		DFEVar FlagLR = (isInc) ? constant.var(FlagType, 9) : constant.var(FlagType, 13);
 		
 		// Non-Empty S - Decremental Training - LiS, LiE, LiR same as INC, but LC2 is different, and no LC1
 		// LC_DEC
-		DFEVar LC_DEC = KernelMath.abs(thetaSeq);
+		DFEVar LC_DEC = KernelMath.abs(BKthetaSeq);
 		DFEVar FlagLC_DEC = constant.var(FlagType, 10);
 		
 		// Overall LC
@@ -347,19 +355,18 @@ class SVMKernel extends Kernel {
 		DFEVar BKFlag 	= control.mux(BKSel, FlagbC, FlagbE, FlagbR, FlagLC, FlagLS, FlagLE, FlagLR);
 		DFEVar BKIndex 	= control.mux(BKSel, GroupIndexXc, IndexNMask, IndexNMask, GroupIndexXc, IndexSMask, IndexNMask, IndexNMask);
 		// cast to fix point - streamMin only supports Fix-Point
-		DFEVar BKVal_cutoff = (BKVal > Def.BookKeepingTH) ? constant.var(Def.CalcType, Def.BookKeepingTH) : BKVal;
-		DFEVar BKVal_Fix = BKVal_cutoff.cast(Def.BookKeepingType);
-		Reductions.StreamMinInfo BookKeep1 = Reductions.streamMinWithMetadata(BKVal_Fix, BKFlag, beginBookKeeping, BookKeepingValid);
-		Reductions.StreamMinInfo BookKeep2 = Reductions.streamMinWithMetadata(BKVal_Fix, BKIndex, beginBookKeeping, BookKeepingValid);
+		DFEVar BKVal_cutoff = (BKVal > BKINF) ? BKINF : BKVal;
+		Reductions.StreamMinInfo BookKeep1 = Reductions.streamMinWithMetadata(BKVal_cutoff, BKFlag, beginBookKeeping, BookKeepingValid);
+		Reductions.StreamMinInfo BookKeep2 = Reductions.streamMinWithMetadata(BKVal_cutoff, BKIndex, beginBookKeeping, BookKeepingValid);
 		DFEVar BookKeepingFlag 	= BookKeep1.getMetaData();
 		DFEVar BookKeepingIndex 	= BookKeep2.getMetaData();
-		DFEVar minL	= BookKeep1.getMin().cast(Def.CalcType);
+		DFEVar minL	= BookKeep1.getMin();
 
 		
 		////////////////////////// Update /////////////////////////
 		
 		// Update Val
-		DFEVar UpdateVal 	= (q > 0) ? minL : -minL;
+		DFEVar UpdateVal 	= (q>0) ? minL : -minL;
 		
 		// Update for Empty S
 		DFEVar bEmptyS		= UpdateVal;
@@ -367,13 +374,13 @@ class SVMKernel extends Kernel {
 		
 		// Update for Non-Empty S
 		DFEVar thetaCNonEmptyS 	= UpdateVal;
-		DFEVar bThetaNonEmptyS 	= betaSeq * UpdateVal;
-		DFEVar hXcNonEmptyS 	= gamma_c * UpdateVal;
-		DFEVar hXiNonEmptyS 	= gammaSeq * UpdateVal;
+		DFEVar bThetaNonEmptyS 	= BKbetaSeq * UpdateVal;
+		DFEVar hXcNonEmptyS 	= BKgamma_c * UpdateVal;
+		DFEVar hXiNonEmptyS 	= BKgammaSeq * UpdateVal;
 		
 		// Update b
 		OffsetExpr bOffset 		= stream.makeOffsetAutoLoop("bOffset");
-		DFEVar bWrData 			= b + (isEmptyS ? bEmptyS : bThetaNonEmptyS);
+		DFEVar bWrData 			= b + (isEmptyS ? bEmptyS : bThetaNonEmptyS).cast(Def.DataYType);
 		DFEVar bWrDataOffseted 	= stream.offset(bWrData, -bOffset);
 		DFEVar bWrEnOffseted 	= stream.offset(beginUpdate, -bOffset);
 		bMem.write(constant.var(dfeUInt(1),0), bWrDataOffseted, bWrEnOffseted);
@@ -392,7 +399,7 @@ class SVMKernel extends Kernel {
 		
 		// Update theta
 		OffsetExpr thetaOffset 					= stream.makeOffsetAutoLoop("thetaOffset");
-		DFEVar thetaInUnOffseted 				= thetaSeq + (beginUpdate ? thetaCNonEmptyS : bThetaNonEmptyS);
+		DFEVar thetaInUnOffseted 				= BKthetaSeq + (beginUpdate ? thetaCNonEmptyS : bThetaNonEmptyS);
 		DFEVar thetaWrBaseAddrUnOffseted 		= beginUpdate ? BaseAddrXc 	: BaseAddrSMask;
 		DFEVar thetaWrOffsetAddrUnOffseted 	= beginUpdate ? OffsetAddrXc 	: OffsetAddrSMask;		
 		DFEVar thetaImmediateWriteUnOffseted 	= (~isEmptyS) & (beginUpdate | isUpdating & SMaskValid);
@@ -400,7 +407,7 @@ class SVMKernel extends Kernel {
 		DFEVar thetaWrBaseAddrOffseted 		= stream.offset(thetaWrBaseAddrUnOffseted, -thetaOffset);
 		DFEVar thetaWrOffsetAddrOffseted 		= stream.offset(thetaWrOffsetAddrUnOffseted, -thetaOffset);
 		DFEVar thetaImmediateWriteOffseted 	= stream.offset(thetaImmediateWriteUnOffseted, -thetaOffset);
-		thetaIn 				<== isProcessingNewXc ? constant.var(Def.CalcType, 0) : thetaInOffseted;
+		thetaIn 				<== isProcessingNewXc ? constant.var(Def.thetaType, 0) : thetaInOffseted;
 		thetaWrBaseAddr 		<== isThetaKUpdating ? BaseAddrNMask : (isProcessingNewXc ? BaseAddrXc : thetaWrBaseAddrOffseted);
 		thetaWrOffsetAddr 	<== isThetaKUpdating ? OffsetAddrNMask : (isProcessingNewXc ? OffsetAddrXc : thetaWrOffsetAddrOffseted);
 		thetaImmediateWrite 	<== isProcessingNewXc ? constant.var(dfeBool(), 0) : thetaImmediateWriteOffseted;
@@ -455,24 +462,24 @@ class SVMKernel extends Kernel {
 //		debug.simPrintf(XcQueue.valid(), "[%4d]-----[FIFO]---------------data[%d][%d] = (%f,%f) Poped from FIFO----------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
 		
 		// hXc calculation
-		debug.simPrintf(EnInput, "\n[%4d]--------[NEW INPUT]-------(Xc[%d][%d],Yc)=(%f,%f)---------------------------------------------------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
+		debug.simPrintf(EnInput, "\n[%4d]--------[NEW INPUT]-------(Xc[%d][%d],Yc)=(%f,%f)--------------------- b=%.9f ----------------------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc, b);
 		//debug.simPrintf(isProcessingNewXc, "[%4d] Addr=%2d, En=%d | Q[0:3]=(%.4f,%.4f,%.4f,%.4f) theta[0:3]=(%.4f,%.4f,%.4f,%.4f) | b = %f | hXc = %f, Valid=%d | XcJoinR=%d, hasFinished=%d\n", Tick, blockAddr, isProcessingNewXc, QVector[0], QVector[1], QVector[2], QVector[3], thetaVector[0], thetaVector[1], thetaVector[2], thetaVector[3], b, hXiCalcResult, hXcValid, XcJoinR, hasFinished);
 		debug.simPrintf(hasQUpdateFinished, "[%4d] ----------- QUpdate Finished ------------\n", Tick);
 		debug.simPrintf(hasFinished, "[%4d] (Xc[%d][%d],Yc) = (%f,%f) joins R. \n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
 		
 		// BookKeeping
 		debug.simPrintf(beginBookKeeping, "[%4d] ----------- Begin BookKeeping ------------\n", Tick);
-		debug.simPrintf(BookKeepingValid, "[%4d] N[%d] S[%d] Sel=%d | hXi[%d]=%f, betaSeq=%f, thetaSeq=%f | bC=%f, bE=%f, bR=%f, LC=%f, LS=%f, LE=%f, LR=%f\n", Tick, IndexNMask, IndexSMask, BKSel, hXiRdAddr, hXi, betaSeq, thetaSeq, bC, bE, bR, LC, LS, LE, LR);
-		debug.simPrintf(beginUpdate, "[%4d] =======> BookKeeping Result: Flag=%d, Index=%d, minL = %f ------------\n", Tick, BookKeepingFlag, BookKeepingIndex, minL);
+		debug.simPrintf(BookKeepingValid, "[%4d] N[%d] S[%d] Sel=%d | hXi[%d]=%f, betaSeq=%f, thetaSeq=%f \n                         bC[0]=%f, bE[1]=%f, bR[2]=%f, LC[3]=%f, LS[4]=%f, LE[5]=%f, LR[6]=%f\n", Tick, IndexNMask, IndexSMask, BKSel, hXiRdAddr, hXi, betaSeq, thetaSeq, bC, bE, bR, LC, LS, LE, LR);
+		debug.simPrintf(beginUpdate, "[%4d] =======> BookKeeping Result: Flag=%d, Index=%d, minL = %e ------------\n", Tick, BookKeepingFlag, BookKeepingIndex, minL);
 		
 		// Q Fetch
 //		debug.simPrintf(QBufEnWrite, "[%4d] [QBuffer] SMask[%d] - Base=%d, Offset=%d, GroupIndex=%d | Q[%d][%d][%d][%d] => %f | QBuffer[Base][%d] <= %f \n", Tick, IndexSMask, BaseAddrSMask, OffsetAddrSMask, GroupIndexSMask, BaseAddrRow, OffsetAddrRow, BaseAddrCol, OffsetAddrCol, QVal, QBufWriteOffsetAddr, QVal);
 		
 		// gamma Calc
-		debug.simPrintf(GammaResultValid, "[%4d] [GammaCalc] BEGIN: CVK=%d%d%d | CALC: CVK=%d%d%d | NSize=%d, SSize=%d | NMask[%d], SMask[%d] | Beta=%2.6f, Result=%3.6f, Valid=%d | Gamma[C]=%f, Gamma[K]=%f\n", Tick, beginGammaCCalc, beginGammaVCalc, beginGammaKCalc, isGammaCCalculating, isGammaVCalculating, isGammaKCalculating, NSize, SSize, IndexNMask, IndexSMask, betaSeq, GammaResult, GammaResultValid, gamma_c, gamma_k);
+		debug.simPrintf(GammaResultValid, "[%4d] [GammaCalc] BEGIN: CVK=%d%d%d, CALC: CVK=%d%d%d | NSize=%d, SSize=%d | NMask[%d], SMask[%d] | Beta=%2.6f, Result=%.9f, Valid=%d | Gamma[C]=%.9f, Gamma[K]=%.9f\n", Tick, beginGammaCCalc, beginGammaVCalc, beginGammaKCalc, isGammaCCalculating, isGammaVCalculating, isGammaKCalculating, NSize, SSize, IndexNMask, IndexSMask, betaSeq, GammaResult, GammaResultValid, gamma_c, gamma_k);
 
 		// hXi update
-		debug.simPrintf(hXiWrEn, "[%4d] [hXiUpdate] hXi[%d] <= %f, En=%d \n", Tick, hXiWrAddr, hXiWrData, hXiWrEn);
+		debug.simPrintf(hXiWrEn, "[%4d] [hXiUpdate] hXi[%d] <= %.9f, En=%d \n", Tick, hXiWrAddr, hXiWrData, hXiWrEn);
 		
 		// b update
 		debug.simPrintf(bWrEnOffseted, "[%4d] [bUpdate] b <= %f \n", Tick, bWrDataOffseted);
@@ -491,9 +498,10 @@ class SVMKernel extends Kernel {
 		DFEVector<DFEVar> temp = X1 - X2;
 		DFEVector<DFEVar> summands = temp * temp;
 		DFEVar sum = TreeReduce.reduce(new Add<DFEVar>(), summands.getElementsAsList());
+		DFEVar result = KernelMath.exp(sum*(-0.5/Def.sigma_sq));
 		optimization.popDSPFactor();
 		
-		return KernelMath.exp(sum*(-0.5/Def.sigma_sq));
+		return result.cast(Def.QType);
 	}
 
 }

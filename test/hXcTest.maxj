@@ -41,14 +41,6 @@ public class hXcTest {
 		mgr.setMappedRam("theta0", 1, -1000);
 		// init b
 		mgr.setMappedRam("b", 0, 1427.3200075);
-		// init Q
-		for (int X=0; X<numBlocks; ++X) {
-			for (int Y=0; Y<=X; ++Y) {
-				for (int i=0; i<blockDim*blockDim; ++i) {
-					mgr.setMappedRam("QBlockX"+X+"Y"+Y, i, 100+X*10+Y+(double)i/100.0);
-				}
-                	}
-                }
                 // init Group
                 mgr.setStateMachineMappedRam("SVMControl", "Group", 0, 2);
                 mgr.setStateMachineMappedRam("SVMControl", "Group", 1, 2); 

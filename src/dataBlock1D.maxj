@@ -1,13 +1,15 @@
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Stream.OffsetExpr;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Accumulator;
 
-import maxpower.FloatingPointAccumulator;
+import maxpower.KernelBinaryOp.Add;
+import maxpower.TreeReduce;
 
 /**
  * Blocked storage of a 1D array for parallel read and individual write
@@ -56,8 +58,8 @@ class dataBlock1D extends KernelLib{
 		
 		/////////////////////// Type ///////////////////////		
 		
-		DFEType dataType = dataIn.getType();
-		DFEVectorType<DFEVar> VecType = new DFEVectorType<DFEVar>(dataType, numBlocks);
+		DFEVectorType<DFEVar> VecType = new DFEVectorType<DFEVar>(Def.thetaType, numBlocks);
+		DFEVectorType<DFEVar> thetaKAccVecType = new DFEVectorType<DFEVar>(Def.thetaKAccumulatorType, numBlocks);
 		
 		/////////////////////// Memory ///////////////////////
                 
@@ -72,14 +74,14 @@ class dataBlock1D extends KernelLib{
 		
 		// Data
 		VecOUT 						= VecType.newInstance(this);
-		DFEVector<DFEVar> forThetaK 	= VecType.newInstance(this);
+		DFEVector<DFEVar> forThetaK 	= thetaKAccVecType.newInstance(this);
 		DFEVector<DFEVar> toMux 	= VecType.newInstance(this);
-		DFEVar newThetaKOffseted 		= Def.CalcType.newInstance(this);
+		DFEVar newThetaKOffseted 		= Def.thetaType.newInstance(this);
 		DFEVar thetaKWrEnOffseted 	= dfeBool().newInstance(this);
 		
 		// Memory
 		for(int i=0; i<numBlocks; ++i) {
-			Memory<DFEVar> block = mem.alloc(dataType, blockDim);
+			Memory<DFEVar> block = mem.alloc(Def.thetaType, blockDim);
 			block.mapToCPU(name+i);
 			DFEVar RdAddr 	= EnAccumulation ? thetaAddr : OffsetAddrRead;
 			DFEVar WrAddr 	= (immediateWrite | isThetaKUpdating) ? OffsetAddrWrite : XAddr;
@@ -87,13 +89,17 @@ class dataBlock1D extends KernelLib{
 			DFEVar WrEn 		= isThetaKUpdating ? ((BaseAddrWrite === i) & thetaKWrEnOffseted) : ((BaseAddrWrite === i) & (immediateWrite | (EnIterateWrite & (OffsetAddrWrite === XAddr))));
 			VecOUT[i] 		<== block.port(WrAddr, WrData, WrEn, RamWriteMode.WRITE_FIRST);
 			toMux[i] 			<== block.read(RdAddr);
-			forThetaK[i] 		<== ((BaseAddrWrite === i) & (OffsetAddrWrite === thetaAddr)) ? constant.var(dataType, 0) : toMux[i];
+			forThetaK[i] 		<== ((BaseAddrWrite === i) & (OffsetAddrWrite === thetaAddr)) ? 0 : toMux[i].cast(Def.thetaKAccumulatorType);
 		}
 		ValOUT = control.mux(BaseAddrRead, toMux.getElementsAsList());
 		
 		// theta[K] update
-		DFEVar sum = FloatingPointAccumulator.accumulateFixedLength(forThetaK.getElementsAsList(), EnAccumulation, blockDim, false);
-		DFEVar newThetaKUnOffseted 	= -sum;
+		Accumulator.Params Param = Reductions.accumulator.makeAccumulatorConfig(Def.thetaKAccumulatorType)
+									.withEnable(EnAccumulation)
+									.withClear(stream.offset(beginThetaKUpdate, 1));
+		DFEVar toAccumulator = TreeReduce.reduce(new Add<DFEVar>(), forThetaK.getElementsAsList());
+		DFEVar sum = Reductions.accumulator.makeAccumulator(toAccumulator, Param);
+		DFEVar newThetaKUnOffseted 	= -sum.cast(Def.thetaType);
 		DFEVar thetaKWrEnUnOffseted 	= EnAccumulation & (thetaAddr === blockDim-1);
 		OffsetExpr thetaKOffset 		= stream.makeOffsetAutoLoop("thetaKOffset");
 		newThetaKOffseted 			<== stream.offset(newThetaKUnOffseted, -thetaKOffset);

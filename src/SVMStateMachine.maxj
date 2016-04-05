@@ -546,7 +546,7 @@ class SVMStateMachine extends KernelStateMachine {
 								CASE(5) {
 									// Xc joins S and terminate
 									subTick.next <== subTick + 1;
-									IF (subTick === blockDim*blockDim + 160) {  // TODO: REnlarge Latency is 260
+									IF (subTick === blockDim*blockDim + 260) {  // TODO: REnlarge Latency is 260
                         							Group.addressB <== GroupIndexXcCount;
 										Group.dataInB <== 1;
 										Group.writeEnableB <== true;

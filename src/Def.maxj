@@ -54,24 +54,35 @@ class Def {
 	
 
 	///////////////////////// Types /////////////////////////
-
-	// Input Data Type
-	public static final DFEType DataType = KernelLib.dfeFloat(8, 24);
-	//public static final DFEType DataType = KernelLib.dfeFloat(11, 53);
-
-	// CalcType
-	public static final DFEType CalcType = KernelLib.dfeFloat(8, 24);
-	//public static final DFEType CalcType = KernelLib.dfeFloat(11, 53);
 	
-	// BookKeeping Types
-	public static final double BookKeepingTH = 16000;
-	public static final DFEType BookKeepingType = KernelLib.dfeFixOffset(48, -32, SignMode.TWOSCOMPLEMENT);
+	// Default Fix-Point Type used in various places
+	public static final DFEType FixType = KernelLib.dfeFixOffset(48, -32, SignMode.TWOSCOMPLEMENT);
 
-	// Feature Vector of Input Data Type
+	// Data X Type
+	public static final DFEType DataType = FixType;
+//	public static final DFEType DataType = KernelLib.dfeFloat(8, 24);
 	public static final DFEVectorType<DFEVar> DataVecType = new DFEVectorType<DFEVar>(DataType, DataDim);
 
-	// Boolean Type
-	public static final DFEType BoolType = KernelLib.dfeBool();
+	// Data Y Type: used by dataY and b
+	public static final DFEType DataYType = FixType;
+//	public static final DFEType DataYType = KernelLib.dfeFloat(8, 24);
+
+	// Default CalcType
+	public static final DFEType CalcType = KernelLib.dfeFloat(8, 24);
+	
+	// Q Type
+	public static final DFEType QType = KernelLib.dfeFixOffset(32, -31, SignMode.UNSIGNED);
+	
+	// theta Type
+	public static final DFEType thetaType = FixType;
+	public static final DFEType thetaKAccumulatorType = KernelLib.dfeFixOffset(64, -32, SignMode.TWOSCOMPLEMENT);
+	
+	// hXi Type
+	public static final DFEType hXiType = FixType;
+	
+	// BookKeeping Type
+	public static final double BookKeepingTH = 16000;
+	public static final DFEType BookKeepingType = FixType;
 
 
 	///////////////////////// Utility Functions For Tests /////////////////////////

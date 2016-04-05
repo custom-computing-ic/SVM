@@ -1,9 +1,13 @@
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Accumulator;
 
-import maxpower.FloatingPointAccumulator;
+import maxpower.KernelBinaryOp.Add;
+import maxpower.TreeReduce;
 
 /**
  * This class calculates hXi
@@ -14,8 +18,8 @@ import maxpower.FloatingPointAccumulator;
  * @author Patrick Shao
  *
  * @param <blockDim> 1D Dimension of the block - Block Size = blockDim^2
- * @param <Q> Incoming Q vector from KernelCalc - width = numBlocks
- * @param <theta> Incoming theta vector - width = numBlocks
+ * @param <Q> Incoming Q vector from KernelCalc - width = numBlocks, type = QType
+ * @param <theta> Incoming theta vector - width = numBlocks, type = thetaType
  * @param <b> Offset b
  * @param <Y> Yc
  * @param <beginCalc> valid on the cycle that the first item arrives
@@ -59,14 +63,20 @@ class hCalc extends KernelLib {
 		
 		/////////////////////// Calculation ///////////////////////
 		
-		DFEVector<DFEVar> mult = theta * Q;
-		DFEVar offset = b - Y;
-		DFEVar sum = FloatingPointAccumulator.accumulateFixedLength(mult.getElementsAsList(), EnAccumulation, blockDim, false);
+		DFEVectorType<DFEVar> VecType = new DFEVectorType<DFEVar>(Def.hXiType, numBlocks);
+		DFEVector<DFEVar> mult = VecType.newInstance(this);
+		for (int i=0; i<numBlocks; ++i) mult[i] <== theta[i].cast(Def.hXiType) * Q[i].cast(Def.hXiType);
+		DFEVar offset = b.cast(Def.hXiType) - Y.cast(Def.hXiType);
+		Accumulator.Params Param = Reductions.accumulator.makeAccumulatorConfig(Def.hXiType)
+									.withEnable(EnAccumulation)
+									.withClear(stream.offset(beginCalc, 1));
+		DFEVar toAccumulator = TreeReduce.reduce(new Add<DFEVar>(), mult.getElementsAsList());
+		DFEVar sum = Reductions.accumulator.makeAccumulator(toAccumulator, Param);
 		Result = sum+offset;
 		
 		/////////////////////// Memory ///////////////////////
 		
-		Memory<DFEVar> hXiMem = mem.alloc(Def.CalcType, numBlocks*blockDim);
+		Memory<DFEVar> hXiMem = mem.alloc(Def.hXiType, numBlocks*blockDim);
 		hXiMem.mapToCPU("hXi");
 		DFEVar WrData 	= EnAccumulation ? Result : ExtWrData;
 		DFEVar EnWrite 	= EnAccumulation ? Valid : WrEn;
@@ -74,7 +84,7 @@ class hCalc extends KernelLib {
 		fromMem = hXiMem.read(RdAddr);
 		
 		// Debug
-		debug.simPrintf(EnAccumulation, "[%4d] [hCalc] Addr=%2d, | Q[0:3]=(%.4f,%.4f,%.4f,%.4f) theta[0:3]=(%.4f,%.4f,%.4f,%.4f) | b = %f | hXi = %f, Valid=%d\n", control.count.simpleCounter(32), Addr, Q[0], Q[1], Q[2], Q[3], theta[0], theta[1], theta[2], theta[3], b, Result, Valid);
+		debug.simPrintf(EnAccumulation, "[%4d] [hCalc] Addr=%2d, | Q[0:3]=(%.9f,%.4f,%.4f,%.4f) theta[0:3]=(%.9f,%.4f,%.4f,%.4f) | b = %f | hXi = %.9f, Valid=%d\n", control.count.simpleCounter(32), Addr, Q[0], Q[1], Q[2], Q[3], theta[0], theta[1], theta[2], theta[3], b, Result, Valid);
 		
 	}
 

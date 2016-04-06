@@ -50,13 +50,13 @@ class Def {
 	public static final double sigma_sq = 50;  //50
 	
 	// eps 
-	public static final double eps = 1e-6;
+	public static final double eps = 1e-7;
 	
 
 	///////////////////////// Types /////////////////////////
 	
 	// Default Fix-Point Type used in various places
-	public static final DFEType FixType = KernelLib.dfeFixOffset(48, -32, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType FixType = KernelLib.dfeFixOffset(56, -40, SignMode.TWOSCOMPLEMENT);
 
 	// Data X Type
 	public static final DFEType DataType = FixType;
@@ -71,11 +71,11 @@ class Def {
 	public static final DFEType CalcType = KernelLib.dfeFloat(8, 24);
 	
 	// Q Type
-	public static final DFEType QType = KernelLib.dfeFixOffset(32, -31, SignMode.UNSIGNED);
+	public static final DFEType QType = KernelLib.dfeFixOffset(40, -39, SignMode.UNSIGNED);
 	
 	// theta Type
 	public static final DFEType thetaType = FixType;
-	public static final DFEType thetaKAccumulatorType = KernelLib.dfeFixOffset(64, -32, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType thetaKAccumulatorType = KernelLib.dfeFixOffset(64, -40, SignMode.TWOSCOMPLEMENT);
 	
 	// hXi Type
 	public static final DFEType hXiType = FixType;

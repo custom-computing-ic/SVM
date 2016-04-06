@@ -181,6 +181,8 @@ class SVMStateMachine extends KernelStateMachine {
 	private final int WinSize;
 
 	// Scheduling Parameters
+	private final int BookKeepingLatency;
+	private final int REnlargeLatency;
 	private final int RShrinkLatency;
 
 
@@ -197,6 +199,8 @@ class SVMStateMachine extends KernelStateMachine {
 		
 		// Scheduling Parameters
 		RShrinkLatency = 2*blockDim + 100 + 3*(blockDim*blockDim+300);
+		REnlargeLatency = 300;
+		BookKeepingLatency = 350;
 		
 
                 ////////////////////////// Types /////////////////////////
@@ -493,7 +497,7 @@ class SVMStateMachine extends KernelStateMachine {
 						}
 						CASE(subModes.UPDATEWAIT) {
 							subTick.next <== subTick + 1;
-							IF (subTick === 300) {subMode.next <== subModes.INCFLAG; subTick.next <== 0;}
+							IF (subTick === BookKeepingLatency) {subMode.next <== subModes.INCFLAG; subTick.next <== 0;}
 						}
 						// Incremental Training : Checking the flag
 						CASE(subModes.INCFLAG) {
@@ -546,7 +550,7 @@ class SVMStateMachine extends KernelStateMachine {
 								CASE(5) {
 									// Xc joins S and terminate
 									subTick.next <== subTick + 1;
-									IF (subTick === blockDim*blockDim + 260) {  // TODO: REnlarge Latency is 260
+									IF (subTick === blockDim*blockDim + REnlargeLatency) {
                         							Group.addressB <== GroupIndexXcCount;
 										Group.dataInB <== 1;
 										Group.writeEnableB <== true;
@@ -649,7 +653,7 @@ class SVMStateMachine extends KernelStateMachine {
                         			// Waiting for REnlarge to Finish
                         			CASE(subModes.RENLARGEWAIT) {
                         				subTick.next <== subTick + 1;
-                        				IF (subTick === blockDim*blockDim + 260) { // TODO: REnlarge Latency is 260
+                        				IF (subTick === blockDim*blockDim + REnlargeLatency) {
                         					subTick.next <== 0;
                         					subMode.next <== subModes.MOVEN2S;
                         				}

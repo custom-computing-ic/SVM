@@ -132,9 +132,9 @@ class QMem extends KernelLib{
                 		toMux[X] <== QElemFromBlock[X][pos];
                 	}
                 	// Multiplexer
-                	QValTemp[pos] <== control.mux(BaseAddrRow, toMux.getElementsAsList());
+                	QValTemp[pos] <== control.mux(BaseAddrCol, toMux.getElementsAsList());
                 }
-                QVal = control.mux(BaseAddrCol, QValTemp.getElementsAsList());
+                QVal = control.mux(BaseAddrRow, QValTemp.getElementsAsList());
 	
 	}
 

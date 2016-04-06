@@ -187,10 +187,10 @@ class SVMKernel extends Kernel {
 		// NOTE: hXi[k] calculation is done during RShrink process, so Row Addr set to SMask during RShrink
 		DFEVar BaseAddrColG 		= beginGammaKCalc ? BaseAddrNMask : ((beginGammaVCalc | beginGammaCCalc) ? BaseAddrXc : BaseAddrSMask);
 		DFEVar OffsetAddrColG 	= beginGammaKCalc ? OffsetAddrNMask : ((beginGammaVCalc | beginGammaCCalc) ? OffsetAddrXc : OffsetAddrSMask);
-		DFEVar BaseAddrRow 		= isRShrinking ? BaseAddrSMask   : ((isGammaVCalculating | isGammaKCalculating | isMoveFetchingQ) ? BaseAddrNMask : BaseAddrXc);
-		DFEVar OffsetAddrRow 		= isRShrinking ? OffsetAddrSMask : ((isGammaVCalculating | isGammaKCalculating | isMoveFetchingQ) ? OffsetAddrNMask : OffsetAddrXc);
 		DFEVar BaseAddrCol 		= (isFetchingQ | isMoveFetchingQ) ? BaseAddrSMask 	: BaseAddrColG;
 		DFEVar OffsetAddrCol 		= (isFetchingQ | isMoveFetchingQ) ? OffsetAddrSMask 	: OffsetAddrColG;
+		DFEVar BaseAddrRow 		= isRShrinking ? BaseAddrSMask   : ((isGammaVCalculating | isGammaKCalculating | isMoveFetchingQ) ? BaseAddrNMask : BaseAddrXc);
+		DFEVar OffsetAddrRow 		= isRShrinking ? OffsetAddrSMask : ((isGammaVCalculating | isGammaKCalculating | isMoveFetchingQ) ? OffsetAddrNMask : OffsetAddrXc);
 		DFEVar MatQEnWrite 		= isProcessingNewXc;
 		DFEVar MatQEnIterate 		= (EnInput | beginRShrink);
 		QMem MatrixQ = new QMem(this, numBlocks, blockDim, KernelVec, BaseAddrRow, OffsetAddrRow, MatQEnWrite, MatQEnIterate, BaseAddrCol, OffsetAddrCol);
@@ -323,7 +323,7 @@ class SVMKernel extends Kernel {
 		DFEVar qbi 			= (q>0) ? BKbetaSeq : -BKbetaSeq;
 		DFEVar LSPos 		= (BKthetaSeq>=0) ? (Def.C - BKthetaSeq) : BKthetaSeq;
 		DFEVar LSNeg 		= (BKthetaSeq<=0) ? (Def.C + BKthetaSeq) : BKthetaSeq;
-		DFEVar toLS 			= ((qbi>0) ? LSPos : LSNeg) / BKthetaSeq;
+		DFEVar toLS 			= ((qbi>0) ? LSPos : LSNeg) / BKbetaSeq;
 		DFEVar LS 			= (qbi===0) ? BKINF : KernelMath.abs(toLS);
 		DFEVar FlagLSPosINC 	= (BKthetaSeq>=0) ? constant.var(FlagType, 7) : constant.var(FlagType, 14);
 		DFEVar FlagLSNegINC 	= (BKthetaSeq<=0) ? constant.var(FlagType, 7) : constant.var(FlagType, 14);
@@ -354,14 +354,26 @@ class SVMKernel extends Kernel {
 		DFEVar BKVal 	= control.mux(BKSel, bC, bE, bR, LC, LS, LE, LR);
 		DFEVar BKFlag 	= control.mux(BKSel, FlagbC, FlagbE, FlagbR, FlagLC, FlagLS, FlagLE, FlagLR);
 		DFEVar BKIndex 	= control.mux(BKSel, GroupIndexXc, IndexNMask, IndexNMask, GroupIndexXc, IndexSMask, IndexNMask, IndexNMask);
-		// cast to fix point - streamMin only supports Fix-Point
+		
+		// A Preliminary solution that handles ties
+		DFEVar BKVal_cutoff = (BKVal > BKINF) ? BKINF : BKVal;
+		DFEVar minC = Reductions.streamHold(BKVal_cutoff, beginBookKeeping);
+		DFEVar FlagC = Reductions.streamHold(BKFlag, beginBookKeeping);
+		Reductions.StreamMinInfo BookKeep1 = Reductions.streamMinWithMetadata(BKVal_cutoff, BKFlag, stream.offset(beginBookKeeping, -1), BookKeepingValid);
+		Reductions.StreamMinInfo BookKeep2 = Reductions.streamMinWithMetadata(BKVal_cutoff, BKIndex, stream.offset(beginBookKeeping, -1), BookKeepingValid);
+		DFEVar isCSmaller = ((minC + Def.eps) < BookKeep1.getMin());
+		DFEVar BookKeepingFlag 	= isCSmaller ? FlagC : BookKeep1.getMetaData();
+		DFEVar BookKeepingIndex 	= isCSmaller ? GroupIndexXc : BookKeep2.getMetaData();
+		DFEVar minL = isCSmaller ? minC : BookKeep1.getMin();
+		
+/*
 		DFEVar BKVal_cutoff = (BKVal > BKINF) ? BKINF : BKVal;
 		Reductions.StreamMinInfo BookKeep1 = Reductions.streamMinWithMetadata(BKVal_cutoff, BKFlag, beginBookKeeping, BookKeepingValid);
 		Reductions.StreamMinInfo BookKeep2 = Reductions.streamMinWithMetadata(BKVal_cutoff, BKIndex, beginBookKeeping, BookKeepingValid);
 		DFEVar BookKeepingFlag 	= BookKeep1.getMetaData();
 		DFEVar BookKeepingIndex 	= BookKeep2.getMetaData();
 		DFEVar minL	= BookKeep1.getMin();
-
+*/
 		
 		////////////////////////// Update /////////////////////////
 		
@@ -462,7 +474,7 @@ class SVMKernel extends Kernel {
 //		debug.simPrintf(XcQueue.valid(), "[%4d]-----[FIFO]---------------data[%d][%d] = (%f,%f) Poped from FIFO----------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
 		
 		// hXc calculation
-		debug.simPrintf(EnInput, "\n[%4d]--------[NEW INPUT]-------(Xc[%d][%d],Yc)=(%f,%f)--------------------- b=%.9f ----------------------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc, b);
+		debug.simPrintf(EnInput, "\n[%4d]--------[NEW INPUT]-------(Xc[%d][%d],Yc)=(%f,%f)--------------------- b=%.12f ----------------------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc, b);
 		//debug.simPrintf(isProcessingNewXc, "[%4d] Addr=%2d, En=%d | Q[0:3]=(%.4f,%.4f,%.4f,%.4f) theta[0:3]=(%.4f,%.4f,%.4f,%.4f) | b = %f | hXc = %f, Valid=%d | XcJoinR=%d, hasFinished=%d\n", Tick, blockAddr, isProcessingNewXc, QVector[0], QVector[1], QVector[2], QVector[3], thetaVector[0], thetaVector[1], thetaVector[2], thetaVector[3], b, hXiCalcResult, hXcValid, XcJoinR, hasFinished);
 		debug.simPrintf(hasQUpdateFinished, "[%4d] ----------- QUpdate Finished ------------\n", Tick);
 		debug.simPrintf(hasFinished, "[%4d] (Xc[%d][%d],Yc) = (%f,%f) joins R. \n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
@@ -476,13 +488,14 @@ class SVMKernel extends Kernel {
 //		debug.simPrintf(QBufEnWrite, "[%4d] [QBuffer] SMask[%d] - Base=%d, Offset=%d, GroupIndex=%d | Q[%d][%d][%d][%d] => %f | QBuffer[Base][%d] <= %f \n", Tick, IndexSMask, BaseAddrSMask, OffsetAddrSMask, GroupIndexSMask, BaseAddrRow, OffsetAddrRow, BaseAddrCol, OffsetAddrCol, QVal, QBufWriteOffsetAddr, QVal);
 		
 		// gamma Calc
+//		debug.simPrintf(isGammaKCalculating, "[%4d] [GammaKCalc] beginGammaKCalc=%d | QVal([%d][%d], [%d][%d])=%.12f\n", Tick, beginGammaKCalc, BaseAddrRow, OffsetAddrRow, BaseAddrCol, OffsetAddrCol, MatrixQ.getQVal());
 		debug.simPrintf(GammaResultValid, "[%4d] [GammaCalc] BEGIN: CVK=%d%d%d, CALC: CVK=%d%d%d | NSize=%d, SSize=%d | NMask[%d], SMask[%d] | Beta=%2.6f, Result=%.9f, Valid=%d | Gamma[C]=%.9f, Gamma[K]=%.9f\n", Tick, beginGammaCCalc, beginGammaVCalc, beginGammaKCalc, isGammaCCalculating, isGammaVCalculating, isGammaKCalculating, NSize, SSize, IndexNMask, IndexSMask, betaSeq, GammaResult, GammaResultValid, gamma_c, gamma_k);
 
 		// hXi update
-		debug.simPrintf(hXiWrEn, "[%4d] [hXiUpdate] hXi[%d] <= %.9f, En=%d \n", Tick, hXiWrAddr, hXiWrData, hXiWrEn);
+		debug.simPrintf(hXiWrEn, "[%4d] [hXiUpdate] hXi[%d] <= %.12f, En=%d \n", Tick, hXiWrAddr, hXiWrData, hXiWrEn);
 		
 		// b update
-		debug.simPrintf(bWrEnOffseted, "[%4d] [bUpdate] b <= %f \n", Tick, bWrDataOffseted);
+		debug.simPrintf(bWrEnOffseted, "[%4d] [bUpdate] b <= %.12f \n", Tick, bWrDataOffseted);
 
 
 		////////////////////////// Simple Kernel /////////////////////////

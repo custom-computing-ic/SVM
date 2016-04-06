@@ -32,16 +32,22 @@ public class hXcTest {
 		/////////////////////// Initialisation ///////////////////////
 	
 		// init dataX and dataY
-		mgr.setMappedRam("dataXBlock0Dim0", 0, 0);
-		mgr.setMappedRam("dataXBlock0Dim0", 1, 1);
+		mgr.setMappedRam("dataXBlock0Dim0", 0, 0.0);
+		mgr.setMappedRam("dataXBlock0Dim0", 1, 1.0);
 		mgr.setMappedRam("dataY", 0, 1455.219971);
 		mgr.setMappedRam("dataY", 1, 1399.420044);
 		// init theta
-		mgr.setMappedRam("theta0", 0, 1000);
-		mgr.setMappedRam("theta0", 1, -1000);
+		mgr.setMappedRam("theta0", 0, 1000.0);
+		mgr.setMappedRam("theta0", 1, -1000.0);
 		// init b
 		mgr.setMappedRam("b", 0, 1427.3200075);
-                // init Group
+		// init Q
+		for (int i=0; i<blockDim*blockDim; ++i) mgr.setMappedRam("QBlockX0Y0", i, 0.0);
+		mgr.setMappedRam("QBlockX0Y0", 0*blockDim+0, 1.0);
+		mgr.setMappedRam("QBlockX0Y0", 0*blockDim+1, 0.99004983374916811);
+		mgr.setMappedRam("QBlockX0Y0", 1*blockDim+0, 0.99004983374916811);
+		mgr.setMappedRam("QBlockX0Y0", 1*blockDim+1, 1.0);
+		// init Group
                 mgr.setStateMachineMappedRam("SVMControl", "Group", 0, 2);
                 mgr.setStateMachineMappedRam("SVMControl", "Group", 1, 2); 
                 // init hXi

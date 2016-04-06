@@ -119,8 +119,7 @@ class betaCalc extends KernelLib{
 		// For sequential read
 		seqRead = control.mux(muxSelect, readVec.getElementsAsList());
 		
-		// Debug
-//		debug.simPrintf(isCalculating, "[%4d] [BetaCalc] X=%2d, Y=%2d | QBuf[0:3] = (%.4f, %.4f, %.4f, %.4f) | R[0:3][0] = (%.4f, %.4f, %.4f, %.4f) | Wr[0:3][%d] = (%.4f, %.4f, %.4f, %.4f), En=%d \n", control.count.simpleCounter(32), XAddr, YAddr, QBufVec[0], QBufVec[1], QBufVec[2], QBufVec[3], RVec[0][0], RVec[0][1], RVec[0][2], RVec[0][3], YAddr, WrData[0], WrData[1], WrData[2], WrData[3], isCalculating & XAddrCounter.getWrap());
+		debug.simPrintf(isCalculating, "[%4d] [BetaCalc] X=%2d, Y=%2d | QBuf[0:3] = (%.4f, %.4f, %.4f, %.4f) | R[0:3][0] = (%.4f, %.4f, %.4f, %.4f) | Wr[0:3][%d] = (%.4f, %.4f, %.4f, %.4f), En=%d \n", control.count.simpleCounter(32), XAddr, YAddr, QBufVec[0], QBufVec[1], QBufVec[2], QBufVec[3], RVec[0][0], RVec[0][1], RVec[0][2], RVec[0][3], YAddr, WrData[0], WrData[1], WrData[2], WrData[3], isCalculating & XAddrCounter.getWrap());
 		
 	}
 

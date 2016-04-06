@@ -11,9 +11,6 @@ import maxpower.TreeReduce;
 
 /**
  * This class calculates hXi
- *	- Floating point accumulator from MaxPower is used
- *	- blockDim should be at least ~15 to ensure correctness, depending on pipelining factor
- *
  *
  * @author Patrick Shao
  *
@@ -25,7 +22,6 @@ import maxpower.TreeReduce;
  * @param <beginCalc> valid on the cycle that the first item arrives
  * 
  */
-
 
 
 class hCalc extends KernelLib {
@@ -84,7 +80,7 @@ class hCalc extends KernelLib {
 		fromMem = hXiMem.read(RdAddr);
 		
 		// Debug
-		debug.simPrintf(EnAccumulation, "[%4d] [hCalc] Addr=%2d, | Q[0:3]=(%.9f,%.4f,%.4f,%.4f) theta[0:3]=(%.9f,%.4f,%.4f,%.4f) | b = %f | hXi = %.9f, Valid=%d\n", control.count.simpleCounter(32), Addr, Q[0], Q[1], Q[2], Q[3], theta[0], theta[1], theta[2], theta[3], b, Result, Valid);
+		debug.simPrintf(EnAccumulation, "[%4d] [hCalc] Addr=%2d, | Q[0:3]=(%.12f,%.4f,%.4f,%.4f) theta[0:3]=(%.12f,%.4f,%.4f,%.4f), b = %.12f | hXi = %.12f, Valid=%d\n", control.count.simpleCounter(32), Addr, Q[0], Q[1], Q[2], Q[3], theta[0], theta[1], theta[2], theta[3], b, Result, Valid);
 		
 	}
 

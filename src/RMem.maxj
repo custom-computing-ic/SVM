@@ -123,7 +123,7 @@ class RMem extends KernelLib{
 		DFEVector<DFEVar> toXBuffer = numBlocksVec.newInstance(this);
 		for (int i=0; i<numBlocks; ++i) {
 			Memory<DFEVar> XBuffer = mem.alloc(Def.CalcType, blockDim);
-			XBuffer.write(XAddr, toXBuffer[i], isFetchingX);
+			XBuffer.port(XAddr, toXBuffer[i], isFetchingX, RamWriteMode.WRITE_FIRST);
 			XElem[i] <== XBuffer.read(XAddr);
 		}
 
@@ -132,7 +132,7 @@ class RMem extends KernelLib{
 		DFEVector<DFEVar> toYBuffer = numBlocksVec.newInstance(this);
 		for (int i=0; i<numBlocks; ++i) {
 			Memory<DFEVar> YBuffer = mem.alloc(Def.CalcType, blockDim);
-			YBuffer.write(XAddr, toYBuffer[i], isFetchingY);
+			YBuffer.port(XAddr, toYBuffer[i], isFetchingY, RamWriteMode.WRITE_FIRST);
 			YElem[i] <== YBuffer.read(YAddr);
 		}
 		
@@ -324,7 +324,7 @@ class RMem extends KernelLib{
 			
 			Memory<DFEVar> buffer = mem.alloc(Def.CalcType, blockDim);
 			DFEVar bufferItem = buffer.read(XAddr);
-			buffer.write(XAddr, fromDownBlock, isUpShifting & (blockAddr<blockDim));
+			buffer.port(XAddr, fromDownBlock, isUpShifting & (blockAddr<blockDim), RamWriteMode.WRITE_FIRST);
 
 
 			/////////////////////// RInit ///////////////////////
@@ -425,7 +425,7 @@ class RMem extends KernelLib{
 			DFEVar PortWrEnUnOffseted = REnlargePortEn | RShrinkPortEn;
 			DFEVar PortWrEn = isInit ? RInitPortEn : stream.offset(PortWrEnUnOffseted, -RBlockOffset);
 			// Write
-			block.write(PortAddr, PortData, PortWrEn);
+			block.port(PortAddr, PortData, PortWrEn, RamWriteMode.WRITE_FIRST);
 
 
 //			if ((X==0) && (Y==0)) debug.simPrintf(PortWrEnUnOffseted | PortWrEn, "[%4d] [RBlock00] Block[%d]=>%f, beta[%d]=%f, beta[%d]=%f, gammaInv=%f, Block[%d]<=%f, En=%d (R+=%d, R-=%d) | Offseted: Block[%d]<=%f, En=%d \n", control.count.simpleCounter(32), readAddr, readItem, XAddr, betaX, YAddr, betaY, gammaInv, PortAddrUnOffseted, PortDataUnOffseted, PortWrEnUnOffseted, REnlargePortEn, RShrinkPortEn, PortAddr, PortData, PortWrEn);

@@ -78,7 +78,7 @@ public class dataBlockTest {
 		double [][] data = new double [numTicks][VecWidth];
 		for (int tick=0; tick<200; ++tick) {
 			for (int dim=0; dim<VecWidth; ++dim) {
-				data[tick][dim] = tick*100;
+				data[tick][dim] = (double)tick*0.1;
 			}
 		}
 		List<Bits> input = Def.FloatVectorDataGenerator(data, numTicks, VecWidth);

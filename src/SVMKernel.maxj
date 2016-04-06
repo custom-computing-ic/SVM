@@ -395,7 +395,7 @@ class SVMKernel extends Kernel {
 		DFEVar bWrData 			= b + (isEmptyS ? bEmptyS : bThetaNonEmptyS).cast(Def.DataYType);
 		DFEVar bWrDataOffseted 	= stream.offset(bWrData, -bOffset);
 		DFEVar bWrEnOffseted 	= stream.offset(beginUpdate, -bOffset);
-		bMem.write(constant.var(dfeUInt(1),0), bWrDataOffseted, bWrEnOffseted);
+		bMem.port(constant.var(dfeUInt(1),0), bWrDataOffseted, bWrEnOffseted, RamWriteMode.WRITE_FIRST);
 		
 		// Update hXi
 		OffsetExpr hXiOffset 			= stream.makeOffsetAutoLoop("hXiOffset");
@@ -507,12 +507,11 @@ class SVMKernel extends Kernel {
 	// RBF Kernel
 	private DFEVar RBFKernel(DFEVector<DFEVar>X1, DFEVector<DFEVar>X2) {
 		
-		optimization.pushDSPFactor(Def.DSPFactor);
-		DFEVector<DFEVar> temp = X1 - X2;
+		DFEVector<DFEVar> temp = (new DFEVectorType<DFEVar>(Def.FixType, Def.DataDim)).newInstance(this);
+		for (int i=0; i<Def.DataDim; ++i) temp[i] <== X1[i].cast(Def.FixType) - X2[i].cast(Def.FixType);
 		DFEVector<DFEVar> summands = temp * temp;
 		DFEVar sum = TreeReduce.reduce(new Add<DFEVar>(), summands.getElementsAsList());
 		DFEVar result = KernelMath.exp(sum*(-0.5/Def.sigma_sq));
-		optimization.popDSPFactor();
 		
 		return result.cast(Def.QType);
 	}

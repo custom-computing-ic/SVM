@@ -1,0 +1,82 @@
+package maxpower;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import com.maxeler.maxcompiler.v2.errors.MaxCompilerAPIError;
+import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelFinalizer;
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.KernelObject;
+
+/**
+ * Create tree of pipelined values to limit the fan out of a KernelObject to a
+ * maximum specified value. This can help timing when a large fan-out is causing
+ * problems by forcing many things to be close together.
+ * <p>
+ * The construction of the tree is achieved in the KernelFinalizer.
+ */
+public class FanoutLimiter<T extends KernelObject<T>> extends KernelLib implements KernelFinalizer {
+
+	private final T source;
+	private final int maxFanout;
+	private final List<T> requested = new ArrayList<T>();
+
+	/**
+	 * Creates an object which can be used to limit the fan out of a KernelObject.
+	 * To use this create the FanoutLimiter and then call get() every time you
+	 * want to use it. It will then keep track of how many times you call get()
+	 * and create a tree of registers to limit the fan out in the finaliser.
+	 * <p>
+	 * e.g. If maxFanout is 4 and we call get() 64 times then it will create 4
+	 * registers that are connected to the source, and then 4 more registers will
+	 * be connected to each of those (16 in total). Each of the 16 registers on
+	 * the second level will be connected to 4 outputs.
+	 * <p>
+	 * A common mistake is to only call get() once and then pass around the
+	 * KernelObject. This means that FanoutLimiter will be unaware of how many
+	 * times the object has been used, so it will not add any registers.
+	 *
+	 * @param source The KernelObject you wish to fan out.
+	 * @param maxFanout The maximum number of places to fan out to without adding a register.
+	 */
+	public FanoutLimiter(T source, int maxFanout) {
+		super(source.getKernel());
+
+		if (maxFanout < 2)
+			throw new MaxCompilerAPIError("maxFanout must be >= 2, not " + maxFanout);
+
+		this.source    = source;
+		this.maxFanout = maxFanout;
+		getKernel().addKernelFinalizer(this);
+	}
+
+	public T get() {
+		requested.add(source.getType().newInstance(this));
+		return requested[requested.size() - 1];
+	}
+
+	@Override
+	public void finalizeKernel(Kernel owner) {
+		List<T> values = requested;
+
+		while (values.size() > maxFanout) {
+			List<T> reduced = new ArrayList<T>();
+			for (List<T> group : CollectionUtils.grouped(values, maxFanout)) {
+				if (group.size() == 1) {
+					reduced.add(group[0]);
+				} else {
+					T sourceless = group[0].getType().newInstance(owner);
+					T pipelined  = owner.optimization.pipeline(sourceless);
+					for (T v : group) v <== pipelined;
+					reduced.add(sourceless);
+				}
+			}
+
+			values = reduced;
+		}
+
+		// Final stage is split out to avoid unnecessary final register.
+		for (T v : values) v <== source;
+	}
+}

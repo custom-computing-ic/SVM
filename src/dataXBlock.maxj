@@ -1,5 +1,3 @@
-import java.util.ArrayList;
-
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
@@ -7,6 +5,8 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
 
+
+import maxpower.FanoutLimiter;
 
 /**
  * Iterate Over a dataX block. 
@@ -33,24 +33,26 @@ class dataXBlock extends KernelLib{
 		
 		super(owner);
 		
-		/////////////////////// Memory ///////////////////////
+		/////////////////////// Control ///////////////////////
                 
                 // Address
                 AddrGenerator AddrGen = new AddrGenerator(owner, 1, blockDim, EnIterate);
                 DFEVar Addr = AddrGen.getAddr();
                 Valid = AddrGen.isValid();
+                FanoutLimiter<DFEVar> AddrFanout = new FanoutLimiter<DFEVar>(Addr, Def.MaxFanout);
 
 		// Write Control
 		DFEVar EnWrite = (BaseAddrXc === ID) & (Addr === OffsetAddrXc) & Valid;
+		FanoutLimiter<DFEVar> EnWriteFanout = new FanoutLimiter<DFEVar>(EnWrite, Def.MaxFanout);
 		
-		// Memory
-		DFEVectorType<DFEVar> VecType = new DFEVectorType<DFEVar>(Def.DataType, DataDim);
-		dataOUT = VecType.newInstance(this);
-		ArrayList<Memory<DFEVar>> Block = new ArrayList<Memory<DFEVar>>();
+		
+		/////////////////////// Memory ///////////////////////		
+
+		dataOUT = (new DFEVectorType<DFEVar>(Def.DataType, DataDim)).newInstance(this);
 		for(int i=0; i<DataDim; ++i) {
-			Block.add(i, mem.alloc(Def.DataType, blockDim));
-			Block.get(i).mapToCPU("dataXBlock"+ID+"Dim"+i);
-			dataOUT[i] <== Block.get(i).port(Addr, Xc[i], EnWrite, RamWriteMode.WRITE_FIRST);
+			Memory<DFEVar> block = mem.alloc(Def.DataType, blockDim);
+			block.mapToCPU("dataXBlock"+ID+"Dim"+i);
+			dataOUT[i] <== block.port(AddrFanout.get(), Xc[i], EnWriteFanout.get(), RamWriteMode.WRITE_FIRST);
 		}
 
 	}

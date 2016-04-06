@@ -22,6 +22,9 @@ class Def {
 	// FPGA Frequency
 	public static final int KernelFrequency = 100;
 	
+	// Fanout Limit
+	public static final int MaxFanout = 8;
+	
 	
 	///////////////////////// Kernel Settings /////////////////////////
 

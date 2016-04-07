@@ -346,12 +346,10 @@ class RMem extends KernelLib{
 			DFEVar isREnlargeCorner 	= isREnlargeXEdge & isREnlargeYEdge;
 			
 			// Write Data - PortAddr = blockAddr
-			optimization.pushDSPFactor(Def.DSPFactor);
 			DFEVar REnlargeInnerData		= readItem + betaX * betaY * gammaInv;
 			DFEVar REnlargeXEdgeData 	= betaY * gammaInv;
 			DFEVar REnlargeYEdgeData 	= betaX * gammaInv;
 			DFEVar REnlargeCornerData 	= gammaInv;
-			optimization.popDSPFactor();
 			DFEVar REnlargePortData = isREnlargeCorner ? REnlargeCornerData : (isREnlargeXEdge ? REnlargeXEdgeData : (isREnlargeYEdge ? REnlargeYEdgeData : REnlargeInnerData));
 			DFEVar REnlargePortEn = isEnlarging & blockAddrValid;
 			OffsetExpr REnlargeLatency = stream.measureDistance("REnlargeLatency"+X+Y, readItem, REnlargeInnerData);
@@ -369,9 +367,7 @@ class RMem extends KernelLib{
 
 			// Sequential Write - blockDim^2 cycles
 			// Shrinking - PortAddr = blockAddr
-			optimization.pushDSPFactor(Def.DSPFactor);
 			DFEVar ShrinkPortData = readItem - XElem * YElem * KElemInv;
-			optimization.popDSPFactor();
 			DFEVar ShrinkPortEn = isShrinking & blockAddrValid;
 			
 			// There is a latency of calculating ShrinkPortData - must ensure the result is written to the memory before shifting.

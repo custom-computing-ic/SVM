@@ -11,16 +11,14 @@ import java.lang.Math;
 
 class Def {
 
-	///////////////////////// Manager Settings /////////////////////////
+	///////////////////////// FPGA Configuration /////////////////////////
 
 	// Pipelining factor
 	public static final double PipeliningFactor = 0.75;
-	
-	// DSP Factor
-	public static final double DSPFactor = 0.8;
 
 	// FPGA Frequency
-	public static final int KernelFrequency = 100;
+	public static final int KernelFrequencyMAX4 = 150;
+	public static final int KernelFrequencyMAX3 = 125;
 	
 	// Fanout Limit
 	public static final int MaxFanout = 8;

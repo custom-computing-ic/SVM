@@ -5,6 +5,7 @@ import com.maxeler.maxcompiler.v2.managers.custom.CustomManager;
 import com.maxeler.maxcompiler.v2.managers.BuildConfig;
 import com.maxeler.maxcompiler.v2.managers.custom.blocks.KernelBlock;
 import com.maxeler.maxcompiler.v2.build.EngineParameters;
+import com.maxeler.maxcompiler.v2.managers.DFEArchitecture;
 
 public class SVMManager extends CustomManager{
 
@@ -13,12 +14,41 @@ public class SVMManager extends CustomManager{
 	SVMManager(EngineParameters ep) {
 	
 		super(ep);
+		
+		///////////////////////// FPGA Configuration /////////////////////////
+		
+		if (ep.getDFEModel().getDFEArchitecture() == DFEArchitecture.MAX4_Maia) {
+			System.out.println("[INFO] DFEModel = "+ep.getDFEModel().toString()+", using FPGA settings for MAX4.");
+			BuildConfig Config = new BuildConfig(BuildConfig.Level.FULL_BUILD);
+                	Config.setBuildEffort(BuildConfig.Effort.HIGH);
+                	Config.setMPPRCostTableSearchRange(1, 6);
+                	Config.setMPPRParallelism(6);
+                	Config.setEnableTimingAnalysis(true);
+                	setBuildConfig(Config);
+                	config.setDefaultStreamClockFrequency(Def.KernelFrequencyMAX4);
+                	config.setAllowNonMultipleTransitions(true);
+		}
+		else if (ep.getDFEModel().getDFEArchitecture() == DFEArchitecture.MAX3) {
+			System.out.println("[INFO] DFEModel = "+ep.getDFEModel().toString()+", using FPGA settings for MAX3.");
+			BuildConfig Config = new BuildConfig(BuildConfig.Level.FULL_BUILD);
+                	Config.setBuildEffort(BuildConfig.Effort.HIGH);
+                	Config.setMPPRCostTableSearchRange(1, 10);
+                	Config.setMPPRParallelism(10);
+                	Config.setEnableTimingAnalysis(true);
+                	setBuildConfig(Config);
+			config.setDefaultStreamClockFrequency(Def.KernelFrequencyMAX3);
+			config.setAllowNonMultipleTransitions(true);
+		}
+		else System.out.println("[ERROR] Unknown board model "+ep.getDFEModel().toString()+", using default FPGA settings.");
+		
+
+		///////////////////////// Kernel Configuration /////////////////////////
 
 		KernelBlock k = addKernel(new SVMKernel(makeKernelParameters(Name), Def.numBlocks, Def.blockDim, Def.streamLength));
-
 		k.getInput("Xc") <== addStreamFromCPU("Xc");
 		k.getInput("Yc") <== addStreamFromCPU("Yc");
 		addStreamToCPU("output") <== k.getOutput("output");
+
 	}
 
 	private static EngineInterface interfaceDefault() {
@@ -44,16 +74,9 @@ public class SVMManager extends CustomManager{
 	public static void main(String[] args) {
 	
 		SVMManager manager = new SVMManager(new EngineParameters(args));
-		manager.config.setAllowNonMultipleTransitions(true);
-		
-		BuildConfig Config = new BuildConfig(BuildConfig.Level.FULL_BUILD);
-                Config.setBuildEffort(BuildConfig.Effort.HIGH);
-                Config.setMPPRCostTableSearchRange(1, 6);
-                Config.setMPPRParallelism(6);
-                manager.setBuildConfig(Config);
-		
 		manager.createSLiCinterface(interfaceDefault());
 		manager.build();
+		
 	}
 	
 }

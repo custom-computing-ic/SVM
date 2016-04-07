@@ -33,9 +33,6 @@ class SVMKernel extends Kernel {
 		
 		super(parameters);
 		
-		// Infinity
-		final float INF = Float.POSITIVE_INFINITY;
-		
 		// Parameters
 		numBlocks 	= numBlocks_IN;
 		blockDim 	= blockDim_IN;
@@ -160,7 +157,6 @@ class SVMKernel extends Kernel {
 		// blockAddr: 0, 0, 0, 1, 2, 3, 4, ..., blockDim-1, 0, 0, 0, 0...
 		//          valid: 0, 0, 1, 1, 1, 1, 1, ...,                 1, 0, 0, 0, 0...
 		AddrGenerator blockAddrGen = new AddrGenerator(this, 1, blockDim, EnInput);
-		DFEVar blockAddr = blockAddrGen.getAddr();
 		DFEVar isProcessingNewXc = blockAddrGen.isValid();
 
 		// dataX
@@ -475,7 +471,7 @@ class SVMKernel extends Kernel {
 		
 		// hXc calculation
 		debug.simPrintf(EnInput, "\n[%4d]--------[NEW INPUT]-------(Xc[%d][%d],Yc)=(%f,%f)--------------------- b=%.12f ----------------------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc, b);
-		//debug.simPrintf(isProcessingNewXc, "[%4d] Addr=%2d, En=%d | Q[0:3]=(%.4f,%.4f,%.4f,%.4f) theta[0:3]=(%.4f,%.4f,%.4f,%.4f) | b = %f | hXc = %f, Valid=%d | XcJoinR=%d, hasFinished=%d\n", Tick, blockAddr, isProcessingNewXc, QVector[0], QVector[1], QVector[2], QVector[3], thetaVector[0], thetaVector[1], thetaVector[2], thetaVector[3], b, hXiCalcResult, hXcValid, XcJoinR, hasFinished);
+		//debug.simPrintf(isProcessingNewXc, "[%4d] Addr=%2d, En=%d | Q[0:3]=(%.4f,%.4f,%.4f,%.4f) theta[0:3]=(%.4f,%.4f,%.4f,%.4f) | b = %f | hXc = %f, Valid=%d | XcJoinR=%d, hasFinished=%d\n", Tick, blockAddrGen.getAddr(), isProcessingNewXc, QVector[0], QVector[1], QVector[2], QVector[3], thetaVector[0], thetaVector[1], thetaVector[2], thetaVector[3], b, hXiCalcResult, hXcValid, XcJoinR, hasFinished);
 		debug.simPrintf(hasQUpdateFinished, "[%4d] ----------- QUpdate Finished ------------\n", Tick);
 		debug.simPrintf(hasFinished, "[%4d] (Xc[%d][%d],Yc) = (%f,%f) joins R. \n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
 		

@@ -503,9 +503,10 @@ class SVMKernel extends Kernel {
 	// RBF Kernel
 	private DFEVar RBFKernel(DFEVector<DFEVar>X1, DFEVector<DFEVar>X2) {
 		
-		DFEVector<DFEVar> temp = (new DFEVectorType<DFEVar>(Def.FixType, Def.DataDim)).newInstance(this);
-		for (int i=0; i<Def.DataDim; ++i) temp[i] <== X1[i].cast(Def.FixType) - X2[i].cast(Def.FixType);
-		DFEVector<DFEVar> summands = temp * temp;
+		DFEVector<DFEVar> temp = (new DFEVectorType<DFEVar>(Def.DataMultType, Def.DataDim)).newInstance(this);
+		for (int i=0; i<Def.DataDim; ++i) temp[i] <== (X1[i] - X2[i]).cast(Def.DataMultType);
+		DFEVector<DFEVar> summands = (new DFEVectorType<DFEVar>(Def.FixType, Def.DataDim)).newInstance(this);
+		for (int i=0; i<Def.DataDim; ++i) summands[i] <== (temp[i] * temp[i]).cast(Def.FixType);
 		DFEVar sum = TreeReduce.reduce(new Add<DFEVar>(), summands.getElementsAsList());
 		DFEVar result = KernelMath.exp(sum*(-0.5/Def.sigma_sq));
 		

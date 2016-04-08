@@ -8,6 +8,8 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
 import com.maxeler.maxcompiler.v2.utils.MathUtils;
 
 
+import maxpower.FanoutLimiter;
+
 /**
  * This class maintains Matrix Q 
  *	- Store Q in small blockDim-by-blockDim blocks for parallelised access
@@ -51,9 +53,9 @@ class QMem extends KernelLib{
 			int numBlocks,
 			int blockDim,
 			DFEVector<DFEVar> Q_IN,	// Kernel Vector of Xc and dataX
-			DFEVar BaseAddrRow,		// BaseAddr of Row
-			DFEVar OffsetAddrRow,		// OffsetAddr of Row
-			DFEVar EnWrite,			// Write Enable - true during Q update
+			DFEVar BaseAddrRow_IN,	// BaseAddr of Row
+			DFEVar OffsetAddrRow_IN,	// OffsetAddr of Row
+			DFEVar EnWrite_IN,		// Write Enable - true during Q update
 			DFEVar EnIterate,			// Start Iteration (reset built-in counter) - true on the starting cycle of Q update and hCalc
 			DFEVar BaseAddrCol, 		// BaseAddr of Col
 			DFEVar OffsetAddrCol) 		// OffsetAddr of Col
@@ -65,29 +67,39 @@ class QMem extends KernelLib{
 		
 		DFEVectorType<DFEVar> VecType = new DFEVectorType<DFEVar>(Def.QType, numBlocks);
 		
+    		/////////////////////// Fanout ///////////////////////		
 
+		FanoutLimiter<DFEVar> BaseAddrRow = new FanoutLimiter<DFEVar>(BaseAddrRow_IN, Def.MaxFanout);
+		FanoutLimiter<DFEVar> OffsetAddrRow = new FanoutLimiter<DFEVar>(OffsetAddrRow_IN, Def.MaxFanout);
+		FanoutLimiter<DFEVar> EnWrite = new FanoutLimiter<DFEVar>(EnWrite_IN, Def.MaxFanout);
+		
+		
 		/////////////////////// Address Generator for Xc Update and hCalc ///////////////////////
 		
 		// Type Cast
-		DFEVar OffsetAddrRow_CAST = OffsetAddrRow.cast(dfeUInt(MathUtils.bitsToAddress(blockDim*blockDim)));
+		DFEVar OffsetAddrRow_CAST = OffsetAddrRow.get().cast(dfeUInt(MathUtils.bitsToAddress(blockDim*blockDim)));
 		DFEVar OffsetAddrCol_CAST = OffsetAddrCol.cast(dfeUInt(MathUtils.bitsToAddress(blockDim*blockDim)));
 		
 		// VAddr: OffsetAddrRow + [0,1,2,...]*blockDim
                 AddrGenerator VAddrGen = new AddrGenerator(owner, blockDim, blockDim*blockDim, EnIterate);
                 DFEVar VAddr = VAddrGen.getAddr() + OffsetAddrRow_CAST;
+                FanoutLimiter<DFEVar> VAddrFanout = new FanoutLimiter<DFEVar>(VAddr, Def.MaxFanout);
 
 		// HAddr: blockDim*OffsetAddrRow + [0,1,2,...]
                 AddrGenerator HAddrGen = new AddrGenerator(owner, 1, blockDim, EnIterate);
                 DFEVar HAddr = HAddrGen.getAddr().cast(dfeUInt(MathUtils.bitsToAddress(blockDim*blockDim))) + blockDim*OffsetAddrRow_CAST;
+                FanoutLimiter<DFEVar> HAddrFanout = new FanoutLimiter<DFEVar>(HAddr, Def.MaxFanout);
 
                 // hasQUpdateFinished - true on the last cycle of Q Update
-                hasQUpdateFinished = (HAddrGen.getAddr() === blockDim-1) & EnWrite;
+                hasQUpdateFinished = (HAddrGen.getAddr() === blockDim-1) & EnWrite.get();
 
 
-    		/////////////////////// External Column Address ///////////////////////            
+    		/////////////////////// External Column Address ///////////////////////
                 
-		DFEVar VAddrExt = OffsetAddrCol_CAST * blockDim + OffsetAddrRow.cast(dfeUInt(MathUtils.bitsToAddress(blockDim*blockDim)));
-		DFEVar HAddrExt = OffsetAddrRow.cast(dfeUInt(MathUtils.bitsToAddress(blockDim*blockDim))) * blockDim + OffsetAddrCol_CAST;
+		DFEVar VAddrExt = OffsetAddrCol_CAST * blockDim + OffsetAddrRow.get().cast(dfeUInt(MathUtils.bitsToAddress(blockDim*blockDim)));
+		DFEVar HAddrExt = OffsetAddrRow.get().cast(dfeUInt(MathUtils.bitsToAddress(blockDim*blockDim))) * blockDim + OffsetAddrCol_CAST;
+		FanoutLimiter<DFEVar> VAddrExtFanout = new FanoutLimiter<DFEVar>(VAddrExt, Def.MaxFanout);
+		FanoutLimiter<DFEVar> HAddrExtFanout = new FanoutLimiter<DFEVar>(HAddrExt, Def.MaxFanout);
 
             
                 /////////////////////// Blocks ///////////////////////
@@ -97,7 +109,7 @@ class QMem extends KernelLib{
                 DFEVar [][] QElemFromBlock = new DFEVar[numBlocks][numBlocks];
                 for (int X=0; X<numBlocks; ++X) {
                 	for (int Y=0; Y<=X; ++Y) {
-                		QBlock block = new QBlock (owner, X, Y, blockDim, Q_IN[X], Q_IN[Y], BaseAddrRow, OffsetAddrRow, VAddr, HAddr, VAddrExt, HAddrExt, EnWrite);
+                		QBlock block = new QBlock (owner, X, Y, blockDim, Q_IN[X], Q_IN[Y], BaseAddrRow.get(), OffsetAddrRow.get(), VAddrFanout.get(), HAddrFanout.get(), VAddrExtFanout.get(), HAddrExtFanout.get(), EnWrite.get());
                 		QVecElemFromBlock[X][Y] = block.getQVecElem();
                 		QElemFromBlock[X][Y] = block.getQElem();
                 	}
@@ -116,7 +128,7 @@ class QMem extends KernelLib{
                 		toMux[X] <== QVecElemFromBlock[X][pos];
                 	}
                 	// Multiplexer
-                	QValVec[pos] <== control.mux(BaseAddrRow, toMux.getElementsAsList());
+                	QValVec[pos] <== control.mux(BaseAddrRow.get(), toMux.getElementsAsList());
                 }
                 
                 // Wiring Outputs for QVal
@@ -134,7 +146,7 @@ class QMem extends KernelLib{
                 	// Multiplexer
                 	QValTemp[pos] <== control.mux(BaseAddrCol, toMux.getElementsAsList());
                 }
-                QVal = control.mux(BaseAddrRow, QValTemp.getElementsAsList());
+                QVal = control.mux(BaseAddrRow.get(), QValTemp.getElementsAsList());
 	
 	}
 

@@ -183,7 +183,7 @@ class SVMStateMachine extends KernelStateMachine {
 	// Scheduling Parameters
 	private final int BookKeepingLatency;
 	private final int REnlargeLatency;
-	private final int RShrinkLatency;
+	private final int RShrinkCycles;
 
 
 	public SVMStateMachine(KernelLib owner, int numBlocks_IN, int blockDim_IN, int WinSize_IN) {
@@ -193,15 +193,15 @@ class SVMStateMachine extends KernelStateMachine {
 		super(owner);
 		
 		// Dimension Parameters
-		numBlocks = numBlocks_IN;
-		blockDim = blockDim_IN;
-		WinSize = WinSize_IN;
+		numBlocks 	= numBlocks_IN;
+		blockDim 	= blockDim_IN;
+		WinSize 		= WinSize_IN;
 		
 		// Scheduling Parameters
-		RShrinkLatency = 2*blockDim + 100 + 3*(blockDim*blockDim+300);
-		REnlargeLatency = 300;
-		BookKeepingLatency = 350;
-		
+		BookKeepingLatency 	= 350;
+		REnlargeLatency 		= 300;
+		RShrinkCycles 		= 3*(blockDim*blockDim + blockDim + Def.RShrinkLatency)+ Def.FetchLatency + 1;
+
 
                 ////////////////////////// Types /////////////////////////
 
@@ -321,22 +321,17 @@ class SVMStateMachine extends KernelStateMachine {
 		SMaskMode 			= state.enumerated(maskModes.class, maskModes.MASKIDLE);
 
 		// NMask - the first two elements belong to E
-//		NMaskBase 			= new SMArrayList(this, BaseAddrType, WinSize);
-//		NMaskOffset 			= new SMArrayList(this, OffsetAddrType, WinSize);
-//		NMaskGroupIndex 	= new SMArrayList(this, PosType, WinSize);
 		NMaskBase 			= new SMArrayList(this, BaseAddrType, WinSize, 2, 0, 0);
 		NMaskOffset 			= new SMArrayList(this, OffsetAddrType, WinSize, 2, 0, 1);
 		NMaskGroupIndex 	= new SMArrayList(this, PosType, WinSize, 2, 0, 1);
 		NMaskPos 			= state.value(PosType, 0);
 		NMaskMode 			= state.enumerated(maskModes.class, maskModes.MASKIDLE);
 
-		
 		// Write Address for QBuffer
 		QBufWriteOffsetAddrCount 	= state.value(OffsetAddrType, 0);
 		
 		// Group
 		Group = mem.ramMappedDualPort("Group", GroupType, WinSize, DualPortRAMMode.READ_ONLY, DualPortRAMMode.WRITE_ONLY, Latency.ONE_CYCLE);
-		
 
         }
         
@@ -579,7 +574,7 @@ class SVMStateMachine extends KernelStateMachine {
 									subTick.next <== subTick + 1;							
 									// begin RShrink and hXi update when subTick===1
 									SMaskPos.next <== BookKeepingIndex;
-									IF (subTick === RShrinkLatency) {
+									IF (subTick === RShrinkCycles) {
 										subMode.next <== subModes.MOVES2E;
 									}
 								}
@@ -617,7 +612,7 @@ class SVMStateMachine extends KernelStateMachine {
 									subTick.next <== subTick + 1;							
 									// begin RShrink and hXi update when subTick===1
 									SMaskPos.next <== BookKeepingIndex;
-									IF (subTick === RShrinkLatency) {
+									IF (subTick === RShrinkCycles) {
 										subMode.next <== subModes.MOVES2R;
 									}
 								}

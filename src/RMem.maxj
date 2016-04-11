@@ -19,6 +19,7 @@ import maxpower.ConstDenominator;
  * This class maintains Matrix R 
  *	- Store R in small 1-by-blockDim blocks for parallelised access
  *	- Support Beta Calculation, R Initialisation, R Enlarge and R Shrink
+ * 	- Assuming the maximum RSize = WinSize (theoretical maximum = WinSize+1)
  *
  *
  * @author Patrick Shao
@@ -66,6 +67,17 @@ class RMem extends KernelLib{
 
 		super(owner);
 		
+		/////////////////////// Parameters ///////////////////////
+				
+		int FetchCycles 	= blockDim*2;
+		int FetchWait 	= Def.FetchLatency;
+		int ShrinkCycles 	= blockDim*blockDim;
+		int UpShiftCycles 	= blockDim*blockDim + blockDim;
+		int LeftShiftCycles	= blockDim*blockDim + 1;
+		int RShrinkWait 	= Def.RShrinkLatency;
+		int RShrinkCycles 	= FetchCycles + FetchWait + ShrinkCycles + UpShiftCycles + LeftShiftCycles + RShrinkWait*3;
+		
+		
 		/////////////////////// Vectors ///////////////////////
 
 		DFEVectorType<DFEVar> numBlocksVec = new DFEVectorType<DFEVar>(Def.CalcType, numBlocks);
@@ -98,7 +110,6 @@ class RMem extends KernelLib{
 		/////////////////////// RShrink ///////////////////////
 		
 		// Control Signal for RShrink -  cycles
-		int RShrinkCycles = 2*blockDim + 100 + (blockDim*blockDim + 300)*3;
                 AddrGenerator RShrinkCounter = new AddrGenerator(owner, 1, RShrinkCycles, beginRShrink);
                 DFEVar RShrinkCount = RShrinkCounter.getAddr();
 
@@ -112,7 +123,7 @@ class RMem extends KernelLib{
 				
 		// Control Signal for Fetching
 		DFEVar beginFetch = beginRShrink;
-		AddrGenerator FetchingCounter = new AddrGenerator(owner, 1, blockDim*2, beginFetch);
+		AddrGenerator FetchingCounter = new AddrGenerator(owner, 1, FetchCycles, beginFetch);
 		DFEVar FetchingCount = FetchingCounter.getAddr();
 		DFEVar isFetching = FetchingCounter.isValid();
 		DFEVar isFetchingX = isFetching & (FetchingCount<blockDim);
@@ -143,27 +154,21 @@ class RMem extends KernelLib{
 		OffsetExpr KElemInvLatency = stream.measureDistance("KElemInvLatency", toXBuffer[0], toKElemInvStreamHold);
 		
 		
-		/////////////////////// RShrink - Shrinking ///////////////////////
+		/////////////////////// RShrink - Shrinking, UpShifting, LeftShifting ///////////////////////
 		
 		// Control Signal for Shrinking
-		DFEVar beginShrink = (RShrinkCount === 2*blockDim + 100);
-		AddrGenerator ShrinkCounter = new AddrGenerator(owner, 1, blockDim*blockDim, beginShrink);
+		DFEVar beginShrink = (RShrinkCount === FetchCycles + FetchWait);
+		AddrGenerator ShrinkCounter = new AddrGenerator(owner, 1, ShrinkCycles, beginShrink);
 		DFEVar isShrinking = ShrinkCounter.isValid();
 
-
-		/////////////////////// RShrink - UpShifting ///////////////////////	
-		
 		// Control Signal for UpShifting
-		DFEVar beginUpShift = (RShrinkCount === 2*blockDim + 100 + blockDim*blockDim + 300);
-		AddrGenerator UpShiftCounter = new AddrGenerator(owner, 1, blockDim*blockDim, beginUpShift);
+		DFEVar beginUpShift = (RShrinkCount === FetchCycles + FetchWait + ShrinkCycles + RShrinkWait);
+		AddrGenerator UpShiftCounter = new AddrGenerator(owner, 1, UpShiftCycles, beginUpShift);
 		DFEVar isUpShifting = UpShiftCounter.isValid();
-
-
-		/////////////////////// RShrink - LeftShifting ///////////////////////	
 		
 		// Control Signal for LeftShifting
-		DFEVar beginLeftShift = (RShrinkCount === 2*blockDim + 100 + (blockDim*blockDim + 300)*2);
-		AddrGenerator LeftShiftCounter = new AddrGenerator(owner, 1, blockDim*blockDim, beginLeftShift);
+		DFEVar beginLeftShift = (RShrinkCount === FetchCycles + FetchWait + ShrinkCycles + UpShiftCycles + RShrinkWait*2);
+		AddrGenerator LeftShiftCounter = new AddrGenerator(owner, 1, LeftShiftCycles, beginLeftShift);
 		DFEVar isLeftShifting = LeftShiftCounter.isValid();
 
 
@@ -374,24 +379,22 @@ class RMem extends KernelLib{
 			// Therefore, blockDim should be greater than that latency, or we need to wait for a number of cycles.
 			OffsetExpr RShrinkCalcLatency = stream.measureDistance("RShrinkCalcLatency"+X+Y, readItem, ShrinkPortData);
 
-			// blockDim^2 cycles
+			// blockDim^2 + blockDim cycles
 			// Up Shifting - readAddr = blockAddr
 			DFEVar UpShiftCounterReset = (blockAddr===blockDim);
 			AddrGenerator UpShiftWriteAddrCounter = new AddrGenerator(owner, 1, blockDim*blockDim, UpShiftCounterReset);
 			DFEVar UpShiftWriteAddr = UpShiftWriteAddrCounter.getAddr();
 			DFEVar UpShiftWriteAddrValid = UpShiftWriteAddrCounter.isValid();
-			
 			DFEVar UpShiftPortData = (YAddr===blockDim-1) ? bufferItem : readItem;
 			DFEVar UpShiftPortEn = ((Y>RShrinkPosBaseAddr) | (  (Y===RShrinkPosBaseAddr) & (YAddr>=RShrinkPosOffsetAddr) )) & isUpShifting;		
 
-			// blockDim cycles
+			// blockDim^2+1 cycles
 			// Left Shifting - readAddr = blockAddr
 			toLeftBlock = Reductions.streamHold(readItem, XAddr===0);
 			DFEVar LeftShiftCounterReset = (blockAddr===1);
 			AddrGenerator LeftShiftWriteAddrCounter = new AddrGenerator(owner, 1, blockDim*blockDim, LeftShiftCounterReset);
 			DFEVar LeftShiftWriteAddr = LeftShiftWriteAddrCounter.getAddr();
-			DFEVar LeftShiftWriteAddrValid = LeftShiftWriteAddrCounter.isValid();			
-
+			DFEVar LeftShiftWriteAddrValid = LeftShiftWriteAddrCounter.isValid();
 			DFEVar LeftShiftPortData = (XAddr===0)	? fromRightBlock : readItem;
 			DFEVar LeftShiftPortEn = isLeftShifting & LeftShiftWriteAddrValid & ((X>RShrinkPosBaseAddr) | ((X===RShrinkPosBaseAddr) & ((XAddr > RShrinkPosOffsetAddr) | (XAddr===0))) );
 
@@ -424,8 +427,9 @@ class RMem extends KernelLib{
 			block.port(PortAddr, PortData, PortWrEn, RamWriteMode.WRITE_FIRST);
 
 
-//			if ((X==0) && (Y==0)) debug.simPrintf(PortWrEnUnOffseted | PortWrEn, "[%4d] [RBlock00] Block[%d]=>%f, beta[%d]=%f, beta[%d]=%f, gammaInv=%f, Block[%d]<=%f, En=%d (R+=%d, R-=%d) | Offseted: Block[%d]<=%f, En=%d \n", control.count.simpleCounter(32), readAddr, readItem, XAddr, betaX, YAddr, betaY, gammaInv, PortAddrUnOffseted, PortDataUnOffseted, PortWrEnUnOffseted, REnlargePortEn, RShrinkPortEn, PortAddr, PortData, PortWrEn);
+//			if ((X==0) && (Y==0)) debug.simPrintf((isInit | isEnlarging) & (PortWrEnUnOffseted | PortWrEn), "[%4d] [RBlock00] Block[%3d]=>%f, beta[%d]=%f, beta[%d]=%f, gammaInv=%f, Block[%3d]<=%f, En=%d (R+=%d, R-=%d) | Offseted: Block[%3d]<=%f, En=%d \n", control.count.simpleCounter(32), readAddr, readItem, XAddr, betaX, YAddr, betaY, gammaInv, PortAddrUnOffseted, PortDataUnOffseted, PortWrEnUnOffseted, REnlargePortEn, RShrinkPortEn, PortAddr, PortData, PortWrEn);
 
+//			if ((X==0) && (Y==0)) debug.simPrintf((PortWrEnUnOffseted | PortWrEn), "[%4d] [RBlock00] Block[%3d]=>%f, XElem[%d]=%f, YElem[%d]=%f, KElemInv=%f, Block[%3d]<=%f, En=%d | Offseted: Block[%3d]<=%f, En=%d \n", control.count.simpleCounter(32), readAddr, readItem, XAddr, XElem, YAddr, YElem, KElemInv, PortAddrUnOffseted, PortDataUnOffseted, PortWrEnUnOffseted, PortAddr, PortData, PortWrEn);
 
 		}
 	

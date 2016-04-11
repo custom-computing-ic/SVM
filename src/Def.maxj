@@ -13,45 +13,32 @@ class Def {
 
 	///////////////////////// FPGA Configuration /////////////////////////
 
-	// Pipelining factor
-	public static final double PipeliningFactor = 0.75;
-
 	// FPGA Frequency
 	public static final int KernelFrequencyMAX4 = 150;
-	public static final int KernelFrequencyMAX3 = 125;
+	public static final int KernelFrequencyMAX3 = 100;
 	
 	// Fanout Limit
 	public static final int MaxFanout = 8;
 	
-	
-	///////////////////////// Kernel Settings /////////////////////////
-
-	// IMPORTANT: WinSize = numBlocks * blockDim;
+	// Kernel Settings
 	public static final int DataDim 		= 1; // 30
 	public static final int numBlocks 		= 4;
 	public static final int blockDim 		= 20;
 	public static final int streamLength 	= 8;
+	
+	// Latency
+	public static final int FetchLatency 	= 50;
+	public static final int RShrinkLatency 	= 300;
 
 
 	///////////////////////// SVM Parameters /////////////////////////
 
 	// Window Size = numBlocks * blockDim
-	public static final int WinSize = numBlocks * blockDim;
-	
-	// RSize - theoretical maximum RSize is (WinSize+1)
-	public static final int RSize = WinSize;
-
-	// epsilon
-	public static final double ep = 0.01;  //50
-	
-	// C
-	public static final double C = 1000;  //32768
-	
-	// sigma_sq
-	public static final double sigma_sq = 50;  //50
-	
-	// eps 
-	public static final double eps = 1e-7;
+	public static final int WinSize 		= numBlocks * blockDim;
+	public static final double ep 		= 0.01;
+	public static final double C 			= 1000;
+	public static final double sigma_sq 	= 50;
+	public static final double eps 		= 1e-7;
 	
 
 	///////////////////////// Types /////////////////////////
@@ -87,7 +74,7 @@ class Def {
 	public static final DFEType BookKeepingType = FixType;
 
 
-	///////////////////////// Utility Functions For Tests /////////////////////////
+	///////////////////////// Software Utility Functions /////////////////////////
 
 	// Float Input Data Generator
 	public static List<Bits> FloatVectorDataGenerator(double [][] data, int numTicks, int VectorWidth) {

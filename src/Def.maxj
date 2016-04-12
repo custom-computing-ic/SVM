@@ -71,7 +71,7 @@ class Def {
 	
 	// BookKeeping Type
 	public static final double BookKeepingTH = 16000;
-	public static final DFEType BookKeepingType = FixType;
+	public static final DFEType BookKeepingType = KernelLib.dfeFixOffset(64, -40, SignMode.TWOSCOMPLEMENT);
 
 
 	///////////////////////// Software Utility Functions /////////////////////////

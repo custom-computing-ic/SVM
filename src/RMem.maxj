@@ -117,6 +117,9 @@ class RMem extends KernelLib{
  		ConstDenominator.ConstDivModResult PosDivModResult = ConstDenominator.divMod(SMaskIDToRemove+1, blockDim, MathUtils.bitsToAddress(blockDim));
  		DFEVar RShrinkPosBaseAddr = PosDivModResult.getQuotient().cast(dfeUInt(MathUtils.bitsToAddress(numBlocks)));
  		DFEVar RShrinkPosOffsetAddr = PosDivModResult.getRemainder();
+ 		
+ 		// Zeroise RMem if shrink for 1 to zero
+ 		DFEVar RShrinkWriteZero = (SSize===1);
 		
 
 		/////////////////////// RShrink - Fetching ///////////////////////
@@ -211,7 +214,8 @@ class RMem extends KernelLib{
 			for (int Y=0; Y<numBlocks; ++Y) {
 				RGrid[X][Y] = new RBlock (owner, X, Y, blockDim,
 				REnlargeEdgeBaseAddr, REnlargeEdgeOffsetAddr, RShrinkPosBaseAddr, RShrinkPosOffsetAddr,
-				betaX[X], betaY[Y], gammaInv, XElem[X], YElem[Y], KElemInv, fromDownBlock[X][Y], fromRightBlock[X][Y],
+				betaX[X], betaY[Y], gammaInv, XElem[X], YElem[Y], KElemInv, RShrinkWriteZero,
+				fromDownBlock[X][Y], fromRightBlock[X][Y],
 				counterReset, isInit, isEnlarging, isFetching, isShrinking, isUpShifting, isLeftShifting);
 				
 				BetaCalcVec[Y][X] <== RGrid[X][Y].getData();
@@ -274,6 +278,7 @@ class RMem extends KernelLib{
 				DFEVar XElem, 								// RShrink: Elem from Vertical Line
 				DFEVar YElem, 								// RShrink: Elem from Horizontal Line
 				DFEVar KElemInv, 								// RShrink: 1/R[k][k]
+				DFEVar RShrinkWriteZero, 						// RShrink: Zeroise the RMem
 				DFEVar fromDownBlock, 						// Data for RShrink - UpShifting
 				DFEVar fromRightBlock, 						// Data for RShrink - LeftShifting
 				DFEVar counterReset,							// Counter Reset Trigger
@@ -372,7 +377,7 @@ class RMem extends KernelLib{
 
 			// Sequential Write - blockDim^2 cycles
 			// Shrinking - PortAddr = blockAddr
-			DFEVar ShrinkPortData = readItem - XElem * YElem * KElemInv;
+			DFEVar ShrinkPortData = RShrinkWriteZero ? 0 : readItem - XElem * YElem * KElemInv;
 			DFEVar ShrinkPortEn = isShrinking & blockAddrValid;
 			
 			// There is a latency of calculating ShrinkPortData - must ensure the result is written to the memory before shifting.

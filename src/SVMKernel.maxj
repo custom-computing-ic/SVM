@@ -223,7 +223,7 @@ class SVMKernel extends Kernel {
 		DFEVar hXiWrData 		= Def.hXiType.newInstance(this);
 		DFEVar hXiWrEn 			= BoolType.newInstance(this);
 		hCalc hXiCalc = new hCalc(this, numBlocks, blockDim, QVector, thetaVector, b, dataY, beginhCalc, hXiRdAddr, hXiWrAddr, hXiWrData, hXiWrEn);
-		DFEVar hXi = hXiCalc.getMemData();
+		DFEVar hXi = hXiCalc.getMemData().cast(Def.BookKeepingType);
 		DFEVar hXiCalcResult = hXiCalc.getCalcResult();
 		DFEVar hXiCalcResultValid = hXiCalc.isValid();
 		DFEVar hXcValid = hXiCalcResultValid & isProcessingNewXc;
@@ -284,6 +284,8 @@ class SVMKernel extends Kernel {
 		
 		////////////////////////// Bookkeeping /////////////////////////
 		
+		optimization.pushPipeliningFactor(0.9);
+		
 		DFEVar BKINF = constant.var(Def.BookKeepingType, Def.BookKeepingTH);
 		
 		// Empty S - Incremental Training - NEED q and hXi
@@ -309,6 +311,13 @@ class SVMKernel extends Kernel {
 		// LC1		
 		DFEVar qrc = (q>0) ? BKgamma_c : -BKgamma_c;
 		DFEVar LC1_INC = ((qrc>0)&(hXi<-Def.ep)) ? KernelMath.abs((hXi+Def.ep)/BKgamma_c) : (((qrc<0)&(hXi>Def.ep)) ? KernelMath.abs((hXi-Def.ep)/BKgamma_c) : BKINF);
+/*
+		optimization.pushEnableBitGrowth(true);
+		DFEVar toLC1_INC = ((qrc>0)&(hXi<-Def.ep)) ? KernelMath.abs((hXi+Def.ep)/BKgamma_c) : (((qrc<0)&(hXi>Def.ep)) ? KernelMath.abs((hXi-Def.ep)/BKgamma_c) : Def.BookKeepingTH);
+		System.out.println("[INFO] Bookkeeping: LC1_INC is calculated using " + toLC1_INC.getType().toString());
+		optimization.popEnableBitGrowth();
+		DFEVar LC1_INC = (toLC1_INC < Def.BookKeepingTH) ? toLC1_INC.cast(Def.BookKeepingType) : BKINF;
+*/		
 		// LC2
 		DFEVar qC = (q>0) ? constant.var(Def.BookKeepingType, Def.C) : constant.var(Def.BookKeepingType, -Def.C);
 		DFEVar LC2_INC = KernelMath.abs(qC-BKthetaSeq);
@@ -321,6 +330,13 @@ class SVMKernel extends Kernel {
 		DFEVar LSNeg 		= (BKthetaSeq<=0) ? (Def.C + BKthetaSeq) : BKthetaSeq;
 		DFEVar toLS 			= ((qbi>0) ? LSPos : LSNeg) / BKbetaSeq;
 		DFEVar LS 			= (qbi===0) ? BKINF : KernelMath.abs(toLS);
+/*		
+		optimization.pushEnableBitGrowth(true);
+		DFEVar toLS 			= KernelMath.abs(((qbi>0) ? LSPos : LSNeg) / BKbetaSeq);
+		System.out.println("[INFO] Bookkeeping: LS is calculated using " + toLS.getType().toString());
+		optimization.popEnableBitGrowth();
+		DFEVar LS 			= (qbi===0) ? BKINF : ((toLS<Def.BookKeepingTH) ? toLS.cast(Def.BookKeepingType) : BKINF);
+*/				
 		DFEVar FlagLSPosINC 	= (BKthetaSeq>=0) ? constant.var(FlagType, 7) : constant.var(FlagType, 14);
 		DFEVar FlagLSNegINC 	= (BKthetaSeq<=0) ? constant.var(FlagType, 7) : constant.var(FlagType, 14);
 		DFEVar FlagLSINC 		= (qbi>0) ? FlagLSPosINC : FlagLSNegINC;
@@ -328,12 +344,24 @@ class SVMKernel extends Kernel {
 		DFEVar FlagLSNegDEC 	= (BKthetaSeq<=0) ? constant.var(FlagType, 11) : constant.var(FlagType, 15);
 		DFEVar FlagLSDEC 	= (qbi>0) ? FlagLSPosDEC : FlagLSNegDEC;		
 		DFEVar FlagLS 		= (isInc) ? FlagLSINC : FlagLSDEC;
-		// LiE
+		// LiE and LiR shared resources
 		DFEVar qri = (q>0) ? BKgammaSeq : -BKgammaSeq;
-		DFEVar LE = ((qri>0)&(hXi<=-Def.ep)) ? KernelMath.abs((hXi+Def.ep)/BKgammaSeq) : (((qri<0)&(hXi>=Def.ep)) ? KernelMath.abs((hXi-Def.ep)/BKgammaSeq) : BKINF);
+		DFEVar hXiPlusEpDivGammaSeq = KernelMath.abs((hXi+Def.ep)/BKgammaSeq);
+		DFEVar hXiMinusEpDivGammaSeq = KernelMath.abs((hXi-Def.ep)/BKgammaSeq);		
+/*
+		optimization.pushEnableBitGrowth(true);
+		DFEVar tohXiPlusEpDivGammaSeq = KernelMath.abs((hXi+Def.ep)/BKgammaSeq);
+		DFEVar tohXiMinusEpDivGammaSeq = KernelMath.abs((hXi-Def.ep)/BKgammaSeq);
+		System.out.println("[INFO] Bookkeeping: LE, LR is calculated using " + tohXiPlusEpDivGammaSeq.getType().toString());
+		optimization.popEnableBitGrowth();
+		DFEVar hXiPlusEpDivGammaSeq = tohXiPlusEpDivGammaSeq < Def.BookKeepingTH ? tohXiPlusEpDivGammaSeq.cast(Def.BookKeepingType) : BKINF;
+		DFEVar hXiMinusEpDivGammaSeq = tohXiMinusEpDivGammaSeq < Def.BookKeepingTH ? tohXiMinusEpDivGammaSeq.cast(Def.BookKeepingType) : BKINF;
+*/
+		// LiE
+		DFEVar LE = ((qri>0)&(hXi<=-Def.ep)) ? hXiPlusEpDivGammaSeq : (((qri<0)&(hXi>=Def.ep)) ? hXiMinusEpDivGammaSeq : BKINF);
 		DFEVar FlagLE = (isInc) ? constant.var(FlagType, 8) : constant.var(FlagType, 12);
 		// LiR
-		DFEVar LR = (qri===0) ? BKINF : ((qri>0) ? KernelMath.abs((hXi-Def.ep)/BKgammaSeq) : KernelMath.abs((hXi+Def.ep)/BKgammaSeq));
+		DFEVar LR = (qri===0) ? BKINF : ((qri>0) ? hXiMinusEpDivGammaSeq : hXiPlusEpDivGammaSeq);
 		DFEVar FlagLR = (isInc) ? constant.var(FlagType, 9) : constant.var(FlagType, 13);
 		
 		// Non-Empty S - Decremental Training - LiS, LiE, LiR same as INC, but LC2 is different, and no LC1
@@ -344,6 +372,9 @@ class SVMKernel extends Kernel {
 		// Overall LC
 		DFEVar LC = (isInc) ? LC_INC : LC_DEC;
 		DFEVar FlagLC = (isInc) ? FlagLC_INC : FlagLC_DEC;
+		
+		optimization.popPipeliningFactor();
+		
 		
 		// BookKeeping - must offset BookKeepingSel by 1 when iterating over NMask, as Group RAM in StateMachine has latency 1
 		DFEVar BKSel 	= isBookKeeping_N ? stream.offset(BookKeepingSel, 1) : BookKeepingSel;
@@ -396,7 +427,7 @@ class SVMKernel extends Kernel {
 		// Update hXi
 		OffsetExpr hXiOffset 			= stream.makeOffsetAutoLoop("hXiOffset");
 		DFEVar hXiWrAddrUnOffseted 	= beginUpdate ? GroupIndexXc : GroupIndexNMask;
-		DFEVar hXiWrDataUnOffseted 	= hXi + (isEmptyS ? hXiEmptyS : (beginUpdate ? hXcNonEmptyS : hXiNonEmptyS));
+		DFEVar hXiWrDataUnOffseted 	= (hXi + (isEmptyS ? hXiEmptyS : (beginUpdate ? hXcNonEmptyS : hXiNonEmptyS))).cast(Def.hXiType);
 		DFEVar hXiWrEnUnOffseted 	= beginUpdate | isUpdating & NMaskValid;
 		DFEVar hXiWrAddrOffseted 		= stream.offset(hXiWrAddrUnOffseted, -hXiOffset);
 		DFEVar hXiWrDataOffseted 		= stream.offset(hXiWrDataUnOffseted, -hXiOffset);
@@ -407,7 +438,7 @@ class SVMKernel extends Kernel {
 		
 		// Update theta
 		OffsetExpr thetaOffset 					= stream.makeOffsetAutoLoop("thetaOffset");
-		DFEVar thetaInUnOffseted 				= BKthetaSeq + (beginUpdate ? thetaCNonEmptyS : bThetaNonEmptyS);
+		DFEVar thetaInUnOffseted 				= (BKthetaSeq + (beginUpdate ? thetaCNonEmptyS : bThetaNonEmptyS)).cast(Def.thetaType);
 		DFEVar thetaWrBaseAddrUnOffseted 		= beginUpdate ? BaseAddrXc 	: BaseAddrSMask;
 		DFEVar thetaWrOffsetAddrUnOffseted 	= beginUpdate ? OffsetAddrXc 	: OffsetAddrSMask;		
 		DFEVar thetaImmediateWriteUnOffseted 	= (~isEmptyS) & (beginUpdate | isUpdating & SMaskValid);
@@ -477,7 +508,7 @@ class SVMKernel extends Kernel {
 		
 		// BookKeeping
 		debug.simPrintf(beginBookKeeping, "[%4d] ----------- Begin BookKeeping ------------\n", Tick);
-		debug.simPrintf(BookKeepingValid, "[%4d] N[%d] S[%d] Sel=%d | hXi[%d]=%f, betaSeq=%f, thetaSeq=%f \n                         bC[0]=%f, bE[1]=%f, bR[2]=%f, LC[3]=%f, LS[4]=%f, LE[5]=%f, LR[6]=%f\n", Tick, IndexNMask, IndexSMask, BKSel, hXiRdAddr, hXi, betaSeq, thetaSeq, bC, bE, bR, LC, LS, LE, LR);
+		debug.simPrintf(BookKeepingValid, "[%4d] N[%d] S[%d] Sel=%d | hXi[%d]=%f, betaSeq=%f, thetaSeq=%f \n                           bC[0]=%f, bE[1]=%f, bR[2]=%f, LC[3]=%f, LS[4]=%f, LE[5]=%f, LR[6]=%f\n", Tick, IndexNMask, IndexSMask, BKSel, hXiRdAddr, hXi, betaSeq, thetaSeq, bC, bE, bR, LC, LS, LE, LR);
 		debug.simPrintf(beginUpdate, "[%4d] =======> BookKeeping Result: Flag=%d, Index=%d, minL = %e ------------\n", Tick, BookKeepingFlag, BookKeepingIndex, minL);
 		
 		// Q Fetch

@@ -80,9 +80,10 @@ class RMem extends KernelLib{
 		
 		/////////////////////// Vectors ///////////////////////
 
-		DFEVectorType<DFEVar> numBlocksVec = new DFEVectorType<DFEVar>(Def.CalcType, numBlocks);
+		DFEVectorType<DFEVar> numBlocksVec = new DFEVectorType<DFEVar>(Def.RType, numBlocks);
 		DFEVectorType<DFEVector<DFEVar>> GridVec = new DFEVectorType<DFEVector<DFEVar>>(numBlocksVec, numBlocks);
-		BetaCalcVec = GridVec.newInstance(this);
+		DFEVectorType<DFEVector<DFEVar>> betaGrid = new DFEVectorType<DFEVector<DFEVar>>(new DFEVectorType<DFEVar>(Def.betaType, numBlocks), numBlocks);
+		BetaCalcVec = betaGrid.newInstance(this);
 		
 		XAddr = dfeUInt(MathUtils.bitsToAddress(blockDim)).newInstance(this);
 		YAddr = dfeUInt(MathUtils.bitsToAddress(blockDim)).newInstance(this);
@@ -136,7 +137,7 @@ class RMem extends KernelLib{
 		DFEVector<DFEVar> XElem = numBlocksVec.newInstance(this);
 		DFEVector<DFEVar> toXBuffer = numBlocksVec.newInstance(this);
 		for (int i=0; i<numBlocks; ++i) {
-			Memory<DFEVar> XBuffer = mem.alloc(Def.CalcType, blockDim);
+			Memory<DFEVar> XBuffer = mem.alloc(Def.RType, blockDim);
 			XBuffer.port(XAddr, toXBuffer[i], isFetchingX, RamWriteMode.WRITE_FIRST);
 			XElem[i] <== XBuffer.read(XAddr);
 		}
@@ -145,7 +146,7 @@ class RMem extends KernelLib{
 		DFEVector<DFEVar> YElem = numBlocksVec.newInstance(this);
 		DFEVector<DFEVar> toYBuffer = numBlocksVec.newInstance(this);
 		for (int i=0; i<numBlocks; ++i) {
-			Memory<DFEVar> YBuffer = mem.alloc(Def.CalcType, blockDim);
+			Memory<DFEVar> YBuffer = mem.alloc(Def.RType, blockDim);
 			YBuffer.port(XAddr, toYBuffer[i], isFetchingY, RamWriteMode.WRITE_FIRST);
 			YElem[i] <== YBuffer.read(YAddr);
 		}
@@ -218,7 +219,7 @@ class RMem extends KernelLib{
 				fromDownBlock[X][Y], fromRightBlock[X][Y],
 				counterReset, isInit, isEnlarging, isFetching, isShrinking, isUpShifting, isLeftShifting);
 				
-				BetaCalcVec[Y][X] <== RGrid[X][Y].getData();
+				BetaCalcVec[Y][X] <== RGrid[X][Y].getData().cast(Def.betaType);
 			}
 		}
 		
@@ -242,15 +243,15 @@ class RMem extends KernelLib{
 				fromDownBlock[X][Y] <== RGrid[X][Y+1].getData();
 				fromRightBlock[X][Y] <== RGrid[X+1][Y].forLeftBlock();
 			}
-			fromDownBlock[X][numBlocks-1] <== constant.var(Def.CalcType, 0);
+			fromDownBlock[X][numBlocks-1] <== constant.var(Def.RType, 0);
 			fromRightBlock[X][numBlocks-1] <== RGrid[X+1][numBlocks-1].forLeftBlock();
 		}
 		for (int Y=0; Y<numBlocks-1; ++Y) {
 			fromDownBlock[numBlocks-1][Y] <== RGrid[numBlocks-1][Y+1].getData();
-			fromRightBlock[numBlocks-1][Y] <== constant.var(Def.CalcType, 0);
+			fromRightBlock[numBlocks-1][Y] <== constant.var(Def.RType, 0);
 		}
-		fromDownBlock[numBlocks-1][numBlocks-1] <== constant.var(Def.CalcType, 0);
-		fromRightBlock[numBlocks-1][numBlocks-1] <== constant.var(Def.CalcType, 0);
+		fromDownBlock[numBlocks-1][numBlocks-1] <== constant.var(Def.RType, 0);
+		fromRightBlock[numBlocks-1][numBlocks-1] <== constant.var(Def.RType, 0);
 
 	
 	}
@@ -328,22 +329,22 @@ class RMem extends KernelLib{
 			
 			/////////////////////// Memory - Read ///////////////////////
 			
-			Memory<DFEVar> block = mem.alloc(Def.CalcType, blockDim*blockDim);
+			Memory<DFEVar> block = mem.alloc(Def.RType, blockDim*blockDim);
 			DFEVar readAddr = dfeUInt(MathUtils.bitsToAddress(blockDim*blockDim)).newInstance(this);
 			readItem = block.read(readAddr);
 			
-			Memory<DFEVar> buffer = mem.alloc(Def.CalcType, blockDim);
+			Memory<DFEVar> buffer = mem.alloc(Def.RType, blockDim);
 			DFEVar bufferItem = buffer.read(XAddr);
-			buffer.port(XAddr, fromDownBlock, isUpShifting & (blockAddr<blockDim), RamWriteMode.WRITE_FIRST);
+			buffer.port(XAddr, fromDownBlock, isUpShifting & blockAddrValid & (blockAddr<blockDim), RamWriteMode.WRITE_FIRST);
 
 
 			/////////////////////// RInit ///////////////////////
 			
 			// Write - blockDim*2 cycles
 			// Write Data - PortAddr = blockAddr
-			DFEVar RInitPortData = Def.CalcType.newInstance(this);
-			if ((X==0)&&(Y==0)) RInitPortData <== counterReset ? -1 : (((XAddr===0)&(YAddr===1)) | ((XAddr===1)&(YAddr===0))) ? constant.var(Def.CalcType, 1) : 0;
-			else RInitPortData <== constant.var(Def.CalcType, 0);
+			DFEVar RInitPortData = Def.RType.newInstance(this);
+			if ((X==0)&&(Y==0)) RInitPortData <== counterReset ? -1 : (((XAddr===0)&(YAddr===1)) | ((XAddr===1)&(YAddr===0))) ? constant.var(Def.RType, 1) : 0;
+			else RInitPortData <== constant.var(Def.RType, 0);
 			DFEVar RInitPortEn = isInit & blockAddrValid;
 
 
@@ -386,12 +387,12 @@ class RMem extends KernelLib{
 
 			// blockDim^2 + blockDim cycles
 			// Up Shifting - readAddr = blockAddr
-			DFEVar UpShiftCounterReset = (blockAddr===blockDim);
+			DFEVar UpShiftCounterReset = isUpShifting & (blockAddr===blockDim);
 			AddrGenerator UpShiftWriteAddrCounter = new AddrGenerator(owner, 1, blockDim*blockDim, UpShiftCounterReset);
 			DFEVar UpShiftWriteAddr = UpShiftWriteAddrCounter.getAddr();
 			DFEVar UpShiftWriteAddrValid = UpShiftWriteAddrCounter.isValid();
 			DFEVar UpShiftPortData = (YAddr===blockDim-1) ? bufferItem : readItem;
-			DFEVar UpShiftPortEn = ((Y>RShrinkPosBaseAddr) | (  (Y===RShrinkPosBaseAddr) & (YAddr>=RShrinkPosOffsetAddr) )) & isUpShifting;		
+			DFEVar UpShiftPortEn = ((Y>RShrinkPosBaseAddr) | (  (Y===RShrinkPosBaseAddr) & (YAddr>=RShrinkPosOffsetAddr) )) & UpShiftWriteAddrValid;		
 
 			// blockDim^2+1 cycles
 			// Left Shifting - readAddr = blockAddr

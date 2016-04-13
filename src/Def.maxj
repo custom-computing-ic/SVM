@@ -66,6 +66,15 @@ class Def {
 	public static final DFEType thetaType = FixType;
 	public static final DFEType thetaKAccumulatorType = KernelLib.dfeFixOffset(64, -40, SignMode.TWOSCOMPLEMENT);
 	
+	// R Type
+	public static final DFEType RType = FixType;
+	
+	// betaType
+	public static final DFEType betaType = FixType;
+	
+	// gammaType
+	public static final DFEType gammaType = FixType;
+	
 	// hXi Type
 	public static final DFEType hXiType = FixType;
 	

@@ -6,8 +6,8 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Accumulator;
 
-import maxpower.FloatingPointAccumulator;
 
 /**
  * This class calculates gamma
@@ -72,13 +72,18 @@ class gammaCalc extends KernelLib {
 		
 		/////////////////////// Calculation ///////////////////////
 		
-		DFEVar toAccumulator = beginCalc ? (Q+beta) : (Q*beta);
-		Result = FloatingPointAccumulator.accumulateWithReset(toAccumulator, Valid, beginCalc, true);
+		DFEVar Q_CAST = Q.cast(Def.gammaType);
+		DFEVar beta_CAST = beta.cast(Def.gammaType);
+		DFEVar toAccumulator = beginCalc ? (Q_CAST + beta_CAST) : (Q_CAST * beta_CAST);
+		Accumulator.Params Param = Reductions.accumulator.makeAccumulatorConfig(Def.gammaType)
+									.withEnable(Valid)
+									.withClear(stream.offset(beginCalc, 1));
+		Result = Reductions.accumulator.makeAccumulator(toAccumulator, Param);
 		
 		
 		/////////////////////// Memory ///////////////////////
 		
-		Memory<DFEVar> GammaMem = mem.alloc(Def.CalcType, WinSize);
+		Memory<DFEVar> GammaMem = mem.alloc(Def.gammaType, WinSize);
 		Data = GammaMem.read(GammaReadAddr);
 		DFEVar WrEn = GammaWriteEn & hasFinish;
 		GammaMem.port(GammaWriteAddr, Result, WrEn, RamWriteMode.WRITE_FIRST);

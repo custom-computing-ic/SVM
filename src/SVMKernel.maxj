@@ -45,7 +45,6 @@ class SVMKernel extends Kernel {
 		DFEType PosType 			= dfeUInt(MathUtils.bitsToAddress(WinSize));
 		DFEType FlagType 		= dfeUInt(4);
 		DFEType BoolType			= dfeBool();
-		DFEVectorType<DFEVar> BlockVecType = new DFEVectorType<DFEVar>(Def.CalcType, numBlocks);
 		
 		
 		////////////////////////// From State Machine /////////////////////////
@@ -191,7 +190,7 @@ class SVMKernel extends Kernel {
 		DFEVar MatQEnIterate 		= (EnInput | beginRShrink);
 		QMem MatrixQ = new QMem(this, numBlocks, blockDim, KernelVec, BaseAddrRow, OffsetAddrRow, MatQEnWrite, MatQEnIterate, BaseAddrCol, OffsetAddrCol);
 		DFEVector<DFEVar> QVector = MatrixQ.getQValVec();
-		DFEVar QVal = MatrixQ.getQVal().cast(Def.CalcType);
+		DFEVar QVal = MatrixQ.getQVal();
 		DFEVar hasQUpdateFinishedFromQMem = MatrixQ.hasFinished();
 		
 		
@@ -246,12 +245,12 @@ class SVMKernel extends Kernel {
 		DFEVector<DFEVar> QBufVec = QBuf.getData();
 
 		// beta Vector
-		DFEVector<DFEVar> betaX = BlockVecType.newInstance(this);
-		DFEVector<DFEVar> betaY = BlockVecType.newInstance(this);
+		DFEVector<DFEVar> betaX = (new DFEVectorType<DFEVar>(Def.betaType, numBlocks)).newInstance(this);
+		DFEVector<DFEVar> betaY = (new DFEVectorType<DFEVar>(Def.betaType, numBlocks)).newInstance(this);
 
 		// RMem
 		DFEVar SMaskIDToRemove 	= PosType.newInstance(this);
-		DFEVar gammaInv 		= Def.CalcType.newInstance(this);
+		DFEVar gammaInv 		= Def.RType.newInstance(this);
 		DFEVar beginREnlarge 		= BoolType.newInstance(this);
 		RMem MatrixR = new RMem (this, numBlocks, blockDim, SSize, SMaskIDToRemove, betaX, betaY, gammaInv, beginRInit, beginBetaCalc, beginREnlarge, beginRShrink); 			DFEVector<DFEVector<DFEVar>> betaCalcVec = MatrixR.getBetaCalcVec();
 		DFEVar XAddr = MatrixR.getXAddr();
@@ -453,7 +452,7 @@ class SVMKernel extends Kernel {
 		
 		
 		// REnlarge - triggered by beginGammaCREnlarge or begin automatically after gamma_k calculated
-		gammaInv 		<== 1.0 / ((BookKeepingFlag === 5) ? gamma_c : gamma_k);
+		gammaInv 		<== (1.0 / ((BookKeepingFlag === 5) ? gamma_c : gamma_k)).cast(Def.RType);
 		beginREnlarge 	<== beginGammaCREnlarge | stream.offset((isGammaKCalculating & GammaResultValid), -1);
 		
 		// RShrink
@@ -516,7 +515,7 @@ class SVMKernel extends Kernel {
 		
 		// gamma Calc
 //		debug.simPrintf(isGammaKCalculating, "[%4d] [GammaKCalc] beginGammaKCalc=%d | QVal([%d][%d], [%d][%d])=%.12f\n", Tick, beginGammaKCalc, BaseAddrRow, OffsetAddrRow, BaseAddrCol, OffsetAddrCol, MatrixQ.getQVal());
-		debug.simPrintf(GammaResultValid, "[%4d] [GammaCalc] BEGIN: CVK=%d%d%d, CALC: CVK=%d%d%d | NSize=%d, SSize=%d | NMask[%d], SMask[%d] | Beta=%2.6f, Result=%.9f, Valid=%d | Gamma[C]=%.9f, Gamma[K]=%.9f\n", Tick, beginGammaCCalc, beginGammaVCalc, beginGammaKCalc, isGammaCCalculating, isGammaVCalculating, isGammaKCalculating, NSize, SSize, IndexNMask, IndexSMask, betaSeq, GammaResult, GammaResultValid, gamma_c, gamma_k);
+		debug.simPrintf(GammaResultValid, "[%4d] [GammaCalc] BG CVK=%d%d%d, CVK=%d%d%d | N=%d, S=%d, NMask[%d], SMask[%d] | Beta=%2.6f, Result=%.12f, Valid=%d | Gamma[C]=%.12f, Gamma[K]=%.12f\n", Tick, beginGammaCCalc, beginGammaVCalc, beginGammaKCalc, isGammaCCalculating, isGammaVCalculating, isGammaKCalculating, NSize, SSize, IndexNMask, IndexSMask, betaSeq, GammaResult, GammaResultValid, gamma_c, gamma_k);
 
 		// hXi update
 		debug.simPrintf(hXiWrEn, "[%4d] [hXiUpdate] hXi[%d] <= %.12f, En=%d \n", Tick, hXiWrAddr, hXiWrData, hXiWrEn);

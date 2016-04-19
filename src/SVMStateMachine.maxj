@@ -198,8 +198,8 @@ class SVMStateMachine extends KernelStateMachine {
 		WinSize 		= WinSize_IN;
 		
 		// Scheduling Parameters
-		BookKeepingLatency 	= 350;
-		REnlargeLatency 		= 300;
+		BookKeepingLatency 	= 250;
+		REnlargeLatency 		= 200;
 		RShrinkCycles 		= 3*(blockDim*blockDim + blockDim + Def.RShrinkLatency)+ Def.FetchLatency + 1;
 
 

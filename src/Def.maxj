@@ -18,7 +18,7 @@ class Def {
 	public static final int KernelFrequencyMAX3 = 100;
 	
 	// Fanout Limit
-	public static final int MaxFanout = 8;
+	public static final int MaxFanout = 6;
 	
 	// Kernel Settings
 	public static final int DataDim 		= 1; // 30
@@ -27,8 +27,8 @@ class Def {
 	public static final int streamLength 	= 8;
 	
 	// Latency
-	public static final int FetchLatency 	= 50;
-	public static final int RShrinkLatency 	= 300;
+	public static final int FetchLatency 	= 80;
+	public static final int RShrinkLatency 	= 200;
 
 
 	///////////////////////// SVM Parameters /////////////////////////

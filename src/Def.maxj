@@ -1,8 +1,6 @@
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEFix.SignMode;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
 import com.maxeler.maxcompiler.v2.utils.Bits;
 import java.util.List;
 import java.util.ArrayList;
@@ -21,9 +19,9 @@ class Def {
 	public static final int MaxFanout = 6;
 	
 	// Kernel Settings
-	public static final int DataDim 		= 1; // 30
+	public static final int DataDim 		= 30;
 	public static final int numBlocks 		= 4;
-	public static final int blockDim 		= 20;
+	public static final int blockDim 		= 120;
 	public static final int streamLength 	= 8;
 	
 	// Latency
@@ -50,7 +48,6 @@ class Def {
 	// DataType should be able to hold X[i], and X[i] - X[j]
 	// DataMultType should be able to hold (X[i] - X[j])^2
 	public static final DFEType DataType = KernelLib.dfeFixOffset(32, -24, SignMode.TWOSCOMPLEMENT);
-	public static final DFEVectorType<DFEVar> DataVecType = new DFEVectorType<DFEVar>(DataType, DataDim);
 	public static final DFEType DataMultType = KernelLib.dfeFixOffset(36, -24, SignMode.TWOSCOMPLEMENT);
 
 	// Data Y Type: used by dataY and b

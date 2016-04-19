@@ -5,7 +5,7 @@ import com.maxeler.maxcompiler.v2.managers.standard.SimulationManager;
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelConfiguration;
 import com.maxeler.maxcompiler.v2.utils.Bits;
 
-public class hXcTest {
+public class SimpleDataTest {
 
 
 
@@ -17,15 +17,16 @@ public class hXcTest {
 		final int numTicks = 60000;
 		final int numBlocks = 4;
 		final int blockDim = 20;
+		final int dataDim = 1;
 		final int streamLength = 8;
 
 		/////////////////////// Kernel and Manager ///////////////////////
 		
-		SimulationManager mgr = new SimulationManager("hXcTest");
+		SimulationManager mgr = new SimulationManager("SimpleDataTest");
 		// set Kernel Configuration - ignore read/write collision during simulation
 		mgr.getCurrentKernelConfig().simulation.setRAMAddressCollisionBehaviour(KernelConfiguration.SimulationOptions.SimulationBehaviour.IGNORE);
 		// create kernel
-		SVMKernel kernel = new SVMKernel(mgr.makeKernelParameters(),  numBlocks, blockDim, streamLength);
+		SVMKernel kernel = new SVMKernel(mgr.makeKernelParameters(),  numBlocks, blockDim, dataDim, streamLength);
 		mgr.setKernel(kernel);
 		
 		

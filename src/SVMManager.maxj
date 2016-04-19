@@ -45,7 +45,7 @@ public class SVMManager extends CustomManager{
 
 		///////////////////////// Kernel Configuration /////////////////////////
 
-		KernelBlock k = addKernel(new SVMKernel(makeKernelParameters(Name), Def.numBlocks, Def.blockDim, Def.streamLength));
+		KernelBlock k = addKernel(new SVMKernel(makeKernelParameters(Name), Def.numBlocks, Def.blockDim, Def.DataDim, Def.streamLength));
 		k.getInput("Xc") <== addStreamFromCPU("Xc");
 		k.getInput("Yc") <== addStreamFromCPU("Yc");
 		addStreamToCPU("output") <== k.getOutput("output");

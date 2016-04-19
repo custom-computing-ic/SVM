@@ -12,7 +12,7 @@ import maxpower.KernelBinaryOp.Add;
 import maxpower.TreeReduce;
 
 /**
- * Blocked storage of a 1D array for parallel read and individual write
+ * This block maintains theta
  *
  * @author Patrick Shao
  *
@@ -27,7 +27,7 @@ import maxpower.TreeReduce;
  * @param <beginIterate> Trigger of iterating - valid on the cycle that Xc arrives
  */
 
-class dataBlock1D extends KernelLib{
+class thetaCalc extends KernelLib{
 
 	private DFEVector<DFEVar> VecOUT;
 	private DFEVar ValOUT;
@@ -38,7 +38,7 @@ class dataBlock1D extends KernelLib{
 	public DFEVar hasThetaKUpdateFinished() 		{return thetaKUpdateFinish;}
 	
 	
-	dataBlock1D ( 	KernelLib owner, 
+	thetaCalc ( 	KernelLib owner, 
 					String name, 
 					int numBlocks, 
 					int blockDim, 

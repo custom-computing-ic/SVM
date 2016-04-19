@@ -17,4 +17,4 @@ SVM_*
 # Ant build folder
 report
 dataBlockTest
-hXcTest
+SimpleDataTest

@@ -19,15 +19,14 @@ import maxpower.TreeReduce;
 
 class SVMKernel extends Kernel {
 
-	// Dimension Parameters
+	// Parameters
 	private final int numBlocks;
 	private final int blockDim;
 	private final int WinSize;
-	
-	// Length of Input Stream
+	private final int dataDim;
 	private final int streamLength;
 
-	SVMKernel(KernelParameters parameters, int numBlocks_IN, int blockDim_IN, int streamLength_IN) {
+	SVMKernel(KernelParameters parameters, int numBlocks_IN, int blockDim_IN, int dataDim_IN, int streamLength_IN) {
 	
 		////////////////////////// Parameters /////////////////////////
 		
@@ -37,6 +36,7 @@ class SVMKernel extends Kernel {
 		numBlocks 	= numBlocks_IN;
 		blockDim 	= blockDim_IN;
 		WinSize 		= numBlocks_IN * blockDim_IN;
+		dataDim 	= dataDim_IN;
 		streamLength = streamLength_IN;
 		
 		// Types
@@ -135,10 +135,13 @@ class SVMKernel extends Kernel {
 		
 
 		////////////////////////// Input /////////////////////////
+		
+		// Data Vector
+		DFEVectorType<DFEVar> DataVecType = new DFEVectorType<DFEVar>(Def.DataType, dataDim);
 
 		// Xc FIFO
-		DFEVector<DFEVar> Xc_IN = ZeroLatencyInput.input("Xc", Def.DataVecType, EnInput, constant.var(dfeUInt(32), streamLength));
-		Queue<DFEVector<DFEVar>> XcQueue = mem.queue(Def.DataVecType, 2);
+		DFEVector<DFEVar> Xc_IN = ZeroLatencyInput.input("Xc", DataVecType, EnInput, constant.var(dfeUInt(32), streamLength));
+		Queue<DFEVector<DFEVar>> XcQueue = mem.queue(DataVecType, 2);
 		XcQueue.insert(Xc_IN, EnInput);
 		DFEVector<DFEVar> Xc = XcQueue.remove(EnInput);
 		
@@ -160,9 +163,9 @@ class SVMKernel extends Kernel {
 
 		// dataX
 		dataXBlock [] DataXBlock = new dataXBlock[numBlocks];
-		DFEVector<DFEVector<DFEVar>> dataX = (new DFEVectorType<DFEVector<DFEVar>>(Def.DataVecType, numBlocks)).newInstance(this);
+		DFEVector<DFEVector<DFEVar>> dataX = (new DFEVectorType<DFEVector<DFEVar>>(DataVecType, numBlocks)).newInstance(this);
 		for (int i=0; i<numBlocks; ++i) {
-			DataXBlock[i] = new dataXBlock(this, i, blockDim, Def.DataDim, Xc, BaseAddrXc, OffsetAddrXc, EnInput);
+			DataXBlock[i] = new dataXBlock(this, i, blockDim, dataDim, Xc, BaseAddrXc, OffsetAddrXc, EnInput);
 			dataX[i] <== DataXBlock[i].getData();
 		}
 
@@ -203,7 +206,7 @@ class SVMKernel extends Kernel {
 		DFEVar thetaImmediateWrite 	= BoolType.newInstance(this);
 		DFEVar EnThetaIterateWrite 	= isProcessingNewXc;
 		DFEVar EnThetaIterate 			= (EnInput | beginRShrink);
-		dataBlock1D thetaBlock = new dataBlock1D (this, "theta", numBlocks, blockDim, thetaIn, thetaWrBaseAddr, thetaWrOffsetAddr, thetaRdBaseAddr, thetaRdOffsetAddr, thetaImmediateWrite, EnThetaIterateWrite, EnThetaIterate, beginThetaKUpdate, isThetaKUpdating);
+		thetaCalc thetaBlock = new thetaCalc (this, "theta", numBlocks, blockDim, thetaIn, thetaWrBaseAddr, thetaWrOffsetAddr, thetaRdBaseAddr, thetaRdOffsetAddr, thetaImmediateWrite, EnThetaIterateWrite, EnThetaIterate, beginThetaKUpdate, isThetaKUpdating);
 		DFEVector<DFEVar> thetaVector = thetaBlock.getDataVec();
 		DFEVar thetaSeq = thetaBlock.getDataVal();
 		DFEVar thetaKUpdateFinishedFromThetaBlock = thetaBlock.hasThetaKUpdateFinished();
@@ -533,10 +536,10 @@ class SVMKernel extends Kernel {
 	// RBF Kernel
 	private DFEVar RBFKernel(DFEVector<DFEVar>X1, DFEVector<DFEVar>X2) {
 		
-		DFEVector<DFEVar> temp = (new DFEVectorType<DFEVar>(Def.DataMultType, Def.DataDim)).newInstance(this);
-		for (int i=0; i<Def.DataDim; ++i) temp[i] <== (X1[i] - X2[i]).cast(Def.DataMultType);
-		DFEVector<DFEVar> summands = (new DFEVectorType<DFEVar>(Def.FixType, Def.DataDim)).newInstance(this);
-		for (int i=0; i<Def.DataDim; ++i) summands[i] <== (temp[i] * temp[i]).cast(Def.FixType);
+		DFEVector<DFEVar> temp = (new DFEVectorType<DFEVar>(Def.DataMultType, dataDim)).newInstance(this);
+		for (int i=0; i<dataDim; ++i) temp[i] <== (X1[i] - X2[i]).cast(Def.DataMultType);
+		DFEVector<DFEVar> summands = (new DFEVectorType<DFEVar>(Def.FixType, dataDim)).newInstance(this);
+		for (int i=0; i<dataDim; ++i) summands[i] <== (temp[i] * temp[i]).cast(Def.FixType);
 		DFEVar sum = TreeReduce.reduce(new Add<DFEVar>(), summands.getElementsAsList());
 		DFEVar result = KernelMath.exp(sum*(-0.5/Def.sigma_sq));
 		

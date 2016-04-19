@@ -357,11 +357,7 @@ class RMem extends KernelLib{
 			DFEVar isREnlargeCorner 	= isREnlargeXEdge & isREnlargeYEdge;
 			
 			// Write Data - PortAddr = blockAddr
-			optimization.pushEnableBitGrowth(true);
-			DFEVar toREnlargeInnerData 			= readItem + betaX * betaY * gammaInv;
-			if((X==0)&&(Y==0)) System.out.println("[INFO] RMem: REnlargeInnerData is calculated using " + toREnlargeInnerData.getType().toString());
-			optimization.popEnableBitGrowth();
-//			DFEVar REnlargeInnerData		= readItem + betaX * betaY * gammaInv;
+			DFEVar toREnlargeInnerData 	= readItem.cast(Def.RCalcType) + betaX.cast(Def.RCalcType) * betaY.cast(Def.RCalcType) * gammaInv.cast(Def.RCalcType);
 			DFEVar REnlargeInnerData		= toREnlargeInnerData.cast(Def.RType);
 			DFEVar REnlargeXEdgeData 	= betaY * gammaInv;
 			DFEVar REnlargeYEdgeData 	= betaX * gammaInv;
@@ -383,11 +379,7 @@ class RMem extends KernelLib{
 
 			// Sequential Write - blockDim^2 cycles
 			// Shrinking - PortAddr = blockAddr
-			optimization.pushEnableBitGrowth(true);
-			DFEVar toShrinkPortData = RShrinkWriteZero ? 0 : readItem - XElem * YElem * KElemInv;
-			if((X==0)&&(Y==0)) System.out.println("[INFO] RMem: ShrinkPortData is calculated using " + toShrinkPortData.getType().toString());
-			optimization.popEnableBitGrowth();
-//			DFEVar ShrinkPortData = RShrinkWriteZero ? 0 : readItem - XElem * YElem * KElemInv;
+			DFEVar toShrinkPortData = RShrinkWriteZero ? 0 : readItem.cast(Def.RCalcType) - XElem.cast(Def.RCalcType) * YElem.cast(Def.RCalcType) * KElemInv.cast(Def.RCalcType);
 			DFEVar ShrinkPortData = toShrinkPortData.cast(Def.RType);
 			DFEVar ShrinkPortEn = isShrinking & blockAddrValid;
 			

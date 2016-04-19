@@ -65,6 +65,7 @@ class Def {
 	
 	// R Type
 	public static final DFEType RType = FixType;
+	public static final DFEType RCalcType = KernelLib.dfeFixOffset(72, -40, SignMode.TWOSCOMPLEMENT);
 	
 	// betaType
 	public static final DFEType betaType = FixType;

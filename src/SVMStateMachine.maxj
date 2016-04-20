@@ -441,7 +441,7 @@ class SVMStateMachine extends KernelStateMachine {
                         				subTick.next <== subTick + 1;
                         				IF (subTick === 0) {SMaskMode.next <== maskModes.ITERATE; SMaskPos.next <== 0;}
                         				IF (subTick === SMaskBase.size().cast(dfeUInt(32))) {
-                        					IF ((NMaskPos === NMaskBase.size()-1)) {
+                        					IF ((NMaskPos.cast(dfeUInt(MathUtils.bitsToRepresent(WinSize))) === NMaskBase.size()-1)) {
                         						subMode.next <== subModes.GAMMAVCALCWAIT;
                         					}
                         					ELSE {NMaskPos.next <== NMaskPos+1;}
@@ -747,7 +747,7 @@ class SVMStateMachine extends KernelStateMachine {
 				IF (SMaskBase.size() <= 1) {SMaskMode.next <== maskModes.MASKIDLE; SMaskPos.next <== 0;}
 				ELSE {
 					SMaskPos.next <== SMaskPos + 1;
-					IF (SMaskPos+2 >= SMaskBase.size()) {SMaskMode.next <== maskModes.LASTITEM;}
+					IF (SMaskPos.cast(dfeUInt(MathUtils.bitsToRepresent(WinSize)))+2 >= SMaskBase.size()) {SMaskMode.next <== maskModes.LASTITEM;}
 				}
 			}
 			CASE (maskModes.LASTITEM) {
@@ -764,7 +764,7 @@ class SVMStateMachine extends KernelStateMachine {
 				IF (NMaskBase.size() <= 1) {NMaskMode.next <== maskModes.MASKIDLE; NMaskPos.next <== 0;}
 				ELSE {
 					NMaskPos.next <== NMaskPos + 1;
-					IF (NMaskPos+2 >= NMaskBase.size()) {NMaskMode.next <== maskModes.LASTITEM;}
+					IF (NMaskPos.cast(dfeUInt(MathUtils.bitsToRepresent(WinSize)))+2 >= NMaskBase.size()) {NMaskMode.next <== maskModes.LASTITEM;}
 				}
 			}
 			CASE (maskModes.LASTITEM) {

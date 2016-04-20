@@ -281,12 +281,12 @@ class SVMKernel extends Kernel {
 		DFEVar gamma_c 			= Reductions.streamHold(GammaResult, isGammaCCalculating & GammaResultValid);
 		DFEVar gamma_k 			= Reductions.streamHold(GammaResult, isGammaKCalculating & GammaResultValid);
 		DFEVar gammaSeq 		= gammaCalcModule.getData();
-		DFEVar hasGammaVCalcFinishedFromGammaCalc = (IndexNMask === (NSize-1)) & isGammaVCalculating & GammaResultValid;
+		DFEVar hasGammaVCalcFinishedFromGammaCalc = (IndexNMask.cast(NSize.getType()) === (NSize-1)) & isGammaVCalculating & GammaResultValid;
 
 		
 		////////////////////////// Bookkeeping /////////////////////////
 		
-		optimization.pushPipeliningFactor(0.9);
+		optimization.pushPipeliningFactor(Def.PipeFactor);
 		
 		DFEVar BKINF = constant.var(Def.BookKeepingType, Def.BookKeepingTH);
 		
@@ -312,14 +312,7 @@ class SVMKernel extends Kernel {
 		DFEVar BKgammaSeq 	= gammaSeq.cast(Def.BookKeepingType);
 		// LC1		
 		DFEVar qrc = (q>0) ? BKgamma_c : -BKgamma_c;
-		DFEVar LC1_INC = ((qrc>0)&(hXi<-Def.ep)) ? KernelMath.abs((hXi+Def.ep)/BKgamma_c) : (((qrc<0)&(hXi>Def.ep)) ? KernelMath.abs((hXi-Def.ep)/BKgamma_c) : BKINF);
-/*
-		optimization.pushEnableBitGrowth(true);
-		DFEVar toLC1_INC = ((qrc>0)&(hXi<-Def.ep)) ? KernelMath.abs((hXi+Def.ep)/BKgamma_c) : (((qrc<0)&(hXi>Def.ep)) ? KernelMath.abs((hXi-Def.ep)/BKgamma_c) : Def.BookKeepingTH);
-		System.out.println("[INFO] Bookkeeping: LC1_INC is calculated using " + toLC1_INC.getType().toString());
-		optimization.popEnableBitGrowth();
-		DFEVar LC1_INC = (toLC1_INC < Def.BookKeepingTH) ? toLC1_INC.cast(Def.BookKeepingType) : BKINF;
-*/		
+		DFEVar LC1_INC = ((qrc>0)&(hXi<-Def.ep)) ? KernelMath.abs((hXi+Def.ep)/BKgamma_c) : (((qrc<0)&(hXi>Def.ep)) ? KernelMath.abs((hXi-Def.ep)/BKgamma_c) : BKINF);		
 		// LC2
 		DFEVar qC = (q>0) ? constant.var(Def.BookKeepingType, Def.C) : constant.var(Def.BookKeepingType, -Def.C);
 		DFEVar LC2_INC = KernelMath.abs(qC-BKthetaSeq);
@@ -331,14 +324,7 @@ class SVMKernel extends Kernel {
 		DFEVar LSPos 		= (BKthetaSeq>=0) ? (Def.C - BKthetaSeq) : BKthetaSeq;
 		DFEVar LSNeg 		= (BKthetaSeq<=0) ? (Def.C + BKthetaSeq) : BKthetaSeq;
 		DFEVar toLS 			= ((qbi>0) ? LSPos : LSNeg) / BKbetaSeq;
-		DFEVar LS 			= (qbi===0) ? BKINF : KernelMath.abs(toLS);
-/*		
-		optimization.pushEnableBitGrowth(true);
-		DFEVar toLS 			= KernelMath.abs(((qbi>0) ? LSPos : LSNeg) / BKbetaSeq);
-		System.out.println("[INFO] Bookkeeping: LS is calculated using " + toLS.getType().toString());
-		optimization.popEnableBitGrowth();
-		DFEVar LS 			= (qbi===0) ? BKINF : ((toLS<Def.BookKeepingTH) ? toLS.cast(Def.BookKeepingType) : BKINF);
-*/				
+		DFEVar LS 			= (qbi===0) ? BKINF : KernelMath.abs(toLS);				
 		DFEVar FlagLSPosINC 	= (BKthetaSeq>=0) ? constant.var(FlagType, 7) : constant.var(FlagType, 14);
 		DFEVar FlagLSNegINC 	= (BKthetaSeq<=0) ? constant.var(FlagType, 7) : constant.var(FlagType, 14);
 		DFEVar FlagLSINC 		= (qbi>0) ? FlagLSPosINC : FlagLSNegINC;
@@ -350,15 +336,6 @@ class SVMKernel extends Kernel {
 		DFEVar qri = (q>0) ? BKgammaSeq : -BKgammaSeq;
 		DFEVar hXiPlusEpDivGammaSeq = KernelMath.abs((hXi+Def.ep)/BKgammaSeq);
 		DFEVar hXiMinusEpDivGammaSeq = KernelMath.abs((hXi-Def.ep)/BKgammaSeq);		
-/*
-		optimization.pushEnableBitGrowth(true);
-		DFEVar tohXiPlusEpDivGammaSeq = KernelMath.abs((hXi+Def.ep)/BKgammaSeq);
-		DFEVar tohXiMinusEpDivGammaSeq = KernelMath.abs((hXi-Def.ep)/BKgammaSeq);
-		System.out.println("[INFO] Bookkeeping: LE, LR is calculated using " + tohXiPlusEpDivGammaSeq.getType().toString());
-		optimization.popEnableBitGrowth();
-		DFEVar hXiPlusEpDivGammaSeq = tohXiPlusEpDivGammaSeq < Def.BookKeepingTH ? tohXiPlusEpDivGammaSeq.cast(Def.BookKeepingType) : BKINF;
-		DFEVar hXiMinusEpDivGammaSeq = tohXiMinusEpDivGammaSeq < Def.BookKeepingTH ? tohXiMinusEpDivGammaSeq.cast(Def.BookKeepingType) : BKINF;
-*/
 		// LiE
 		DFEVar LE = ((qri>0)&(hXi<=-Def.ep)) ? hXiPlusEpDivGammaSeq : (((qri<0)&(hXi>=Def.ep)) ? hXiMinusEpDivGammaSeq : BKINF);
 		DFEVar FlagLE = (isInc) ? constant.var(FlagType, 8) : constant.var(FlagType, 12);
@@ -536,12 +513,14 @@ class SVMKernel extends Kernel {
 	// RBF Kernel
 	private DFEVar RBFKernel(DFEVector<DFEVar>X1, DFEVector<DFEVar>X2) {
 		
+		optimization.pushDSPFactor(Def.DSPFactor);
 		DFEVector<DFEVar> temp = (new DFEVectorType<DFEVar>(Def.DataMultType, dataDim)).newInstance(this);
 		for (int i=0; i<dataDim; ++i) temp[i] <== (X1[i] - X2[i]).cast(Def.DataMultType);
 		DFEVector<DFEVar> summands = (new DFEVectorType<DFEVar>(Def.FixType, dataDim)).newInstance(this);
 		for (int i=0; i<dataDim; ++i) summands[i] <== (temp[i] * temp[i]).cast(Def.FixType);
 		DFEVar sum = TreeReduce.reduce(new Add<DFEVar>(), summands.getElementsAsList());
 		DFEVar result = KernelMath.exp(sum*(-0.5/Def.sigma_sq));
+		optimization.popDSPFactor();
 		
 		return result.cast(Def.QType);
 	}

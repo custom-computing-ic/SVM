@@ -154,7 +154,7 @@ class RMem extends KernelLib{
 		// 1/R[k][k] for RShrink
 		DFEVar toKElemInvStreamHold = 1.0 / control.mux(RShrinkPosBaseAddr, toXBuffer.getElementsAsList());
 		DFEVar enKElemInvStreamHold = (XAddr === RShrinkPosOffsetAddr) & isFetchingX;
-		DFEVar KElemInv = Reductions.streamHold(toKElemInvStreamHold, enKElemInvStreamHold);
+		DFEVar KElemInv = Reductions.streamHold(toKElemInvStreamHold, enKElemInvStreamHold).cast(Def.RCalcType);
 		OffsetExpr KElemInvLatency = stream.measureDistance("KElemInvLatency", toXBuffer[0], toKElemInvStreamHold);
 		
 		
@@ -180,7 +180,6 @@ class RMem extends KernelLib{
 			
 		// Counter Reset Trigger
 		DFEVar counterReset = beginBetaCalc | beginRInit | beginREnlarge | beginFetch | beginShrink | beginUpShift | beginLeftShift;
-		
 		debug.simPrintf(counterReset, "[%4d] ****** RMem: counter Reseted ****** beginBetaCalc=%d | beginRInit=%d | beginREnlarge=%d | beginFetch=%d | beginShrink=%d | beginUpShift=%d | beginLeftShift=%d \n", control.count.simpleCounter(32), beginBetaCalc, beginRInit, beginREnlarge, beginFetch, beginShrink, beginUpShift, beginLeftShift);
 
     		// XAddr - inner loop		
@@ -357,11 +356,13 @@ class RMem extends KernelLib{
 			DFEVar isREnlargeCorner 	= isREnlargeXEdge & isREnlargeYEdge;
 			
 			// Write Data - PortAddr = blockAddr
+			optimization.pushPipeliningFactor(Def.PipeFactor);
 			DFEVar toREnlargeInnerData 	= readItem.cast(Def.RCalcType) + betaX.cast(Def.RCalcType) * betaY.cast(Def.RCalcType) * gammaInv.cast(Def.RCalcType);
-			DFEVar REnlargeInnerData		= toREnlargeInnerData.cast(Def.RType);
+			DFEVar REnlargeInnerData 		= toREnlargeInnerData.cast(Def.RType);
 			DFEVar REnlargeXEdgeData 	= betaY * gammaInv;
 			DFEVar REnlargeYEdgeData 	= betaX * gammaInv;
 			DFEVar REnlargeCornerData 	= gammaInv;
+			optimization.popPipeliningFactor();
 			DFEVar REnlargePortData = isREnlargeCorner ? REnlargeCornerData : (isREnlargeXEdge ? REnlargeXEdgeData : (isREnlargeYEdge ? REnlargeYEdgeData : REnlargeInnerData));
 			DFEVar REnlargePortEn = isEnlarging & blockAddrValid;
 			OffsetExpr REnlargeLatency = stream.measureDistance("REnlargeLatency"+X+Y, readItem, REnlargeInnerData);
@@ -374,12 +375,12 @@ class RMem extends KernelLib{
 			DFEVar FetchReadAddrH 	= RShrinkPosOffsetAddr.cast(blockAddrType) * blockDim + XAddr.cast(blockAddrType); // horizontal items
 			DFEVar FetchReadAddrV 	= XAddr.cast(blockAddrType) * blockDim + RShrinkPosOffsetAddr.cast(blockAddrType); // vertical items
 			DFEVar FetchReadAddr 	= (blockAddr < blockDim) ? FetchReadAddrH : FetchReadAddrV;
-			OffsetExpr RShrinkFetchLatencyH = stream.measureDistance("RShrinkFetchLatencyH"+X+Y, RShrinkPosOffsetAddr, FetchReadAddr);
-			OffsetExpr RShrinkFetchLatencyV = stream.measureDistance("RShrinkFetchLatencyV"+X+Y, XAddr, FetchReadAddr);
 
 			// Sequential Write - blockDim^2 cycles
 			// Shrinking - PortAddr = blockAddr
-			DFEVar toShrinkPortData = RShrinkWriteZero ? 0 : readItem.cast(Def.RCalcType) - XElem.cast(Def.RCalcType) * YElem.cast(Def.RCalcType) * KElemInv.cast(Def.RCalcType);
+			optimization.pushPipeliningFactor(Def.PipeFactor);
+			DFEVar toShrinkPortData = RShrinkWriteZero ? 0 : readItem.cast(Def.RCalcType) - XElem.cast(Def.RCalcType) * YElem.cast(Def.RCalcType) * KElemInv;
+			optimization.popPipeliningFactor();
 			DFEVar ShrinkPortData = toShrinkPortData.cast(Def.RType);
 			DFEVar ShrinkPortEn = isShrinking & blockAddrValid;
 			

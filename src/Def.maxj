@@ -18,6 +18,10 @@ class Def {
 	// Fanout Limit
 	public static final int MaxFanout = 6;
 	
+	// Optimization Factors
+	public static final double PipeFactor 	= 0.85;
+	public static final double DSPFactor 	= 0.4;
+	
 	// Kernel Settings
 	public static final int DataDim 		= 30;
 	public static final int numBlocks 		= 4;
@@ -65,7 +69,7 @@ class Def {
 	
 	// R Type
 	public static final DFEType RType = FixType;
-	public static final DFEType RCalcType = KernelLib.dfeFixOffset(72, -40, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType RCalcType = KernelLib.dfeFixOffset(64, -40, SignMode.TWOSCOMPLEMENT);
 	
 	// betaType
 	public static final DFEType betaType = FixType;

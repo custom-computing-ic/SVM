@@ -513,14 +513,14 @@ class SVMKernel extends Kernel {
 	// RBF Kernel
 	private DFEVar RBFKernel(DFEVector<DFEVar>X1, DFEVector<DFEVar>X2) {
 		
-		optimization.pushDSPFactor(Def.DSPFactor);
+		optimization.pushPipeliningFactor(Def.PipeFactor);
 		DFEVector<DFEVar> temp = (new DFEVectorType<DFEVar>(Def.DataMultType, dataDim)).newInstance(this);
 		for (int i=0; i<dataDim; ++i) temp[i] <== (X1[i] - X2[i]).cast(Def.DataMultType);
 		DFEVector<DFEVar> summands = (new DFEVectorType<DFEVar>(Def.FixType, dataDim)).newInstance(this);
 		for (int i=0; i<dataDim; ++i) summands[i] <== (temp[i] * temp[i]).cast(Def.FixType);
 		DFEVar sum = TreeReduce.reduce(new Add<DFEVar>(), summands.getElementsAsList());
 		DFEVar result = KernelMath.exp(sum*(-0.5/Def.sigma_sq));
-		optimization.popDSPFactor();
+		optimization.popPipeliningFactor();
 		
 		return result.cast(Def.QType);
 	}

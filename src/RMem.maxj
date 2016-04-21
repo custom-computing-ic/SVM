@@ -13,6 +13,7 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
 import com.maxeler.maxcompiler.v2.utils.MathUtils;
 
 import maxpower.ConstDenominator;
+import maxpower.FanoutLimiter;
 
 
 /**
@@ -81,6 +82,7 @@ class RMem extends KernelLib{
 		/////////////////////// Vectors ///////////////////////
 
 		DFEVectorType<DFEVar> numBlocksVec = new DFEVectorType<DFEVar>(Def.RType, numBlocks);
+		DFEVectorType<DFEVar> RCalcVec = new DFEVectorType<DFEVar>(Def.RCalcType, numBlocks);
 		DFEVectorType<DFEVector<DFEVar>> GridVec = new DFEVectorType<DFEVector<DFEVar>>(numBlocksVec, numBlocks);
 		DFEVectorType<DFEVector<DFEVar>> betaGrid = new DFEVectorType<DFEVector<DFEVar>>(new DFEVectorType<DFEVar>(Def.betaType, numBlocks), numBlocks);
 		BetaCalcVec = betaGrid.newInstance(this);
@@ -106,6 +108,15 @@ class RMem extends KernelLib{
 		// Control Signal for REnlarge - blockDim^2 cycles
 		AddrGenerator REnlargeCounter = new AddrGenerator(owner, 1, blockDim*blockDim, beginREnlarge);
 		DFEVar isEnlarging = REnlargeCounter.isValid();
+		
+		// betaX * gammaInv, betaY * gammaInv
+		FanoutLimiter<DFEVar> gammaInvFanout = new FanoutLimiter<DFEVar>(gammaInv, Def.MaxFanout);
+		DFEVector<DFEVar> betaXgammaInv = numBlocksVec.newInstance(this);
+		DFEVector<DFEVar> betaYgammaInv = numBlocksVec.newInstance(this);
+		for (int i=0; i<numBlocks; ++i) {
+			betaXgammaInv[i] <== betaX[i] * gammaInvFanout.get();
+			betaYgammaInv[i] <== betaY[i] * gammaInvFanout.get();
+		}
 
 
 		/////////////////////// RShrink ///////////////////////
@@ -156,6 +167,14 @@ class RMem extends KernelLib{
 		DFEVar enKElemInvStreamHold = (XAddr === RShrinkPosOffsetAddr) & isFetchingX;
 		DFEVar KElemInv = Reductions.streamHold(toKElemInvStreamHold, enKElemInvStreamHold).cast(Def.RCalcType);
 		OffsetExpr KElemInvLatency = stream.measureDistance("KElemInvLatency", toXBuffer[0], toKElemInvStreamHold);
+		
+		// YElem / R[K][K]
+		DFEVector<DFEVar> YElemKElemInv = RCalcVec.newInstance(this);
+		optimization.pushPipeliningFactor(Def.PipeFactor);
+		for (int i=0; i<numBlocks; ++i) {
+			YElemKElemInv[i] <== YElem[i].cast(Def.RCalcType) * KElemInv;
+		}
+		optimization.popPipeliningFactor();
 		
 		
 		/////////////////////// RShrink - Shrinking, UpShifting, LeftShifting ///////////////////////
@@ -214,8 +233,8 @@ class RMem extends KernelLib{
 			for (int Y=0; Y<numBlocks; ++Y) {
 				RGrid[X][Y] = new RBlock (owner, X, Y, blockDim,
 				REnlargeEdgeBaseAddr, REnlargeEdgeOffsetAddr, RShrinkPosBaseAddr, RShrinkPosOffsetAddr,
-				betaX[X], betaY[Y], gammaInv, XElem[X], YElem[Y], KElemInv, RShrinkWriteZero,
-				fromDownBlock[X][Y], fromRightBlock[X][Y],
+				betaXgammaInv[X], betaYgammaInv[Y], betaX[X], gammaInvFanout.get(),
+				XElem[X], YElemKElemInv[Y], RShrinkWriteZero, fromDownBlock[X][Y], fromRightBlock[X][Y],
 				counterReset, isInit, isEnlarging, isFetching, isShrinking, isUpShifting, isLeftShifting);
 				
 				BetaCalcVec[Y][X] <== RGrid[X][Y].getData().cast(Def.betaType);
@@ -272,12 +291,12 @@ class RMem extends KernelLib{
 				DFEVar REnlargeEdgeOffsetAddr, 				// REnlarge: Offset Address of the Edge
 				DFEVar RShrinkPosBaseAddr, 					// RShrink: Base Address of Remove Position
 				DFEVar RShrinkPosOffsetAddr, 					// RShrink: Offset Address of Remove Position
+				DFEVar betaXgammaInv, 						// REnlarge: beta[X] * gammaInv
+				DFEVar betaYgammaInv,						// REnlarge: beta[Y] * gammaInv
 				DFEVar betaX, 								// REnlarge: beta[X]
-				DFEVar betaY, 								// REnlarge: beta[Y]
 				DFEVar gammaInv, 							// REnlarge: 1/gamma_k
 				DFEVar XElem, 								// RShrink: Elem from Vertical Line
-				DFEVar YElem, 								// RShrink: Elem from Horizontal Line
-				DFEVar KElemInv, 								// RShrink: 1/R[k][k]
+				DFEVar YElemKElemInv, 						// RShrink: Elem from Horizontal Line / R[K][K]
 				DFEVar RShrinkWriteZero, 						// RShrink: Zeroise the RMem
 				DFEVar fromDownBlock, 						// Data for RShrink - UpShifting
 				DFEVar fromRightBlock, 						// Data for RShrink - LeftShifting
@@ -357,10 +376,10 @@ class RMem extends KernelLib{
 			
 			// Write Data - PortAddr = blockAddr
 			optimization.pushPipeliningFactor(Def.PipeFactor);
-			DFEVar toREnlargeInnerData 	= readItem.cast(Def.RCalcType) + betaX.cast(Def.RCalcType) * betaY.cast(Def.RCalcType) * gammaInv.cast(Def.RCalcType);
+			DFEVar toREnlargeInnerData 	= readItem.cast(Def.RCalcType) + betaX.cast(Def.RCalcType) * betaYgammaInv.cast(Def.RCalcType);
 			DFEVar REnlargeInnerData 		= toREnlargeInnerData.cast(Def.RType);
-			DFEVar REnlargeXEdgeData 	= betaY * gammaInv;
-			DFEVar REnlargeYEdgeData 	= betaX * gammaInv;
+			DFEVar REnlargeXEdgeData 	= betaYgammaInv;
+			DFEVar REnlargeYEdgeData 	= betaXgammaInv;
 			DFEVar REnlargeCornerData 	= gammaInv;
 			optimization.popPipeliningFactor();
 			DFEVar REnlargePortData = isREnlargeCorner ? REnlargeCornerData : (isREnlargeXEdge ? REnlargeXEdgeData : (isREnlargeYEdge ? REnlargeYEdgeData : REnlargeInnerData));
@@ -379,7 +398,7 @@ class RMem extends KernelLib{
 			// Sequential Write - blockDim^2 cycles
 			// Shrinking - PortAddr = blockAddr
 			optimization.pushPipeliningFactor(Def.PipeFactor);
-			DFEVar toShrinkPortData = RShrinkWriteZero ? 0 : readItem.cast(Def.RCalcType) - XElem.cast(Def.RCalcType) * YElem.cast(Def.RCalcType) * KElemInv;
+			DFEVar toShrinkPortData = RShrinkWriteZero ? 0 : readItem.cast(Def.RCalcType) - XElem.cast(Def.RCalcType) * YElemKElemInv;
 			optimization.popPipeliningFactor();
 			DFEVar ShrinkPortData = toShrinkPortData.cast(Def.RType);
 			DFEVar ShrinkPortEn = isShrinking & blockAddrValid;

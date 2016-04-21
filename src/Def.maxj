@@ -16,21 +16,20 @@ class Def {
 	public static final int KernelFrequencyMAX3 = 100;
 	
 	// Fanout Limit
-	public static final int MaxFanout = 6;
-	
-	// Optimization Factors
-	public static final double PipeFactor 	= 0.85;
-	public static final double DSPFactor 	= 0.4;
+	public static final int MaxFanout 			= 8;
+	public static final double PipeFactor 		= 0.85;
 	
 	// Kernel Settings
-	public static final int DataDim 		= 30;
-	public static final int numBlocks 		= 4;
-	public static final int blockDim 		= 120;
-	public static final int streamLength 	= 8;
+	public static final int DataDim 			= 30;
+	public static final int numBlocks 			= 4;
+	public static final int blockDim 			= 120;
+	public static final int streamLength 		= 8;
 	
 	// Latency
-	public static final int FetchLatency 	= 80;
-	public static final int RShrinkLatency 	= 200;
+	public static final int BookKeepingLatency	= 220;
+	public static final int REnlargeLatency 	= 220;
+	public static final int FetchLatency 		= 80;
+	public static final int RShrinkLatency 		= 220;
 
 
 	///////////////////////// SVM Parameters /////////////////////////

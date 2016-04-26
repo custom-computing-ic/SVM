@@ -318,11 +318,20 @@ class RMem extends KernelLib{
 			// blockAddress Type
 			DFEType blockAddrType = dfeUInt(MathUtils.bitsToAddress(blockDim*blockDim));
 			
-			// Block Addr - whole block
+			// blockAddr - for control
 			AddrGenerator BlockAddrCounter = new AddrGenerator(owner, 1, blockDim*blockDim, counterReset);
 			DFEVar blockAddr = BlockAddrCounter.getAddr();
 			DFEVar blockAddrValid = BlockAddrCounter.isValid();
-		
+			
+			// blockReadAddr - actual read address
+			Count.Params blockReadAddrParam = control.count.makeParams(MathUtils.bitsToAddress(blockDim*blockDim))
+                							.withInitValue(0)
+                							.withReset(counterReset)
+                							.withMax(blockDim*blockDim)
+                							.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP);
+			Counter blockReadAddrCounter = control.count.makeCounter(blockReadAddrParam);
+			DFEVar blockReadAddr = blockReadAddrCounter.getCount();
+			
     			// XAddr - inner loop
     			DFEVar XAddrCounterReset = counterReset | (isUpShifting & (blockAddr===blockDim));
 			Count.Params XAddrCounterParam = control.count.makeParams(MathUtils.bitsToAddress(blockDim))
@@ -423,7 +432,7 @@ class RMem extends KernelLib{
 			AddrGenerator LeftShiftWriteAddrCounter = new AddrGenerator(owner, 1, blockDim*blockDim, LeftShiftCounterReset);
 			DFEVar LeftShiftWriteAddr = LeftShiftWriteAddrCounter.getAddr();
 			DFEVar LeftShiftWriteAddrValid = LeftShiftWriteAddrCounter.isValid();
-			DFEVar LeftShiftPortData = (XAddr===0)	? fromRightBlock : readItem;
+			DFEVar LeftShiftPortData = (XAddr===0)	? stream.offset(fromRightBlock, -1) : readItem;
 			DFEVar LeftShiftPortEn = isLeftShifting & LeftShiftWriteAddrValid & ((X>RShrinkPosBaseAddr) | ((X===RShrinkPosBaseAddr) & ((XAddr > RShrinkPosOffsetAddr) | (XAddr===0))) );
 
 			// Write Data - RShrink Overall 
@@ -436,7 +445,7 @@ class RMem extends KernelLib{
 			
 			// ReadAddr
 			optimization.pushPipeliningFactor(0);
-			readAddr <== isFetching ? FetchReadAddr : blockAddr;
+			readAddr <== isFetching ? FetchReadAddr : blockReadAddr;
 			optimization.popPipeliningFactor();
 			
 			// Stream Offset
@@ -457,7 +466,9 @@ class RMem extends KernelLib{
 
 //			if ((X==0) && (Y==0)) debug.simPrintf((isInit | isEnlarging) & (PortWrEnUnOffseted | PortWrEn), "[%4d] [RBlock00] Block[%3d]=>%f, beta[%d]=%f, beta[%d]=%f, gammaInv=%f, Block[%3d]<=%f, En=%d (R+=%d, R-=%d) | Offseted: Block[%3d]<=%f, En=%d \n", control.count.simpleCounter(32), readAddr, readItem, XAddr, betaX, YAddr, betaY, gammaInv, PortAddrUnOffseted, PortDataUnOffseted, PortWrEnUnOffseted, REnlargePortEn, RShrinkPortEn, PortAddr, PortData, PortWrEn);
 
-//			if ((X==0) && (Y==0)) debug.simPrintf((PortWrEnUnOffseted | PortWrEn), "[%4d] [RBlock00] Block[%3d]=>%f, XElem[%d]=%f, YElem[%d]=%f, KElemInv=%f, Block[%3d]<=%f, En=%d | Offseted: Block[%3d]<=%f, En=%d \n", control.count.simpleCounter(32), readAddr, readItem, XAddr, XElem, YAddr, YElem, KElemInv, PortAddrUnOffseted, PortDataUnOffseted, PortWrEnUnOffseted, PortAddr, PortData, PortWrEn);
+//			if ((X==0) && (Y==0)) debug.simPrintf((PortWrEnUnOffseted | PortWrEn), "[%4d] [RBlock00] Block[%3d]=>%f, XElem[%d]=%f, YElemKElemInv[%d]=%f, Block[%3d]<=%f, En=%d | Offseted: Block[%3d]<=%f, En=%d \n", control.count.simpleCounter(32), readAddr, readItem, XAddr, XElem, YAddr, YElemKElemInv, PortAddrUnOffseted, PortDataUnOffseted, PortWrEnUnOffseted, PortAddr, PortData, PortWrEn);
+			
+//			if ((X==1) && (Y==0)) debug.simPrintf((PortWrEnUnOffseted | PortWrEn), "[%4d] [RBlock10] Block[%3d]=>%f, XElem[%d]=%f, YElemKElemInv[%d]=%f, Block[%3d]<=%f, En=%d | Offseted: Block[%3d]<=%f, En=%d | toLeftBlock=%f \n", control.count.simpleCounter(32), readAddr, readItem, XAddr, XElem, YAddr, YElemKElemInv, PortAddrUnOffseted, PortDataUnOffseted, PortWrEnUnOffseted, PortAddr, PortData, PortWrEn, toLeftBlock);
 
 		}
 	

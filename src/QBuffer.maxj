@@ -37,16 +37,10 @@ class QBuffer extends KernelLib{
 		
 		/////////////////////// Address for Data Read ///////////////////////
 
-                // Control for Data Read
-                AddrGenerator QBufReadCounter = new AddrGenerator(owner, 1, blockDim*blockDim, beginRead);
-                DFEVar isReading = QBufReadCounter.isValid();
-                
-                // Address for Data Read
 		Count.Params ReadAddrParam = control.count.makeParams(MathUtils.bitsToAddress(blockDim))
                 							.withInitValue(0)
                 							.withReset(beginRead)
                 							.withMax(blockDim)
-                							.withEnable(isReading)
                 							.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP);
 		Counter ReadAddrCounter = control.count.makeCounter(ReadAddrParam);
                 DFEVar AddrRead = ReadAddrCounter.getCount();

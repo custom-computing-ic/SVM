@@ -16,9 +16,9 @@ public class SimpleDataTest {
 		
 		final int numTicks = 45000;
 		final int numBlocks = 4;
-		final int blockDim = 20;
+		final int blockDim = 4;
 		final int dataDim = 1;
-		final int streamLength = 8;
+		final int streamLength = 14;
 
 		/////////////////////// Kernel and Manager ///////////////////////
 		
@@ -57,11 +57,11 @@ public class SimpleDataTest {
 		
 		/////////////////////// Set Input Data ///////////////////////
 
-		double [][] Xc = {{2}, {3}, {4}, {5}, {6}, {7}, {8}, {9}};
-		double [] Yc = {1402.109985, 1403.449951, 1441.469971, 1457.599976, 1438.560059, 1432.250000, 1449.680054, 1465.150024};
+		double [][] Xc = {{2}, {3}, {4}, {5}, {6}, {7}, {8}, {9},{10},{11},{12},{13},{14},{15}};
+		double [] Yc = {1402.109985, 1403.449951, 1441.469971, 1457.599976, 1438.560059, 1432.250000, 1449.680054, 1465.150024,
+						1455.140015, 1455.900024, 1445.569946, 1441.359985, 1401.530029, 1410.030029};
 		
-		List<Bits> XcRawBits = Def.FloatVectorDataGenerator(Xc, 8, 1);
-		
+		List<Bits> XcRawBits = Def.FloatVectorDataGenerator(Xc, streamLength, dataDim);
 		mgr.setInputDataRaw("Xc", XcRawBits);
 		mgr.setInputData("Yc", Yc);
 		

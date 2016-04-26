@@ -55,9 +55,6 @@ class Def {
 
 	// Data Y Type: used by dataY and b
 	public static final DFEType DataYType = KernelLib.dfeFixOffset(64, -40, SignMode.TWOSCOMPLEMENT);
-
-	// Default CalcType
-	public static final DFEType CalcType = KernelLib.dfeFloat(8, 24);
 	
 	// Q Type
 	public static final DFEType QType = KernelLib.dfeFixOffset(40, -39, SignMode.UNSIGNED);
@@ -80,7 +77,7 @@ class Def {
 	public static final DFEType hXiType = FixType;
 	
 	// BookKeeping Type
-	public static final double BookKeepingTH = 16000;
+	public static final double BookKeepingTH = 8000000;
 	public static final DFEType BookKeepingType = KernelLib.dfeFixOffset(64, -40, SignMode.TWOSCOMPLEMENT);
 
 

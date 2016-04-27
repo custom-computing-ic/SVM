@@ -330,7 +330,7 @@ class SVMStateMachine extends KernelStateMachine {
 		// Write Address for QBuffer
 		QBufWriteOffsetAddrCount 	= state.value(OffsetAddrType, 0);
 		
-		// Group
+		// Group: 0=N, 1=S, 2=E, 3=R, 4=C
 		Group = mem.ramMappedDualPort("Group", GroupType, WinSize, DualPortRAMMode.READ_ONLY, DualPortRAMMode.WRITE_ONLY, Latency.ONE_CYCLE);
 
         }
@@ -338,58 +338,87 @@ class SVMStateMachine extends KernelStateMachine {
 	@Override
 	protected void nextState() {
 	
-		////////////////////////// Debug /////////////////////////	
+		////////////////////////// Debug /////////////////////////
 		
 		Tick.next <== Tick + 1;
 		IF (subTick===0) debug.simPrintf("[%4d] sMode = %4s | [%4d] subMode = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d \n", Tick, sMode, subTick, subMode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos);
 //		IF (subMode === subModes.BOOKKEEPING_PRE | subMode === subModes.BOOKKEEPING_C | subMode === subModes.BOOKKEEPING_N | subMode === subModes.BOOKKEEPING_S) debug.simPrintf("[%4d] sMode = %4s | [%4d] subMode = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d | Group[prev]=%d \n", Tick, sMode, subTick, subMode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos, Group.dataOutA);
 		
-		
+		////////////////////////// Default /////////////////////////
 
-		// Don't write to Group unless told to do so.	
+//		sMode.next <== Modes.IDLE;
+//		subMode.next <== subModes.SUBIDLE;
 		Group.writeEnableB <== false;
 
-		////////////////////////// Mode Control /////////////////////////
+		////////////////////////// sMode /////////////////////////
 		
 		SWITCH(sMode) {
-			// Default Mode: IDLE
+			// IDLE
 			CASE(Modes.IDLE) {
-				IF (CurSize<WinSize) {
-					sMode.next <== Modes.INC;
-					subMode.next <== subModes.QUPDATE;
-				}
-				ELSE{
-					// TODO: Control Logic for Decremental Training 
-					sMode.next <== Modes.DEC;
-				}
+				IF (CurSize<WinSize) {sMode.next <== Modes.INC;}
+				ELSE {sMode.next <== Modes.DEC;} // TODO: Control Logic for Decremental Training
 				TickCount.next <== 0;
 				subTick.next <== 0;
                         }
                         // Incremental Training
                         CASE(Modes.INC) {
+				TickCount.next <== TickCount + 1;
                         	IF (hasFinished === true) {
                         		// Xc joins R and terminate
-                        		Group.addressB <== GroupIndexXcCount;
-					Group.dataInB <== 3;
-					Group.writeEnableB <== true;
+                        		groupWrite(GroupIndexXcCount, 'R');
 					NMaskBase.add(BaseAddrXcCount);
 					NMaskOffset.add(OffsetAddrXcCount);
 					NMaskGroupIndex.add(GroupIndexXcCount);
                         		sMode.next <== Modes.INCFINISH;
                         	}
+                        }
+                        // Decremental Training
+			CASE(Modes.DEC) {
+				TickCount.next <== TickCount + 1;
+                        	IF (hasFinished === true) {
+                        		sMode.next <== Modes.IDLE;
+                        		CurSize.next <== CurSize - 1;
+                        	}
+                        }
+                        // Incremental Training Finished
+                        CASE(Modes.INCFINISH) {
+                        	// Incremental Training has finished, return to IDLE
+				// Update CurSize, and Xc Addr
+                        	sMode.next <== Modes.IDLE;
+                       		subMode.next <== subModes.SUBIDLE;
+                    		CurSize.next <== CurSize + 1;
+                   		IF (OffsetAddrXcCount === (blockDim-1)) {
+                     			OffsetAddrXcCount.next <== 0;
+                        		IF (BaseAddrXcCount === (numBlocks-1)) {BaseAddrXcCount.next <== 0;}
+                        		ELSE {BaseAddrXcCount.next <== BaseAddrXcCount + 1;}
+                        	}
                         	ELSE {
-                        		// During the Incremental Training Process
-                        		TickCount.next <== TickCount + 1;
-                        		SWITCH(subMode) {
-                        			// Step1: Updating Matrix Q
-                        			CASE(subModes.QUPDATE) {
-                        				subTick.next <== subTick + 1;
-                        				IF (hasQUpdateFinished === true) {
-                        					subMode.next <== subModes.BOOKKEEPING_PRE; 
-                        					subTick.next <== 0;
-                        				}
-                        			}
-                        			// Starting Point of BookKeeping
+                        		OffsetAddrXcCount.next <== OffsetAddrXcCount + 1;
+                        	}
+                        	IF (GroupIndexXcCount === (WinSize-1)) {GroupIndexXcCount.next <== 0;}
+                        	ELSE {GroupIndexXcCount.next <== GroupIndexXcCount + 1;}
+                        }
+                        
+                } // end of SWITCH(sMode)
+                
+
+		////////////////////////// subMode /////////////////////////
+                
+                SWITCH(subMode) {
+                	// SUBIDLE
+                	CASE(subModes.SUBIDLE) {
+                		IF (sMode === Modes.INC) {subMode.next <== subModes.QUPDATE;}
+                		ELSE {subMode.next <== subModes.SUBIDLE;} // TODO: Control for decremental training
+                	}
+			// QUPDATE - INC only
+			CASE(subModes.QUPDATE) {
+				subTick.next <== subTick + 1;
+				IF (hasQUpdateFinished === true) {
+					subMode.next <== subModes.BOOKKEEPING_PRE;
+					subTick.next <== 0;
+				}
+			}
+                        			// BOOKKEEPING_PRE
                         			CASE(subModes.BOOKKEEPING_PRE) {
                             				IF (~SMaskBase.isEmpty()) {
                         					// Non-Empty S - goto FetchQ
@@ -500,12 +529,11 @@ class SVMStateMachine extends KernelStateMachine {
 							SWITCH(BKFlag) {
 								CASE(0) {
 									// Xc Joins R and terminate
-									Group.addressB <== GroupIndexXcCount;
-									Group.dataInB <== 3;
-									Group.writeEnableB <== true;
+									groupWrite(GroupIndexXcCount, 'R');
 									NMaskBase.add(BaseAddrXcCount);
 									NMaskOffset.add(OffsetAddrXcCount);
 									NMaskGroupIndex.add(GroupIndexXcCount);
+									subMode.next <== subModes.SUBIDLE;
 									sMode.next <== Modes.INCFINISH;
 									
 									debug.simPrintf("[%4d] =======> Item[%d] joins R, becomes NMask[%d] (Base=%d, Offset=%d, GroupIndex=%d).\n", Tick, GroupIndexXcCount, NMaskBase.size(), BaseAddrXcCount, OffsetAddrXcCount, GroupIndexXcCount);
@@ -546,12 +574,11 @@ class SVMStateMachine extends KernelStateMachine {
 									// Xc joins S and terminate
 									subTick.next <== subTick + 1;
 									IF (subTick === blockDim*blockDim + REnlargeLatency) {
-                        							Group.addressB <== GroupIndexXcCount;
-										Group.dataInB <== 1;
-										Group.writeEnableB <== true;
+										groupWrite(GroupIndexXcCount, 'S');
 										SMaskBase.add(BaseAddrXcCount);
 										SMaskOffset.add(OffsetAddrXcCount);
 										SMaskGroupIndex.add(GroupIndexXcCount);
+										subMode.next <== subModes.SUBIDLE;
 										sMode.next <== Modes.INCFINISH;
 										
 										debug.simPrintf("[%4d] =======> Item[%d] joins S, becomes SMask[%d] (Base=%d, Offset=%d, GroupIndex=%d).\n", Tick, GroupIndexXcCount, SMaskBase.size(), BaseAddrXcCount, OffsetAddrXcCount, GroupIndexXcCount);
@@ -559,13 +586,12 @@ class SVMStateMachine extends KernelStateMachine {
 								}
 								CASE(6) {
 									// Xc joins E and terminate
-									Group.addressB <== GroupIndexXcCount;
-									Group.dataInB <== 2;
-									Group.writeEnableB <== true;
+									groupWrite(GroupIndexXcCount, 'E');
 									NMaskBase.add(BaseAddrXcCount);
 									NMaskOffset.add(OffsetAddrXcCount);
 									NMaskGroupIndex.add(GroupIndexXcCount);
 									sMode.next <== Modes.INCFINISH;
+									subMode.next <== subModes.SUBIDLE;
 									
 									debug.simPrintf("[%4d] =======> Item[%d] joins E, becomes NMask[%d] (Base=%d, Offset=%d, GroupIndex=%d).\n", Tick, GroupIndexXcCount, NMaskBase.size(), BaseAddrXcCount, OffsetAddrXcCount, GroupIndexXcCount);
 								}
@@ -616,8 +642,9 @@ class SVMStateMachine extends KernelStateMachine {
 										subMode.next <== subModes.MOVES2R;
 									}
 								}
+//								CASE(15) {}
 								
-							}
+							} // end of switch (BKFLAG)
 						}
 						// Move item from N to S : Fetch Q
 						CASE(subModes.MOVEFETCHQ) {
@@ -700,48 +727,15 @@ class SVMStateMachine extends KernelStateMachine {
                         				subMode.next <== subModes.BOOKKEEPING_PRE;	
                         				
                         				debug.simPrintf("[%4d] =======> Item[%d] moves from S to R.\n", Tick, SMaskGroupIndex.get(BookKeepingIndex));
-                        			}                      			
-                        			
-                        		}
-
-                        	}
-                        }
-                        // During Decremental Training
-			CASE(Modes.DEC) {
-                        	IF (hasFinished === true) {
-                        		sMode.next <== Modes.IDLE;
-                        		CurSize.next <== CurSize - 1;
-                        	}
-                        	ELSE {
-                        		TickCount.next <== TickCount + 1;
-                        	}                    	
-
-                        }
-                        // Incremental Training Finished
-                        CASE(Modes.INCFINISH) {
-                        	// Incremental Training has finished, return to IDLE
-				// Update CurSize, and Xc Addr
-                        	sMode.next <== Modes.IDLE;
-                       		subMode.next <== subModes.SUBIDLE;
-                    		CurSize.next <== CurSize + 1;
-                   		IF (OffsetAddrXcCount === (blockDim-1)) {
-                     			OffsetAddrXcCount.next <== 0;
-                        		IF (BaseAddrXcCount === (numBlocks-1)) {BaseAddrXcCount.next <== 0;}
-                        		ELSE {BaseAddrXcCount.next <== BaseAddrXcCount + 1;}
-                        	}
-                        	ELSE {
-                        		OffsetAddrXcCount.next <== OffsetAddrXcCount + 1;
-                        	}
-                        	IF (GroupIndexXcCount === (WinSize-1)) {GroupIndexXcCount.next <== 0;}
-                        	ELSE {GroupIndexXcCount.next <== GroupIndexXcCount + 1;}
-                        }
-                        
-                } // end of SWITCH(sMode)
+						}
 
 
-		////////////////////////// SMask /////////////////////////
+		}
+
+
+		////////////////////////// Mask /////////////////////////
 		
-		// Iterating
+		// SMask
 		SWITCH(SMaskMode) {
 			CASE (maskModes.ITERATE) {
 				IF (SMaskBase.size() <= 1) {SMaskMode.next <== maskModes.MASKIDLE; SMaskPos.next <== 0;}
@@ -755,10 +749,8 @@ class SVMStateMachine extends KernelStateMachine {
 				SMaskPos.next <== 0;				
 			}
 		}
-
-		////////////////////////// NMask /////////////////////////
 		
-		// Iterating
+		// NMask
 		SWITCH(NMaskMode) {
 			CASE (maskModes.ITERATE) {
 				IF (NMaskBase.size() <= 1) {NMaskMode.next <== maskModes.MASKIDLE; NMaskPos.next <== 0;}
@@ -782,7 +774,7 @@ class SVMStateMachine extends KernelStateMachine {
         	EnInput <== (sMode === Modes.INC) & (TickCount === 0);
         	
 		// INC or DEC
-		isInc <== (sMode === Modes.INC);    	
+		isInc <== (sMode === Modes.INC);
         	
         	// Size
         	SSize <== SMaskBase.size();
@@ -913,6 +905,22 @@ class SVMStateMachine extends KernelStateMachine {
 		Group.addressA 	<== NMaskGroupIndex.get(0);
 		BKCount.next 	<== 0;
 	}
+	
+	// write to group array
+	private void groupWrite(DFEsmStateValue index, char data) {
+		int wrData;
+		switch (data) {
+			case 'S': wrData = 1; break;
+			case 'E': wrData = 2; break;
+			case 'R': wrData = 3; break;
+			case 'C': wrData = 4; break;
+			default: wrData = 0; break;
+		}
+		Group.addressB <== index;
+		Group.dataInB <== wrData;
+		Group.writeEnableB <== true;
+	}
+	
         
 }
 

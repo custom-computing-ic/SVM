@@ -482,12 +482,12 @@ class SVMKernel extends Kernel {
 		// hXc calculation
 		debug.simPrintf(EnInput, "\n[%4d]--------[NEW INPUT]-------(Xc[%d][%d],Yc)=(%f,%f)--------------------- b=%.12f ----------------------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc, b);
 		//debug.simPrintf(isProcessingNewXc, "[%4d] Addr=%2d, En=%d | Q[0:3]=(%.4f,%.4f,%.4f,%.4f) theta[0:3]=(%.4f,%.4f,%.4f,%.4f) | b = %f | hXc = %f, Valid=%d | XcJoinR=%d, hasFinished=%d\n", Tick, blockAddrGen.getAddr(), isProcessingNewXc, QVector[0], QVector[1], QVector[2], QVector[3], thetaVector[0], thetaVector[1], thetaVector[2], thetaVector[3], b, hXiCalcResult, hXcValid, XcJoinR, hasFinished);
-		debug.simPrintf(hasQUpdateFinished, "[%4d] ----------- QUpdate Finished ------------\n", Tick);
+//		debug.simPrintf(hasQUpdateFinished, "[%4d] ----------- QUpdate Finished ------------\n", Tick);
 		debug.simPrintf(hasFinished, "[%4d] (Xc[%d][%d],Yc) = (%f,%f) joins R. \n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
 		
 		// BookKeeping
 		debug.simPrintf(beginBookKeeping, "[%4d] ----------- Begin BookKeeping ------------\n", Tick);
-		debug.simPrintf(BookKeepingValid, "[%4d] N[%d] S[%d] Sel=%d | hXi[%d]=%f, betaSeq=%f, thetaSeq=%f \n                           bC[0]=%f, bE[1]=%f, bR[2]=%f, LC[3]=%f, LS[4]=%f, LE[5]=%f, LR[6]=%f\n", Tick, IndexNMask, IndexSMask, BKSel, hXiRdAddr, hXi, betaSeq, thetaSeq, bC, bE, bR, LC, LS, LE, LR);
+//		debug.simPrintf(BookKeepingValid, "[%4d] N[%d] S[%d] Sel=%d | hXi[%d]=%f, betaSeq=%f, thetaSeq=%f \n                           bC[0]=%f, bE[1]=%f, bR[2]=%f, LC[3]=%f, LS[4]=%f, LE[5]=%f, LR[6]=%f\n", Tick, IndexNMask, IndexSMask, BKSel, hXiRdAddr, hXi, betaSeq, thetaSeq, bC, bE, bR, LC, LS, LE, LR);
 		debug.simPrintf(beginUpdate, "[%4d] =======> BookKeeping Result: Flag=%d, Index=%d, minL = %e ------------\n", Tick, BookKeepingFlag, BookKeepingIndex, minL);
 		
 		// Q Fetch
@@ -495,13 +495,13 @@ class SVMKernel extends Kernel {
 		
 		// gamma Calc
 //		debug.simPrintf(isGammaKCalculating, "[%4d] [GammaKCalc] beginGammaKCalc=%d | QVal([%d][%d], [%d][%d])=%.12f\n", Tick, beginGammaKCalc, BaseAddrRow, OffsetAddrRow, BaseAddrCol, OffsetAddrCol, MatrixQ.getQVal());
-		debug.simPrintf(GammaResultValid, "[%4d] [GammaCalc] BG CVK=%d%d%d, CVK=%d%d%d | N=%d, S=%d, NMask[%d], SMask[%d] | Beta=%2.6f, Result=%.12f, Valid=%d | Gamma[C]=%.12f, Gamma[K]=%.12f\n", Tick, beginGammaCCalc, beginGammaVCalc, beginGammaKCalc, isGammaCCalculating, isGammaVCalculating, isGammaKCalculating, NSize, SSize, IndexNMask, IndexSMask, betaSeq, GammaResult, GammaResultValid, gamma_c, gamma_k);
+//		debug.simPrintf(GammaResultValid, "[%4d] [GammaCalc] BG CVK=%d%d%d, CVK=%d%d%d | N=%d, S=%d, NMask[%d], SMask[%d] | Beta=%2.6f, Result=%.12f, Valid=%d | Gamma[C]=%.12f, Gamma[K]=%.12f\n", Tick, beginGammaCCalc, beginGammaVCalc, beginGammaKCalc, isGammaCCalculating, isGammaVCalculating, isGammaKCalculating, NSize, SSize, IndexNMask, IndexSMask, betaSeq, GammaResult, GammaResultValid, gamma_c, gamma_k);
 
 		// hXi update
-		debug.simPrintf(hXiWrEn, "[%4d] [hXiUpdate] hXi[%d] <= %.12f, En=%d \n", Tick, hXiWrAddr, hXiWrData, hXiWrEn);
+//		debug.simPrintf(hXiWrEn, "[%4d] [hXiUpdate] hXi[%d] <= %.12f, En=%d \n", Tick, hXiWrAddr, hXiWrData, hXiWrEn);
 		
 		// b update
-		debug.simPrintf(bWrEnOffseted, "[%4d] [bUpdate] b <= %.12f \n", Tick, bWrDataOffseted);
+//		debug.simPrintf(bWrEnOffseted, "[%4d] [bUpdate] b <= %.12f \n", Tick, bWrDataOffseted);
 
 
 		////////////////////////// Simple Kernel /////////////////////////

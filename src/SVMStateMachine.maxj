@@ -139,6 +139,9 @@ class SVMStateMachine extends KernelStateMachine {
         private final DFEsmStateValue TickCount;
         private final DFEsmStateValue subTick;
         private final DFEsmStateValue BKCount;
+        private final DFEsmStateValue GammaCount;
+        private final DFEsmStateValue UpdateCount;
+        private final DFEsmStateValue FetchQCount;
         
         // Mode and subMode
         private final DFEsmStateEnum<Modes> sMode;
@@ -171,6 +174,12 @@ class SVMStateMachine extends KernelStateMachine {
         
         // Group
 	private final DFEsmDualPortMappedRAM Group;
+
+
+        ////////////////////////// State Variables for Output /////////////////////////
+
+	// beginBetaCalc
+	private final DFEsmStateValue toBeginBetaCalc;
         
         
 	 ////////////////////////// Parameters /////////////////////////    
@@ -205,7 +214,7 @@ class SVMStateMachine extends KernelStateMachine {
 
                 ////////////////////////// Types /////////////////////////
 
-		DFEsmValueType BoolType 		= dfeUInt(1);
+		DFEsmValueType BoolType 		= dfeBool();
 		DFEsmValueType BaseAddrType 	= dfeUInt(MathUtils.bitsToAddress(numBlocks));
 		DFEsmValueType OffsetAddrType = dfeUInt(MathUtils.bitsToAddress(blockDim));
 		DFEsmValueType PosType 		= dfeUInt(MathUtils.bitsToAddress(WinSize));
@@ -300,6 +309,9 @@ class SVMStateMachine extends KernelStateMachine {
 		TickCount 			= state.value(TickType, 0);
 		subTick 				= state.value(TickType, 0);
 		BKCount 			= state.value(CountType, 0);
+		GammaCount 		= state.value(CountType, 0);
+		UpdateCount 		= state.value(CountType, 0);
+		FetchQCount 			= state.value(CountType, 0);
 		
 		// Mode and subMode
 		sMode 				= state.enumerated(Modes.class, Modes.IDLE);
@@ -332,6 +344,11 @@ class SVMStateMachine extends KernelStateMachine {
 		
 		// Group: 0=N, 1=S, 2=E, 3=R, 4=C
 		Group = mem.ramMappedDualPort("Group", GroupType, WinSize, DualPortRAMMode.READ_ONLY, DualPortRAMMode.WRITE_ONLY, Latency.ONE_CYCLE);
+		
+		
+        	////////////////////////// Init State Variables for Output /////////////////////////
+        		
+		toBeginBetaCalc 		= state.value(BoolType, false);
 
         }
         
@@ -341,14 +358,14 @@ class SVMStateMachine extends KernelStateMachine {
 		////////////////////////// Debug /////////////////////////
 		
 		Tick.next <== Tick + 1;
-		IF (subTick===0) debug.simPrintf("[%4d] sMode = %4s | [%4d] subMode = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d \n", Tick, sMode, subTick, subMode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos);
+//		IF (subTick===0) debug.simPrintf("[%4d] sMode = %4s | [%4d] subMode = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d \n", Tick, sMode, subTick, subMode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos);
 //		IF (subMode === subModes.BOOKKEEPING_PRE | subMode === subModes.BOOKKEEPING_C | subMode === subModes.BOOKKEEPING_N | subMode === subModes.BOOKKEEPING_S) debug.simPrintf("[%4d] sMode = %4s | [%4d] subMode = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d | Group[prev]=%d \n", Tick, sMode, subTick, subMode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos, Group.dataOutA);
 		
 		////////////////////////// Default /////////////////////////
 
-//		sMode.next <== Modes.IDLE;
-//		subMode.next <== subModes.SUBIDLE;
-		Group.writeEnableB <== false;
+		Group.writeEnableB 		<== false;
+		toBeginBetaCalc.next 		<== false;
+
 
 		////////////////////////// sMode /////////////////////////
 		
@@ -392,9 +409,7 @@ class SVMStateMachine extends KernelStateMachine {
                         		IF (BaseAddrXcCount === (numBlocks-1)) {BaseAddrXcCount.next <== 0;}
                         		ELSE {BaseAddrXcCount.next <== BaseAddrXcCount + 1;}
                         	}
-                        	ELSE {
-                        		OffsetAddrXcCount.next <== OffsetAddrXcCount + 1;
-                        	}
+                        	ELSE {OffsetAddrXcCount.next <== OffsetAddrXcCount + 1;}
                         	IF (GroupIndexXcCount === (WinSize-1)) {GroupIndexXcCount.next <== 0;}
                         	ELSE {GroupIndexXcCount.next <== GroupIndexXcCount + 1;}
                         }
@@ -412,117 +427,115 @@ class SVMStateMachine extends KernelStateMachine {
                 	}
 			// QUPDATE - INC only
 			CASE(subModes.QUPDATE) {
-				subTick.next <== subTick + 1;
-				IF (hasQUpdateFinished === true) {
-					subMode.next <== subModes.BOOKKEEPING_PRE;
-					subTick.next <== 0;
+				IF (hasQUpdateFinished === true) subMode.next <== subModes.BOOKKEEPING_PRE;
+			}
+                        // BOOKKEEPING_PRE
+                        CASE(subModes.BOOKKEEPING_PRE) {
+				IF (~SMaskBase.isEmpty()) {
+                        		// Non-Empty S - goto FetchQ
+                        		subMode.next <== subModes.FETCHQ;
+                        		FetchQCount.next <== 0;
+                        		SMaskPos.next <== 0;
+                        		SMaskMode.next <== maskModes.ITERATE;
+                        		QBufWriteOffsetAddrCount.next <== 1;
+					NMaskPos.next <== 0;
+                        	}
+                        	ELSE {
+                        		// EmptyS - goto bookkeeping_c
+                        		gotoBookKeeping_C();
+                        	}
+                        }
+                        // FETCHQ
+                        CASE(subModes.FETCHQ) {
+				FetchQCount.next <== FetchQCount + 1;
+                        	// Write Address for Q Buffer
+                        	IF (QBufWriteOffsetAddrCount === (blockDim-1)) QBufWriteOffsetAddrCount.next <== 0;
+                        	ELSE QBufWriteOffsetAddrCount.next <== QBufWriteOffsetAddrCount + 1;
+                        	// SMask iteration + padding zero
+                        	IF (FetchQCount === WinSize-2)  {
+                        		subMode.next <== subModes.BETACALC;
+                        		toBeginBetaCalc.next <== true;
+                        	}
+                        }
+                        // BETACALC
+                        CASE(subModes.BETACALC) {
+                        	IF (hasBetaCalcFinished === true) {
+                        		subMode.next <== subModes.GAMMACCALC;
+                        		GammaCount.next <== 0;
+                        	}
+                        }
+                        // GAMMACCALC
+                        CASE(subModes.GAMMACCALC) {
+                        	GammaCount.next <== GammaCount + 1;
+				IF (GammaCount === 0) {SMaskMode.next <== maskModes.ITERATE; SMaskPos.next <== 0;}
+                        	IF (GammaCount === SMaskBase.size().cast(dfeUInt(16))) {
+                        		IF (~NMaskBase.isEmpty()) {
+                        			subMode.next <== subModes.GAMMAVCALC;
+						SMaskPos.next <== 0;
+						NMaskPos.next <== 0;
+						GammaCount.next <== 0;               						
+                        		}
+                        		ELSE gotoBookKeeping_C();
+                        	}
+                        }
+                        // GAMMAVCALC
+                        CASE(subModes.GAMMAVCALC) {
+                        	GammaCount.next <== GammaCount + 1;
+                        	IF (GammaCount === 0) {SMaskMode.next <== maskModes.ITERATE; SMaskPos.next <== 0;}
+                        	IF (GammaCount === SMaskBase.size().cast(dfeUInt(16))) {
+                        		IF ((NMaskPos.cast(dfeUInt(MathUtils.bitsToRepresent(WinSize))) === NMaskBase.size()-1)) {
+                        			subMode.next <== subModes.GAMMAVCALCWAIT;
+                        		}
+                        		ELSE {NMaskPos.next <== NMaskPos+1;}
+                        		GammaCount.next <== 0; 
+                        	}
+                        }
+			// GAMMAVCALCWAIT
+                        CASE(subModes.GAMMAVCALCWAIT) {
+                        	IF (hasGammaVCalcFinished === true) gotoBookKeeping_C();
+                        }
+                        // BOOKKEEPING_C
+			CASE(subModes.BOOKKEEPING_C) {
+				IF (~NMaskBase.isEmpty()) gotoBookKeeping_N();
+				ELSE {
+					IF (~SMaskBase.isEmpty()) gotoBookKeeping_S();
+					ELSE gotoUpdate();
 				}
 			}
-                        			// BOOKKEEPING_PRE
-                        			CASE(subModes.BOOKKEEPING_PRE) {
-                            				IF (~SMaskBase.isEmpty()) {
-                        					// Non-Empty S - goto FetchQ
-                        					subMode.next <== subModes.FETCHQ;
-                        					SMaskPos.next <== 0;
-                        					SMaskMode.next <== maskModes.ITERATE;
-                        					QBufWriteOffsetAddrCount.next <== 1;
-								NMaskPos.next <== 0;
-								subTick.next <== 0;
-                        				}
-                        				ELSE {
-                        					// EmptyS - goto bookkeeping_c
-                        					gotoBookKeeping_C();
-                        				}
-                        			}
-                        			// Fetching a row of Q
-                        			CASE(subModes.FETCHQ) {
-							subTick.next <== subTick + 1;
-                        				// Write Address for Q Buffer
-                        				IF (QBufWriteOffsetAddrCount === (blockDim-1)) {QBufWriteOffsetAddrCount.next <== 0;}
-                        				ELSE {QBufWriteOffsetAddrCount.next <== QBufWriteOffsetAddrCount + 1;}
-                        				// SMask iteration + padding zero
-                        				IF (subTick === WinSize-2)  {subMode.next <== subModes.BETACALC; subTick.next <== 0;}
-                        			}
-                        			// Calculating beta
-                        			CASE(subModes.BETACALC) {
-                        				subTick.next <== subTick + 1;
-                        				IF (hasBetaCalcFinished === true) {
-                        					subMode.next <== subModes.GAMMACCALC;
-                        					subTick.next <== 0;
-                        				}
-                        			}
-                        			// Calculating gamma_c
-                        			CASE(subModes.GAMMACCALC) {
-                        				subTick.next <== subTick + 1;
-							IF (subTick === 0) {SMaskMode.next <== maskModes.ITERATE; SMaskPos.next <== 0;}
-                        				IF (subTick === SMaskBase.size().cast(dfeUInt(32))) {
-                        					IF (~NMaskBase.isEmpty()) {
-                        						subMode.next <== subModes.GAMMAVCALC;
-									SMaskPos.next <== 0;
-									NMaskPos.next <== 0;
-									subTick.next <== 0;               						
-                        					}
-                        					ELSE gotoBookKeeping_C();
-                        				}
-                        			}
-                        			// Calculating gamma vector
-                        			CASE(subModes.GAMMAVCALC) {
-                        				subTick.next <== subTick + 1;
-                        				IF (subTick === 0) {SMaskMode.next <== maskModes.ITERATE; SMaskPos.next <== 0;}
-                        				IF (subTick === SMaskBase.size().cast(dfeUInt(32))) {
-                        					IF ((NMaskPos.cast(dfeUInt(MathUtils.bitsToRepresent(WinSize))) === NMaskBase.size()-1)) {
-                        						subMode.next <== subModes.GAMMAVCALCWAIT;
-                        					}
-                        					ELSE {NMaskPos.next <== NMaskPos+1;}
-                        					subTick.next <== 0; 
-                        				}
-                        			}
-                        			// Waiting for gamma vector calculation to finish
-                        			CASE(subModes.GAMMAVCALCWAIT) {
-							subTick.next <== subTick + 1;  // TODO can be removed, kept there just for debug.simPrintf
-                        				IF (hasGammaVCalcFinished === true) gotoBookKeeping_C();
-                        			}
-                        			// Bookkeeping: Xc - only last for one cycle
-						CASE(subModes.BOOKKEEPING_C) {
-							IF (~NMaskBase.isEmpty()) gotoBookKeeping_N();
-							ELSE {
-								IF (~SMaskBase.isEmpty()) gotoBookKeeping_S();
-								ELSE {subMode.next <== subModes.UPDATE; subTick.next <== 0;}
-							}
-						}
-						// Bookkeeping: NMask
-						CASE(subModes.BOOKKEEPING_N) {
-							BKCount.next <== BKCount + 1;
-							Group.addressA <== NMaskGroupIndex.get(NMaskPos);
-							IF (NMaskMode === maskModes.MASKIDLE) {
-								IF (~SMaskBase.isEmpty()) gotoBookKeeping_S();
-								ELSE {subMode.next <== subModes.UPDATE; subTick.next <== 0;}							
-							}
-						}
-						// Bookkeeping: SMask
-						CASE(subModes.BOOKKEEPING_S) {
-							BKCount.next <== BKCount + 1;
-							Group.addressA <== SMaskGroupIndex.get(SMaskPos);
-							IF (SMaskMode === maskModes.MASKIDLE) {subMode.next <== subModes.UPDATE; subTick.next <== 0;}
-						}
-						// Updating Coefficients
-						CASE(subModes.UPDATE) {
-							subTick.next <== subTick + 1;
-							IF (subTick === 0) {
-								SMaskMode.next <== maskModes.ITERATE;
-								NMaskMode.next <== maskModes.ITERATE;							
-							}
-							ELSE {
-								IF ((SMaskMode === maskModes.MASKIDLE) & (NMaskMode === maskModes.MASKIDLE)) {
-									subMode.next <== subModes.UPDATEWAIT;
-									subTick.next <== 0;
-								}
-							}
-						}
-						CASE(subModes.UPDATEWAIT) {
-							subTick.next <== subTick + 1;
-							IF (subTick === BookKeepingLatency) {subMode.next <== subModes.INCFLAG; subTick.next <== 0;}
-						}
+			// BOOKKEEPING_N
+			CASE(subModes.BOOKKEEPING_N) {
+				BKCount.next <== BKCount + 1;
+				Group.addressA <== NMaskGroupIndex.get(NMaskPos);
+				IF (NMaskMode === maskModes.MASKIDLE) {
+					IF (~SMaskBase.isEmpty()) gotoBookKeeping_S();
+					ELSE gotoUpdate();
+				}
+			}
+			// BOOKKEEPING_S
+			CASE(subModes.BOOKKEEPING_S) {
+				BKCount.next <== BKCount + 1;
+				Group.addressA <== SMaskGroupIndex.get(SMaskPos);
+				IF (SMaskMode === maskModes.MASKIDLE) gotoUpdate();
+			}			
+			// UPDATE
+			CASE(subModes.UPDATE) {
+				UpdateCount.next <== UpdateCount + 1;
+				IF (UpdateCount === 0) {
+					SMaskMode.next <== maskModes.ITERATE;
+					NMaskMode.next <== maskModes.ITERATE;							
+				}
+				ELSE {
+					IF ((SMaskMode === maskModes.MASKIDLE) & (NMaskMode === maskModes.MASKIDLE)) {
+						subMode.next <== subModes.UPDATEWAIT;
+						UpdateCount.next <== 0;
+					}
+				}
+			}
+			// UPDATEWAIT
+			CASE(subModes.UPDATEWAIT) {
+				UpdateCount.next <== UpdateCount + 1;
+				IF (UpdateCount === BookKeepingLatency) {subMode.next <== subModes.INCFLAG; subTick.next <== 0;}
+			}
 						// Incremental Training : Checking the flag
 						CASE(subModes.INCFLAG) {
 							subTick.next <== subTick + 1;
@@ -545,12 +558,8 @@ class SVMStateMachine extends KernelStateMachine {
 										IF (subTick === blockDim*2) {subMode.next <== subModes.MOVEN2S;}
 									}
 									ELSE {
-										subMode.next <== subModes.MOVEFETCHQ;
 										NMaskPos.next <== BookKeepingIndex;  // should keep that value through moving process
-										SMaskPos.next <== 0;
-										SMaskMode.next <== maskModes.ITERATE;
-										QBufWriteOffsetAddrCount.next <== 1;
-										subTick.next <== 0;
+										gotoMoveFetchQ();
 									}
 								}
 								CASE(2) { // handled the same way as case 1
@@ -560,19 +569,14 @@ class SVMStateMachine extends KernelStateMachine {
 										IF (subTick === blockDim*2) {subMode.next <== subModes.MOVEN2S;}
 									}
 									ELSE {
-										subMode.next <== subModes.MOVEFETCHQ;
 										NMaskPos.next <== BookKeepingIndex;  // should keep that value through moving process
-										SMaskPos.next <== 0;
-										SMaskMode.next <== maskModes.ITERATE;
-										QBufWriteOffsetAddrCount.next <== 1;
-										subTick.next <== 0;
+										gotoMoveFetchQ();
 									}
 								}
 //								CASE(3) {}
 //								CASE(4) {}
 								CASE(5) {
 									// Xc joins S and terminate
-									subTick.next <== subTick + 1;
 									IF (subTick === blockDim*blockDim + REnlargeLatency) {
 										groupWrite(GroupIndexXcCount, 'S');
 										SMaskBase.add(BaseAddrXcCount);
@@ -597,45 +601,31 @@ class SVMStateMachine extends KernelStateMachine {
 								}
 								CASE(7) {
 									// N[index] moves from S to E
-									subTick.next <== subTick + 1;							
 									// begin RShrink and hXi update when subTick===1
 									SMaskPos.next <== BookKeepingIndex;
 									IF (subTick === RShrinkCycles) {
 										subMode.next <== subModes.MOVES2E;
 									}
 								}
+								
+							
 								CASE(8) {
 									// N[index] moves from E to S
-									subTick.next <== subTick + 1;
 									NMaskPos.next <== BookKeepingIndex; // should keep that value through moving process
-									IF (hasthetaKUpdateFinished === true){
-										subMode.next <== subModes.MOVEFETCHQ;
-										SMaskPos.next <== 0;
-										SMaskMode.next <== maskModes.ITERATE;
-										QBufWriteOffsetAddrCount.next <== 1;
-										subTick.next <== 0;
-									}
+									IF (hasthetaKUpdateFinished === true) gotoMoveFetchQ();
 									
 								}
 								CASE(9) {
 									// N[index] moves from R to S
-									subTick.next <== subTick + 1;
 									NMaskPos.next <== BookKeepingIndex; // should keep that value through moving process
-									IF (hasthetaKUpdateFinished === true){
-										subMode.next <== subModes.MOVEFETCHQ;
-										SMaskPos.next <== 0;
-										SMaskMode.next <== maskModes.ITERATE;
-										QBufWriteOffsetAddrCount.next <== 1;
-										subTick.next <== 0;
-									}
+									IF (hasthetaKUpdateFinished === true) gotoMoveFetchQ();
 								}
 //								CASE(10) {}
 //								CASE(11) {}
 //								CASE(12) {}
 //								CASE(13) {}
 								CASE(14) {
-									// N[index] moves from S to R
-									subTick.next <== subTick + 1;							
+									// N[index] moves from S to R						
 									// begin RShrink and hXi update when subTick===1
 									SMaskPos.next <== BookKeepingIndex;
 									IF (subTick === RShrinkCycles) {
@@ -646,29 +636,31 @@ class SVMStateMachine extends KernelStateMachine {
 								
 							} // end of switch (BKFLAG)
 						}
-						// Move item from N to S : Fetch Q
-						CASE(subModes.MOVEFETCHQ) {
-							subTick.next <== subTick + 1;
-                        				// Write Address for Q Buffer
-                        				IF (QBufWriteOffsetAddrCount === (blockDim-1)) {QBufWriteOffsetAddrCount.next <== 0;}
-                        				ELSE {QBufWriteOffsetAddrCount.next <== QBufWriteOffsetAddrCount + 1;}
-                        				// SMask iteration + padding zero
-                        				IF (subTick === WinSize-2)  {subMode.next <== subModes.MOVEBETACALC; subTick.next <== 0;}						
-						}
+			// MOVEFETCHQ
+			CASE(subModes.MOVEFETCHQ) {
+				FetchQCount.next <== FetchQCount + 1;
+                        	// Write Address for Q Buffer
+                        	IF (QBufWriteOffsetAddrCount === (blockDim-1)) {QBufWriteOffsetAddrCount.next <== 0;}
+                        	ELSE {QBufWriteOffsetAddrCount.next <== QBufWriteOffsetAddrCount + 1;}
+                        	// SMask iteration + padding zero
+                        	IF (FetchQCount === WinSize-2)  {
+                        		subMode.next <== subModes.MOVEBETACALC; 
+                        		toBeginBetaCalc.next <== true;
+                        	}						
+			}
 						// Move item from N to S : Beta Calc
 						CASE(subModes.MOVEBETACALC) {
-                        				subTick.next <== subTick + 1;
                         				IF (hasBetaCalcFinished === true) {
                         					subMode.next <== subModes.GAMMAKCALC;
-                        					subTick.next <== 0;
+                        					GammaCount.next <== 0;
                         				}						
 						}
                         			// Calculating gamma_k
                         			CASE(subModes.GAMMAKCALC) {
-                        				subTick.next <== subTick + 1;
-							IF (subTick === 0) {SMaskMode.next <== maskModes.ITERATE; SMaskPos.next <== 0;}
-                        				IF (subTick === SMaskBase.size().cast(dfeUInt(32))) {
-                        					subTick.next <== 0; 
+                        				GammaCount.next <== GammaCount + 1;
+							IF (GammaCount === 0) {SMaskMode.next <== maskModes.ITERATE; SMaskPos.next <== 0;}
+                        				IF (GammaCount === SMaskBase.size().cast(dfeUInt(16))) {
+                        					subTick.next <== 0;
                         					subMode.next <== subModes.RENLARGEWAIT;
                         				}
                         			}
@@ -781,24 +773,26 @@ class SVMStateMachine extends KernelStateMachine {
         	NSize <== NMaskBase.size();
         	
   		// FetchQ
-		beginFetchQ 			<== (subMode === subModes.FETCHQ) & (subTick === 0);
+		beginFetchQ 			<== (subMode === subModes.FETCHQ) & (FetchQCount === 0);
 		isFetchingQ 			<== (subMode === subModes.FETCHQ);
+		beginMoveFetchQ 	<== (subMode === subModes.MOVEFETCHQ) & (FetchQCount === 0);
+		isMoveFetchingQ 		<== (subMode === subModes.MOVEFETCHQ);
 		QBufWriteOffsetAddr 	<== QBufWriteOffsetAddrCount;
         	
         	// Base and Offset Addresses of Xc, SMask, NMask. Index of SMask and NMask
-		BaseAddrXc 		<== BaseAddrXcCount;
-		OffsetAddrXc 	<== OffsetAddrXcCount;
-		GroupIndexXc 	<== GroupIndexXcCount;
-		BaseAddrSMask 	<== SMaskBase.get(SMaskPos);
-		OffsetAddrSMask 	<== SMaskOffset.get(SMaskPos);
-		IndexSMask 		<== SMaskPos;
-		GroupIndexSMask	<== SMaskGroupIndex.get(SMaskPos);
-		SMaskValid 		<== (SMaskMode !== maskModes.MASKIDLE);
-		BaseAddrNMask 	<== NMaskBase.get(NMaskPos);
-		OffsetAddrNMask 	<== NMaskOffset.get(NMaskPos);
-		IndexNMask 		<== NMaskPos;
-		GroupIndexNMask	<== NMaskGroupIndex.get(NMaskPos);
-		NMaskValid 		<== (NMaskMode !== maskModes.MASKIDLE);
+		BaseAddrXc 			<== BaseAddrXcCount;
+		OffsetAddrXc 		<== OffsetAddrXcCount;
+		GroupIndexXc 		<== GroupIndexXcCount;
+		BaseAddrSMask 		<== SMaskBase.get(SMaskPos);
+		OffsetAddrSMask 		<== SMaskOffset.get(SMaskPos);
+		IndexSMask 			<== SMaskPos;
+		GroupIndexSMask		<== SMaskGroupIndex.get(SMaskPos);
+		SMaskValid 			<== (SMaskMode !== maskModes.MASKIDLE);
+		BaseAddrNMask 		<== NMaskBase.get(NMaskPos);
+		OffsetAddrNMask 		<== NMaskOffset.get(NMaskPos);
+		IndexNMask 			<== NMaskPos;
+		GroupIndexNMask		<== NMaskGroupIndex.get(NMaskPos);
+		NMaskValid 			<== (NMaskMode !== maskModes.MASKIDLE);
 		
 		
 		////////////////////////// BookKeeping /////////////////////////
@@ -855,23 +849,21 @@ class SVMStateMachine extends KernelStateMachine {
 
 
 		// BetaCalc
-		beginBetaCalc 			<== ((subMode === subModes.BETACALC) | (subMode === subModes.MOVEBETACALC)) & (subTick === 0);		
+		beginBetaCalc 			<== toBeginBetaCalc;		
 		
 		// GammaCalc
-		beginGammaCCalc 		<== (subMode === subModes.GAMMACCALC) & (subTick === 0);
+		beginGammaCCalc 		<== (subMode === subModes.GAMMACCALC) & (GammaCount === 0);
 		isGammaCCalculating 		<== (subMode === subModes.GAMMACCALC);
-		beginGammaVCalc 		<== (subMode === subModes.GAMMAVCALC) & (subTick === 0);
+		beginGammaVCalc 		<== (subMode === subModes.GAMMAVCALC) & (GammaCount === 0);
 		isGammaVCalculating 		<== (subMode === subModes.GAMMAVCALC);
+		beginGammaKCalc 		<== (subMode === subModes.GAMMAKCALC) & (GammaCount === 0);
+		isGammaKCalculating 		<== (subMode === subModes.GAMMAKCALC);
 		
-		// Updating
-		beginUpdate 				<== (subMode === subModes.UPDATE) & (subTick === 0);
+		// Update
+		beginUpdate 				<== (subMode === subModes.UPDATE) & (UpdateCount === 0);
 		isUpdating 				<== (subMode === subModes.UPDATE);
 		
 		// Moving Items
-		beginMoveFetchQ 		<== (subMode === subModes.MOVEFETCHQ) & (subTick === 0);
-		isMoveFetchingQ 			<== (subMode === subModes.MOVEFETCHQ);
-		beginGammaKCalc 		<== (subMode === subModes.GAMMAKCALC) & (subTick === 0);
-		isGammaKCalculating 		<== (subMode === subModes.GAMMAKCALC);
 		beginGammaCREnlarge 	<== (subMode === subModes.INCFLAG) & (BKFlag === 5) & (subTick === 0);
 		beginRInit 				<== (subMode === subModes.INCFLAG) & ((BKFlag === 1) | (BKFlag === 2)) & SMaskBase.isEmpty() & (subTick === 0);
 		beginRShrink 			<== (subMode === subModes.INCFLAG) & ((BKFlag === 7) | (BKFlag === 14)) & (subTick === 1);
@@ -906,6 +898,21 @@ class SVMStateMachine extends KernelStateMachine {
 		BKCount.next 	<== 0;
 	}
 	
+	// goto Update
+	private void gotoUpdate() {
+		subMode.next 	<== subModes.UPDATE;
+		UpdateCount.next <== 0;
+	}
+	
+	// goto MoveFetchQ
+	private void gotoMoveFetchQ() {
+		subMode.next <== subModes.MOVEFETCHQ;
+		SMaskPos.next <== 0;
+		SMaskMode.next <== maskModes.ITERATE;
+		QBufWriteOffsetAddrCount.next <== 1;
+		FetchQCount.next <== 0;	
+	}
+	
 	// write to group array
 	private void groupWrite(DFEsmStateValue index, char data) {
 		int wrData;
@@ -920,7 +927,6 @@ class SVMStateMachine extends KernelStateMachine {
 		Group.dataInB <== wrData;
 		Group.writeEnableB <== true;
 	}
-	
         
 }
 

@@ -117,12 +117,10 @@ class SVMKernel extends Kernel {
 		
 		// Finish Trigger
 		DFEVar hasFinished = BoolType.newInstance(this);
-		DFEVar hasQUpdateFinished = BoolType.newInstance(this);
 		DFEVar hasBetaCalcFinished = BoolType.newInstance(this);
 		DFEVar hasGammaVCalcFinished = BoolType.newInstance(this);
 		DFEVar hasthetaKUpdateFinished = BoolType.newInstance(this);
 		SM.connectInput("hasFinished", hasFinished);
-		SM.connectInput("hasQUpdateFinished", hasQUpdateFinished);
 		SM.connectInput("hasBetaCalcFinished", hasBetaCalcFinished);
 		SM.connectInput("hasGammaVCalcFinished", hasGammaVCalcFinished);
 		SM.connectInput("hasthetaKUpdateFinished", hasthetaKUpdateFinished);
@@ -194,7 +192,6 @@ class SVMKernel extends Kernel {
 		QMem MatrixQ = new QMem(this, numBlocks, blockDim, KernelVec, BaseAddrRow, OffsetAddrRow, MatQEnWrite, MatQEnIterate, BaseAddrCol, OffsetAddrCol);
 		DFEVector<DFEVar> QVector = MatrixQ.getQValVec();
 		DFEVar QVal = MatrixQ.getQVal();
-		DFEVar hasQUpdateFinishedFromQMem = MatrixQ.hasFinished();
 		
 		
 		// theta - individual write, parallel and individual access
@@ -448,9 +445,7 @@ class SVMKernel extends Kernel {
 		hasFinished <== XcJoinROffseted;
 
 		// has Q Update finished?
-		OffsetExpr hasQUpdateFinishedOffset = stream.makeOffsetAutoLoop("hasQUpdateFinishedOffset");
-		DFEVar hasQUpdateFinishedFromQMemOffseted = stream.offset(hasQUpdateFinishedFromQMem, -hasQUpdateFinishedOffset);
-		hasQUpdateFinished <== hasQUpdateFinishedFromQMemOffseted;
+		OffsetExpr fromhXcValidtoXcJoinR = stream.measureDistance("fromhXcValidtoXcJoinR", hXcValid, XcJoinR);
 		
 		// has BetaCalc finished?
 		OffsetExpr hasBetaCalcFinishedOffset = stream.makeOffsetAutoLoop("hasBetaCalcFinishedOffset");

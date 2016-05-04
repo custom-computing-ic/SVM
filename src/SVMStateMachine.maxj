@@ -16,13 +16,6 @@ class SVMStateMachine extends KernelStateMachine {
 
 	////////////////////////// Operating Modes /////////////////////////
 
-        enum Modes {
-                IDLE,			// Idle state
-                INC,				// Incremental Training
-                DEC, 			// Decremental Training
-                INCFINISH 		// Incremental Training Finished
-        }
-
 	enum subModes {
 		SUBIDLE, 			// Idle state of subMode
                 QUPDATE,			// Updating Q
@@ -45,6 +38,8 @@ class SVMStateMachine extends KernelStateMachine {
                 MOVEN2S,
                 MOVES2E,
                 MOVES2R,
+                INCFINISH, 			// Incremental Training Finished
+                XCREMOVE, 			// Remove Xc from SMask or NMask
                 
 	}
 	
@@ -59,7 +54,6 @@ class SVMStateMachine extends KernelStateMachine {
 
 	// Finish Trigger
 	private final DFEsmInput hasFinished;
-	private final DFEsmInput hasQUpdateFinished;
 	private final DFEsmInput hasBetaCalcFinished;
 	private final DFEsmInput hasGammaVCalcFinished;
 	private final DFEsmInput hasthetaKUpdateFinished;
@@ -136,11 +130,9 @@ class SVMStateMachine extends KernelStateMachine {
 
         // Counting internal ticks
         private final DFEsmStateValue Tick;
-        private final DFEsmStateValue TickCount;
         private final DFEsmStateValue subTick;
         
-        // Mode and subMode
-        private final DFEsmStateEnum<Modes> sMode;
+        // Mode
         private final DFEsmStateEnum<subModes> subMode;
 
         // Current number of samples in the window
@@ -180,6 +172,7 @@ class SVMStateMachine extends KernelStateMachine {
 	private final int WinSize;
 
 	// Scheduling Parameters
+	private final int QUpdateCycles;
 	private final int BookKeepingLatency;
 	private final int REnlargeLatency;
 	private final int RShrinkCycles;
@@ -197,9 +190,10 @@ class SVMStateMachine extends KernelStateMachine {
 		WinSize 		= WinSize_IN;
 		
 		// Scheduling Parameters
+		QUpdateCycles 		= blockDim + Def.QUpdateLatency;
 		BookKeepingLatency 	= Def.BookKeepingLatency;
 		REnlargeLatency 		= Def.REnlargeLatency;
-		RShrinkCycles 		= 3*(blockDim*blockDim + blockDim + Def.RShrinkLatency)+ Def.FetchLatency + 1;
+		RShrinkCycles 		= 3*(blockDim*blockDim + blockDim + Def.RShrinkLatency) + Def.FetchLatency + 1;
 
 
                 ////////////////////////// Types /////////////////////////
@@ -219,7 +213,6 @@ class SVMStateMachine extends KernelStateMachine {
 
 		// Finish Trigger
 		hasFinished 				= io.input("hasFinished", BoolType);
-		hasQUpdateFinished 		= io.input("hasQUpdateFinished", BoolType);
 		hasBetaCalcFinished 		= io.input("hasBetaCalcFinished", BoolType);
 		hasGammaVCalcFinished 	= io.input("hasGammaVCalcFinished", BoolType);
 		hasthetaKUpdateFinished 	= io.input("hasthetaKUpdateFinished", BoolType);
@@ -296,11 +289,9 @@ class SVMStateMachine extends KernelStateMachine {
                 
 		// Tick
 		Tick 				= state.value(TickType, 0);
-		TickCount 			= state.value(TickType, 0);
 		subTick 				= state.value(TickType, 0);
 		
-		// Mode and subMode
-		sMode 				= state.enumerated(Modes.class, Modes.IDLE);
+		// Mode
 		subMode 			= state.enumerated(subModes.class, subModes.SUBIDLE);
 		
 		// CurSize
@@ -339,56 +330,47 @@ class SVMStateMachine extends KernelStateMachine {
 		////////////////////////// Debug /////////////////////////
 		
 		Tick.next <== Tick + 1;
-		IF (subTick===0) debug.simPrintf("[%4d] sMode = %4s | [%4d] subMode = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d \n", Tick, sMode, subTick, subMode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos);
-//		IF (subMode === subModes.BOOKKEEPING_PRE | subMode === subModes.BOOKKEEPING_C | subMode === subModes.BOOKKEEPING_N | subMode === subModes.BOOKKEEPING_S) debug.simPrintf("[%4d] sMode = %4s | [%4d] subMode = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d | Group[prev]=%d \n", Tick, sMode, subTick, subMode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos, Group.dataOutA);
+		IF (subTick===0) debug.simPrintf("[%4d] subMode[%d] = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d \n", Tick, subTick, subMode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos);
+//		IF (subMode === subModes.BOOKKEEPING_PRE | subMode === subModes.BOOKKEEPING_C | subMode === subModes.BOOKKEEPING_N | subMode === subModes.BOOKKEEPING_S) debug.simPrintf("[%4d] subMode[%4d] = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d | Group[prev]=%d \n", Tick, subTick, subMode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos, Group.dataOutA);
 		
 
-		////////////////////////// Default /////////////////////////		
+		////////////////////////// Default /////////////////////////
 
 
 		Group.writeEnableB <== false;
-		TickCount.next <== TickCount + 1;
 		subTick.next <== subTick + 1;
 		
 
 		////////////////////////// Mode Control /////////////////////////
 		
-		SWITCH(sMode) {
-			// Default Mode: IDLE
-			CASE(Modes.IDLE) {
-				IF (CurSize<WinSize) {
-					sMode.next <== Modes.INC;
-					subMode.next <== subModes.QUPDATE;
-				}
-				ELSE{
-					// TODO: Control Logic for Decremental Training 
-					sMode.next <== Modes.DEC;
-				}
-				TickCount.next <== 0;
-				subTick.next <== 0;
-                        }
-                        // Incremental Training
-                        CASE(Modes.INC) {
-                        	IF (hasFinished === true) {
-                        		// Xc joins R and terminate
-                        		Group.addressB <== GroupIndexXcCount;
-					Group.dataInB <== 3;
-					Group.writeEnableB <== true;
-					NMaskBase.add(BaseAddrXcCount);
-					NMaskOffset.add(OffsetAddrXcCount);
-					NMaskGroupIndex.add(GroupIndexXcCount);
-                        		sMode.next <== Modes.INCFINISH;
-                        	}
-                        	ELSE {
-                        		// During the Incremental Training Process
                         		SWITCH(subMode) {
+                        			// IDLE
+                        			CASE(subModes.SUBIDLE) {
+							IF (CurSize<WinSize) {subMode.next <== subModes.QUPDATE;}
+							ELSE {subMode.next <== subModes.XCREMOVE;}
+							subTick.next <== 0;
+                        			}
                         			// Step1: Updating Matrix Q
                         			CASE(subModes.QUPDATE) {
-                        				IF (hasQUpdateFinished === true) {
+							IF (hasFinished === true) {
+                        					// Xc joins R and terminate
+                        					groupWrite(GroupIndexXcCount, 'R');
+								NMaskBase.add(BaseAddrXcCount);
+								NMaskOffset.add(OffsetAddrXcCount);
+								NMaskGroupIndex.add(GroupIndexXcCount);
+                        					subMode.next <== subModes.INCFINISH;
+                        				}
+                        				IF (subTick === QUpdateCycles) {
                         					subMode.next <== subModes.BOOKKEEPING_PRE; 
                         					subTick.next <== 0;
                         				}
                         			}
+                        			
+                        			// Remove Xc from SMask and NMask
+                        			CASE(subModes.XCREMOVE) {
+                        				// TODO
+                        			}
+                        			
                         			// Starting Point of BookKeeping
                         			CASE(subModes.BOOKKEEPING_PRE) {
                             				IF (~SMaskBase.isEmpty()) {
@@ -494,7 +476,7 @@ class SVMStateMachine extends KernelStateMachine {
 									NMaskBase.add(BaseAddrXcCount);
 									NMaskOffset.add(OffsetAddrXcCount);
 									NMaskGroupIndex.add(GroupIndexXcCount);
-									sMode.next <== Modes.INCFINISH;
+									subMode.next <== subModes.INCFINISH;
 									
 									debug.simPrintf("[%4d] =======> Item[%d] joins R, becomes NMask[%d] (Base=%d, Offset=%d, GroupIndex=%d).\n", Tick, GroupIndexXcCount, NMaskBase.size(), BaseAddrXcCount, OffsetAddrXcCount, GroupIndexXcCount);
 								}
@@ -529,7 +511,7 @@ class SVMStateMachine extends KernelStateMachine {
 										SMaskBase.add(BaseAddrXcCount);
 										SMaskOffset.add(OffsetAddrXcCount);
 										SMaskGroupIndex.add(GroupIndexXcCount);
-										sMode.next <== Modes.INCFINISH;
+										subMode.next <== subModes.INCFINISH;
 										
 										debug.simPrintf("[%4d] =======> Item[%d] joins S, becomes SMask[%d] (Base=%d, Offset=%d, GroupIndex=%d).\n", Tick, GroupIndexXcCount, SMaskBase.size(), BaseAddrXcCount, OffsetAddrXcCount, GroupIndexXcCount);
                         						}
@@ -540,7 +522,7 @@ class SVMStateMachine extends KernelStateMachine {
 									NMaskBase.add(BaseAddrXcCount);
 									NMaskOffset.add(OffsetAddrXcCount);
 									NMaskGroupIndex.add(GroupIndexXcCount);
-									sMode.next <== Modes.INCFINISH;
+									subMode.next <== subModes.INCFINISH;
 									
 									debug.simPrintf("[%4d] =======> Item[%d] joins E, becomes NMask[%d] (Base=%d, Offset=%d, GroupIndex=%d).\n", Tick, GroupIndexXcCount, NMaskBase.size(), BaseAddrXcCount, OffsetAddrXcCount, GroupIndexXcCount);
 								}
@@ -665,43 +647,30 @@ class SVMStateMachine extends KernelStateMachine {
                         				subMode.next <== subModes.BOOKKEEPING_PRE;	
                         				
                         				debug.simPrintf("[%4d] =======> Item[%d] moves from S to R.\n", Tick, SMaskGroupIndex.get(BookKeepingIndex));
-                        			}                      			
+                        			}
+						// Incremental Training Finished
+						CASE(subModes.INCFINISH) {
+                        				// Incremental Training has finished, return to IDLE
+							// Update CurSize, and Xc Addr
+                       					subMode.next <== subModes.SUBIDLE;
+                    					CurSize.next <== CurSize + 1;
+                   					IF (OffsetAddrXcCount === (blockDim-1)) {
+                     						OffsetAddrXcCount.next <== 0;
+                        					IF (BaseAddrXcCount === (numBlocks-1)) {BaseAddrXcCount.next <== 0;}
+                        					ELSE {BaseAddrXcCount.next <== BaseAddrXcCount + 1;}
+                        				}
+                        				ELSE {OffsetAddrXcCount.next <== OffsetAddrXcCount + 1;}
+                        				IF (GroupIndexXcCount === (WinSize-1)) {GroupIndexXcCount.next <== 0;}
+                        				ELSE {GroupIndexXcCount.next <== GroupIndexXcCount + 1;}
+                       				}
                         			
-                        		}
+                        			// Illegal subMode
+                        			OTHERWISE {
+							debug.simPrintf("[%4d] [ERROR] Invalid subMode (subMode=%s).\n", Tick, subMode);
+							subMode.next <== subModes.SUBIDLE;
+						}
+                        		} // end of switch(subMode) 
 
-                        	}
-                        }
-                        // During Decremental Training
-			CASE(Modes.DEC) {
-                        	IF (hasFinished === true) {
-                        		sMode.next <== Modes.IDLE;
-                        		CurSize.next <== CurSize - 1;
-                        	}
-                        	ELSE {
-
-                        	}                    	
-
-                        }
-                        // Incremental Training Finished
-                        CASE(Modes.INCFINISH) {
-                        	// Incremental Training has finished, return to IDLE
-				// Update CurSize, and Xc Addr
-                        	sMode.next <== Modes.IDLE;
-                       		subMode.next <== subModes.SUBIDLE;
-                    		CurSize.next <== CurSize + 1;
-                   		IF (OffsetAddrXcCount === (blockDim-1)) {
-                     			OffsetAddrXcCount.next <== 0;
-                        		IF (BaseAddrXcCount === (numBlocks-1)) {BaseAddrXcCount.next <== 0;}
-                        		ELSE {BaseAddrXcCount.next <== BaseAddrXcCount + 1;}
-                        	}
-                        	ELSE {
-                        		OffsetAddrXcCount.next <== OffsetAddrXcCount + 1;
-                        	}
-                        	IF (GroupIndexXcCount === (WinSize-1)) {GroupIndexXcCount.next <== 0;}
-                        	ELSE {GroupIndexXcCount.next <== GroupIndexXcCount + 1;}
-                        }
-                        
-                } // end of SWITCH(sMode)
 
 
 		////////////////////////// SMask /////////////////////////
@@ -744,10 +713,10 @@ class SVMStateMachine extends KernelStateMachine {
         protected void outputFunction() {
 		
         	// Control Signal for Input Stream Xc
-        	EnInput <== (sMode === Modes.INC) & (TickCount === 0);
+        	EnInput <== (subMode === subModes.QUPDATE) & (subTick === 0);
         	
 		// INC or DEC
-		isInc <== (sMode === Modes.INC);    	
+		isInc <== (CurSize<WinSize);
         	
         	// Size
         	SSize <== SMaskBase.size();
@@ -782,7 +751,7 @@ class SVMStateMachine extends KernelStateMachine {
 		isBookKeeping_N 		<== (subMode === subModes.BOOKKEEPING_N);
 		
 		// BookKeepingSel
-		IF (sMode === Modes.INC) {
+		IF (CurSize<WinSize) {
 			SWITCH (subMode) {
 				CASE (subModes.BOOKKEEPING_C) {
 					IF (SMaskBase.isEmpty()) BookKeepingSel <== 0;  // bC

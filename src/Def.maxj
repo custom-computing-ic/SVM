@@ -26,10 +26,11 @@ class Def {
 	public static final int streamLength 		= 8;
 	
 	// Latency
-	public static final int BookKeepingLatency	= 220;
-	public static final int REnlargeLatency 	= 220;
-	public static final int FetchLatency 		= 80;
-	public static final int RShrinkLatency 		= 220;
+	public static final int QUpdateLatency 	= 140; 	// hXcOffset + fromhXcValidtoXcJoinR
+	public static final int BookKeepingLatency	= 200; 	// BookKeepingOffset
+	public static final int REnlargeLatency 	= 220; 	// REnlargeLatency
+	public static final int FetchLatency 		= 80; 	// KElemInvLatency
+	public static final int RShrinkLatency 		= 220; 	// RShrinkLatency
 
 
 	///////////////////////// SVM Parameters /////////////////////////

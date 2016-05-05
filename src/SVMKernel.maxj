@@ -111,7 +111,8 @@ class SVMKernel extends Kernel {
 		DFEVar isRShrinking 			= SM.getOutput("isRShrinking");
 		DFEVar beginThetaKUpdate 	= SM.getOutput("beginThetaKUpdate");
 		DFEVar isThetaKUpdating 		= SM.getOutput("isThetaKUpdating"); 
-
+		DFEVar beginRShrinkForXcRemove = SM.getOutput("beginRShrinkForXcRemove");
+		
 		
 		////////////////////////// To State Machine /////////////////////////		
 		
@@ -252,7 +253,8 @@ class SVMKernel extends Kernel {
 		DFEVar SMaskIDToRemove 	= PosType.newInstance(this);
 		DFEVar gammaInv 		= Def.RType.newInstance(this);
 		DFEVar beginREnlarge 		= BoolType.newInstance(this);
-		RMem MatrixR = new RMem (this, numBlocks, blockDim, SSize, SMaskIDToRemove, betaX, betaY, gammaInv, beginRInit, beginBetaCalc, beginREnlarge, beginRShrink); 			DFEVector<DFEVector<DFEVar>> betaCalcVec = MatrixR.getBetaCalcVec();
+		DFEVar bgRShrink 		= beginRShrink | beginRShrinkForXcRemove;
+		RMem MatrixR = new RMem (this, numBlocks, blockDim, SSize, SMaskIDToRemove, betaX, betaY, gammaInv, beginRInit, beginBetaCalc, beginREnlarge, bgRShrink); 			DFEVector<DFEVector<DFEVar>> betaCalcVec = MatrixR.getBetaCalcVec();
 		DFEVar XAddr = MatrixR.getXAddr();
 		DFEVar YAddr = MatrixR.getYAddr();
 
@@ -434,7 +436,9 @@ class SVMKernel extends Kernel {
 		
 		// RShrink
 		OffsetExpr SMaskIDToRemoveOffset = stream.makeOffsetAutoLoop("SMaskIDToRemoveOffset");
-		SMaskIDToRemove <== stream.offset(BookKeepingIndex, -SMaskIDToRemoveOffset);
+		DFEVar SMaskIDToRemoveBKUpdate = stream.offset(BookKeepingIndex, -SMaskIDToRemoveOffset);
+		DFEVar SMaskIDToRemoveXcRemove = Reductions.streamHold(IndexSMask, beginRShrinkForXcRemove);
+		SMaskIDToRemove <== isRShrinking ? SMaskIDToRemoveBKUpdate : SMaskIDToRemoveXcRemove;
 
 
 		////////////////////////// Feedback /////////////////////////

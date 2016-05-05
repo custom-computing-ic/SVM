@@ -82,7 +82,7 @@ class hCalc extends KernelLib {
 		
 		// Debug
 		debug.simPrintf(beginCalc, "[%4d] [hCalc] Begin hXi Calculation ---- b = %.12f, Y = %.12f => Offset = b-Y = %.12f  ------- \n", control.count.simpleCounter(32), b.cast(Def.hXiType), Y.cast(Def.hXiType), offset);
-		debug.simPrintf(EnAccumulation, "[%4d] [hCalc] Addr=%2d | Q[0:3]=(%.12f,%.4f,%.4f,%.4f) theta[0:3]=(%.12f,%.4f,%.4f,%.4f), cur = %.12f | hXi = %.12f, Valid=%d\n", control.count.simpleCounter(32), Addr, Q[0], Q[1], Q[2], Q[3], theta[0], theta[1], theta[2], theta[3], toAccumulator, Result, Valid);
+		debug.simPrintf(EnAccumulation, "[%4d] [hCalc] Addr=%2d | Q[0:3]=(%.12f,%.4f,%.4f,%.4f) theta[0:3]=(%.12f,%.4f,%.4f,%.4f), cur=%.12f | hXi=%.12f, %d\n", control.count.simpleCounter(32), Addr, Q[0], Q[1], Q[2], Q[3], theta[0], theta[1], theta[2], theta[3], toAccumulator, Result, Valid);
 		
 	}
 

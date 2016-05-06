@@ -360,13 +360,11 @@ class SVMStateMachine extends KernelStateMachine {
 					// DEC - begin Remove Xc
 					Mode.next <== Modes.XCREMOVE;
 					Group.addressA <== GroupIndexXcCount;
-					// Search Xc in SMask and NMask 
+					// Search Xc in SMask and NMask - may also set MaskMode to IDLE for extra safety
 					SMaskPos.next <== 0;
-					SMaskMode.next <== maskModes.ITERATE;
 					NMaskPos.next <== 0;
-					NMaskMode.next <== maskModes.ITERATE;
 					
-					debug.simPrintf("\n[%4d]----------[Decremental Training]-----------------Remove Item[%d]-------------------- \n", Tick, GroupIndexXcCount);
+					debug.simPrintf("\n[%4d]----------[Decremental Training]-----------------Remove Item[%d][%d]-------------------- \n", Tick, BaseAddrXcCount, OffsetAddrXcCount);
 				}
 				subTick.next <== 0;
                         }
@@ -387,6 +385,9 @@ class SVMStateMachine extends KernelStateMachine {
 			}
 			// Remove Xc from SMask and NMask - DEC only
 			CASE(Modes.XCREMOVE) {
+				// Search SMask and NMask
+				SMaskPos.next <== SMaskPos + 1;
+				NMaskPos.next <== NMaskPos + 1;
 				IF (Group.dataOutA === 1) {
 					// Remove Xc from S - Search for Xc location in SMask
 					IF (SMaskGroupIndex.get(SMaskPos) === GroupIndexXcCount) {
@@ -417,6 +418,7 @@ class SVMStateMachine extends KernelStateMachine {
 							groupWrite(GroupIndexXcCount, 'N');
 							Mode.next <== Modes.DECFINISH;
 						}
+						subTick.next <== 0; // TODO remove
 					}
 				}
 			}
@@ -427,8 +429,7 @@ class SVMStateMachine extends KernelStateMachine {
 					subTick.next <== 0; // TODO remove
 				}				
 			}
-                        			
-			// Starting Point of BookKeeping TODO DEC
+			// Starting Point of BookKeeping
 			CASE(Modes.BOOKKEEPING_PRE) {
 				IF (~SMaskBase.isEmpty()) {
                         		// Non-Empty S - goto FetchQ
@@ -455,62 +456,62 @@ class SVMStateMachine extends KernelStateMachine {
 					subTick.next <== 0;
 				}
 			}
-                        			// Calculating beta
-                        			CASE(Modes.BETACALC) {
-                        				IF (hasBetaCalcFinished === true) {
-                        					Mode.next <== Modes.GAMMACCALC;
-                        					subTick.next <== 0;
-                        				}
-                        			}
-                        			// Calculating gamma_c
-                        			CASE(Modes.GAMMACCALC) {
-							IF (subTick === 0) {SMaskMode.next <== maskModes.ITERATE; SMaskPos.next <== 0;}
-                        				IF (subTick === SMaskBase.size().cast(dfeUInt(32))) {
-                        					IF (~NMaskBase.isEmpty()) {
-                        						Mode.next <== Modes.GAMMAVCALC;
-									SMaskPos.next <== 0;
-									NMaskPos.next <== 0;
-									subTick.next <== 0;               						
-                        					}
-                        					ELSE gotoBookKeeping_C();
-                        				}
-                        			}
-                        			// Calculating gamma vector
-                        			CASE(Modes.GAMMAVCALC) {
-                        				IF (subTick === 0) {SMaskMode.next <== maskModes.ITERATE; SMaskPos.next <== 0;}
-                        				IF (subTick === SMaskBase.size().cast(dfeUInt(32))) {
-                        					IF ((NMaskPos.cast(dfeUInt(MathUtils.bitsToRepresent(WinSize))) === NMaskBase.size()-1)) {
-                        						Mode.next <== Modes.GAMMAVCALCWAIT;
-                        					}
-                        					ELSE {NMaskPos.next <== NMaskPos+1;}
-                        					subTick.next <== 0; 
-                        				}
-                        			}
-                        			// Waiting for gamma vector calculation to finish
-                        			CASE(Modes.GAMMAVCALCWAIT) {
-                        				IF (hasGammaVCalcFinished === true) gotoBookKeeping_C();
-                        			}
-                        			// Bookkeeping: Xc - only last for one cycle
-						CASE(Modes.BOOKKEEPING_C) {
-							IF (~NMaskBase.isEmpty()) gotoBookKeeping_N();
-							ELSE {
-								IF (~SMaskBase.isEmpty()) gotoBookKeeping_S();
-								ELSE {Mode.next <== Modes.UPDATE; subTick.next <== 0;}
-							}
-						}
-						// Bookkeeping: NMask
-						CASE(Modes.BOOKKEEPING_N) {
-							Group.addressA <== NMaskGroupIndex.get(NMaskPos);
-							IF (NMaskMode === maskModes.MASKIDLE) {
-								IF (~SMaskBase.isEmpty()) gotoBookKeeping_S();
-								ELSE {Mode.next <== Modes.UPDATE; subTick.next <== 0;}							
-							}
-						}
-						// Bookkeeping: SMask
-						CASE(Modes.BOOKKEEPING_S) {
-							Group.addressA <== SMaskGroupIndex.get(SMaskPos);
-							IF (SMaskMode === maskModes.MASKIDLE) {Mode.next <== Modes.UPDATE; subTick.next <== 0;}
-						}
+			// Calculating beta
+			CASE(Modes.BETACALC) {
+				IF (hasBetaCalcFinished === true) {
+					Mode.next <== Modes.GAMMACCALC;
+					subTick.next <== 0;
+                        	}
+			}
+			// Calculating gamma_c
+                        CASE(Modes.GAMMACCALC) {
+				IF (subTick === 0) {SMaskMode.next <== maskModes.ITERATE; SMaskPos.next <== 0;}
+				IF (subTick === SMaskBase.size().cast(dfeUInt(32))) {
+					IF (~NMaskBase.isEmpty()) {
+						Mode.next <== Modes.GAMMAVCALC;
+						SMaskPos.next <== 0;
+						NMaskPos.next <== 0;
+						subTick.next <== 0;               						
+					}
+					ELSE gotoBookKeeping_C();
+				}
+			}
+			// Calculating gamma vector
+			CASE(Modes.GAMMAVCALC) {
+				IF (subTick === 0) {SMaskMode.next <== maskModes.ITERATE; SMaskPos.next <== 0;}
+				IF (subTick === SMaskBase.size().cast(dfeUInt(32))) {
+					IF ((NMaskPos.cast(dfeUInt(MathUtils.bitsToRepresent(WinSize))) === NMaskBase.size()-1)) {
+						Mode.next <== Modes.GAMMAVCALCWAIT;
+					}
+					ELSE {NMaskPos.next <== NMaskPos+1;}
+					subTick.next <== 0; 
+				}
+			}
+			// Waiting for gamma vector calculation to finish
+			CASE(Modes.GAMMAVCALCWAIT) {
+				IF (hasGammaVCalcFinished === true) gotoBookKeeping_C();
+			}
+			// Bookkeeping: Xc - only last for one cycle
+			CASE(Modes.BOOKKEEPING_C) {
+				IF (~NMaskBase.isEmpty()) gotoBookKeeping_N();
+				ELSE {
+					IF (~SMaskBase.isEmpty()) gotoBookKeeping_S();
+					ELSE {Mode.next <== Modes.UPDATE; subTick.next <== 0;}
+				}
+			}
+			// Bookkeeping: NMask
+			CASE(Modes.BOOKKEEPING_N) {
+				Group.addressA <== NMaskGroupIndex.get(NMaskPos);
+				IF (NMaskMode === maskModes.MASKIDLE) {
+					IF (~SMaskBase.isEmpty()) gotoBookKeeping_S();
+					ELSE {Mode.next <== Modes.UPDATE; subTick.next <== 0;}							
+				}
+			}
+			// Bookkeeping: SMask
+			CASE(Modes.BOOKKEEPING_S) {
+				Group.addressA <== SMaskGroupIndex.get(SMaskPos);
+				IF (SMaskMode === maskModes.MASKIDLE) {Mode.next <== Modes.UPDATE; subTick.next <== 0;}
+			}
 						// Updating Coefficients
 						CASE(Modes.UPDATE) {
 							IF (subTick === 0) {
@@ -749,7 +750,7 @@ class SVMStateMachine extends KernelStateMachine {
 				}
 			}
 			CASE (maskModes.LASTITEM) {
-				SMaskMode.next <== maskModes.MASKIDLE; 
+				SMaskMode.next <== maskModes.MASKIDLE;
 				SMaskPos.next <== 0;				
 			}
 		}
@@ -766,7 +767,7 @@ class SVMStateMachine extends KernelStateMachine {
 				}
 			}
 			CASE (maskModes.LASTITEM) {
-				NMaskMode.next <== maskModes.MASKIDLE; 
+				NMaskMode.next <== maskModes.MASKIDLE;
 				NMaskPos.next <== 0;				
 			}
 		}	
@@ -815,40 +816,33 @@ class SVMStateMachine extends KernelStateMachine {
 		isBookKeeping_N 		<== (Mode === Modes.BOOKKEEPING_N);
 		
 		// BookKeepingSel
-		IF (CurSize<WinSize) {
-			SWITCH (Mode) {
-				CASE (Modes.BOOKKEEPING_C) {
-					IF (SMaskBase.isEmpty()) BookKeepingSel <== 0;  // bC
-					ELSE BookKeepingSel <== 3;  // LC
-				}
-				CASE (Modes.BOOKKEEPING_N) {
-					IF (SMaskBase.isEmpty()) {
-						SWITCH (Group.dataOutA) {
-							CASE(2) {BookKeepingSel <== 1;} // bE
-							CASE(3) {BookKeepingSel <== 2;} // bR
-							OTHERWISE {BookKeepingSel <== 0;}
-						}
-					}
-					ELSE {
-						SWITCH (Group.dataOutA) {
-							CASE(2) {BookKeepingSel <== 5;} // bE
-							CASE(3) {BookKeepingSel <== 6;} // bR
-							OTHERWISE {BookKeepingSel <== 0;}
-						}			
-					}
-//					debug.simPrintf("[%4d] [%s] NMask[%d] = Item[%d], Group.dataOutA[prevNMask] = %d \n", Tick, Mode, NMaskPos, NMaskGroupIndex.get(NMaskPos), Group.dataOutA);		
-				}
-				CASE (Modes.BOOKKEEPING_S) {
-					BookKeepingSel <== 4; // LS
-//					debug.simPrintf("[%4d] [%s] Generating BookKeeping Selection Signal: Group.dataOutA=%d \n", Tick, Mode, Group.dataOutA);
-				}
-				OTHERWISE {BookKeepingSel <== 0;}
+		SWITCH (Mode) {
+			CASE (Modes.BOOKKEEPING_C) {
+				IF (SMaskBase.isEmpty()) BookKeepingSel <== 0;  // bC
+				ELSE BookKeepingSel <== 3;  // LC
 			}
-			
-		}
-		ELSE {
-			// TODO: DEC
-			BookKeepingSel <== 0;
+			CASE (Modes.BOOKKEEPING_N) {
+				IF (SMaskBase.isEmpty()) {
+					SWITCH (Group.dataOutA) {
+						CASE(2) {BookKeepingSel <== 1;} // bE
+						CASE(3) {BookKeepingSel <== 2;} // bR
+						OTHERWISE {BookKeepingSel <== 0;}
+					}
+				}
+				ELSE {
+					SWITCH (Group.dataOutA) {
+						CASE(2) {BookKeepingSel <== 5;} // bE
+						CASE(3) {BookKeepingSel <== 6;} // bR
+						OTHERWISE {BookKeepingSel <== 0;}
+					}			
+				}
+//			debug.simPrintf("[%4d] [%s] NMask[%d] = Item[%d], Group.dataOutA[prevNMask] = %d \n", Tick, Mode, NMaskPos, NMaskGroupIndex.get(NMaskPos), Group.dataOutA);		
+			}
+			CASE (Modes.BOOKKEEPING_S) {
+				BookKeepingSel <== 4; // LS
+//				debug.simPrintf("[%4d] [%s] Generating BookKeeping Selection Signal: Group.dataOutA=%d \n", Tick, Mode, Group.dataOutA);
+			}
+			OTHERWISE {BookKeepingSel <== 0;}
 		}
 		
 		// BookKeepingValid

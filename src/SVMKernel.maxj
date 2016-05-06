@@ -231,9 +231,11 @@ class SVMKernel extends Kernel {
 	
 
 		// q
-		// TODO: q is different for DEC
-		DFEVar toqStreamHold = (hXiCalcResult > 0) ? constant.var(dfeInt(2), -1) : constant.var(dfeInt(2), 1);
-		DFEVar q = Reductions.streamHold(toqStreamHold, hXcValid);
+		DFEVar toqINC = (hXiCalcResult > 0) ? constant.var(dfeInt(2), -1) : constant.var(dfeInt(2), 1);
+		DFEVar qINC = Reductions.streamHold(toqINC, hXcValid);
+		DFEVar toqDEC = ((thetaSeq > 0)^(isEmptyS)) ? constant.var(dfeInt(2), -1) : constant.var(dfeInt(2), 1);
+		DFEVar qDEC = Reductions.streamHold(toqDEC, beginBookKeeping);
+		DFEVar q = isInc ? qINC : qDEC;
 
 
 		////////////////////////// Bookkeeping Preparation /////////////////////////
@@ -292,14 +294,14 @@ class SVMKernel extends Kernel {
 		// Empty S - Incremental Training - NEED q and hXi
 		DFEVar qep = (q>0) ? constant.var(Def.BookKeepingType, Def.ep) : constant.var(Def.BookKeepingType, -Def.ep);
 		// bC
-		DFEVar bC = KernelMath.abs(hXi+qep);
+		DFEVar bC = isInc ? KernelMath.abs(hXi+qep) : BKINF;
 		DFEVar FlagbC = constant.var(FlagType, 0);
 		// bE
 		DFEVar bE = (((q>0)&(hXi<-Def.ep))|((q<0)&(hXi>Def.ep))) ? KernelMath.abs(hXi+qep) : BKINF;
-		DFEVar FlagbE = (isInc) ? constant.var(FlagType, 1) : constant.var(FlagType, 3);
+		DFEVar FlagbE = isInc ? constant.var(FlagType, 1) : constant.var(FlagType, 3);
 		// bR
 		DFEVar bR = KernelMath.abs(hXi-qep);
-		DFEVar FlagbR = (isInc) ? constant.var(FlagType, 2) : constant.var(FlagType, 4);
+		DFEVar FlagbR = isInc ? constant.var(FlagType, 2) : constant.var(FlagType, 4);
 		
 		// Empty S - Decremental Training - bE, bR same as INC, but no bC
 		
@@ -340,7 +342,7 @@ class SVMKernel extends Kernel {
 		DFEVar FlagLE = (isInc) ? constant.var(FlagType, 8) : constant.var(FlagType, 12);
 		// LiR
 		DFEVar LR = (qri===0) ? BKINF : ((qri>0) ? hXiMinusEpDivGammaSeq : hXiPlusEpDivGammaSeq);
-		DFEVar FlagLR = (isInc) ? constant.var(FlagType, 9) : constant.var(FlagType, 13);
+		DFEVar FlagLR = isInc ? constant.var(FlagType, 9) : constant.var(FlagType, 13);
 		
 		// Non-Empty S - Decremental Training - LiS, LiE, LiR same as INC, but LC2 is different, and no LC1
 		// LC_DEC
@@ -348,8 +350,8 @@ class SVMKernel extends Kernel {
 		DFEVar FlagLC_DEC = constant.var(FlagType, 10);
 		
 		// Overall LC
-		DFEVar LC = (isInc) ? LC_INC : LC_DEC;
-		DFEVar FlagLC = (isInc) ? FlagLC_INC : FlagLC_DEC;
+		DFEVar LC = isInc ? LC_INC : LC_DEC;
+		DFEVar FlagLC = isInc ? FlagLC_INC : FlagLC_DEC;
 		
 		optimization.popPipeliningFactor();
 		

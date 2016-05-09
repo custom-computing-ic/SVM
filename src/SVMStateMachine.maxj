@@ -532,7 +532,7 @@ class SVMStateMachine extends KernelStateMachine {
 						CASE(Modes.INCFLAG) {
 							SWITCH(BKFlag) {
 								CASE(0) {
-									// Xc Joins R and terminate
+									// Xc Joins R and terminate - INC only
 									groupWrite(GroupIndexXcCount, 'R');
 									NMaskBase.add(BaseAddrXcCount);
 									NMaskOffset.add(OffsetAddrXcCount);
@@ -541,6 +541,10 @@ class SVMStateMachine extends KernelStateMachine {
 									
 									debug.simPrintf("[%4d] =======> Item[%d] joins R, becomes NMask[%d] (Base=%d, Offset=%d, GroupIndex=%d).\n", Tick, GroupIndexXcCount, NMaskBase.size(), BaseAddrXcCount, OffsetAddrXcCount, GroupIndexXcCount);
 								}
+								
+								// CASE 1-4 are handled the same way: 1-2 For INC, 3-4 For DEC
+								// TODO may not need to check whether S is empty, as we are not handling ties
+								
 								CASE(1) {
 									// N[index] moves from E to S
 									IF (SMaskBase.isEmpty()) {
@@ -552,8 +556,8 @@ class SVMStateMachine extends KernelStateMachine {
 										gotoMoveFetchQ();
 									}
 								}
-								CASE(2) { // handled the same way as case 1
-									// S[index] moves from R to S
+								CASE(2) {
+									// N[index] moves from R to S
 									IF (SMaskBase.isEmpty()) {
 										// beginRInit and return to BOOKKEEPING after Finish
 										IF (subTick === blockDim*2) {Mode.next <== Modes.MOVEN2S;}
@@ -563,10 +567,30 @@ class SVMStateMachine extends KernelStateMachine {
 										gotoMoveFetchQ();
 									}
 								}
-//								CASE(3) {}
-//								CASE(4) {}
+								CASE(3) {
+									// N[index] moves from E to S
+									IF (SMaskBase.isEmpty()) {
+										// beginRInit and return to BOOKKEEPING after Finish
+										IF (subTick === blockDim*2) {Mode.next <== Modes.MOVEN2S;}
+									}
+									ELSE {
+										NMaskPos.next <== BookKeepingIndex;  // should keep that value through moving process
+										gotoMoveFetchQ();
+									}
+								}
+								CASE(4) {
+									// N[index] moves from R to S
+									IF (SMaskBase.isEmpty()) {
+										// beginRInit and return to BOOKKEEPING after Finish
+										IF (subTick === blockDim*2) {Mode.next <== Modes.MOVEN2S;}
+									}
+									ELSE {
+										NMaskPos.next <== BookKeepingIndex;  // should keep that value through moving process
+										gotoMoveFetchQ();
+									}
+								}
 								CASE(5) {
-									// Xc joins S and terminate
+									// Xc joins S and terminate - INC only
 									IF (subTick === blockDim*blockDim + REnlargeLatency) {
 										groupWrite(GroupIndexXcCount, 'S');
 										SMaskBase.add(BaseAddrXcCount);
@@ -578,7 +602,7 @@ class SVMStateMachine extends KernelStateMachine {
                         						}
 								}
 								CASE(6) {
-									// Xc joins E and terminate
+									// Xc joins E and terminate - INC only
 									groupWrite(GroupIndexXcCount, 'E');
 									NMaskBase.add(BaseAddrXcCount);
 									NMaskOffset.add(OffsetAddrXcCount);
@@ -588,8 +612,11 @@ class SVMStateMachine extends KernelStateMachine {
 									debug.simPrintf("[%4d] =======> Item[%d] joins E, becomes NMask[%d] (Base=%d, Offset=%d, GroupIndex=%d).\n", Tick, GroupIndexXcCount, NMaskBase.size(), BaseAddrXcCount, OffsetAddrXcCount, GroupIndexXcCount);
 								}
 
+								// CASE 7 and 11 are handled the same way
+								// CASE 8,9,12,13 are handled the same way
+
 								CASE(7) {
-									// N[index] moves from S to E				
+									// S[index] moves from S to E				
 									// begin RShrink and hXi update when subTick===1
 									SMaskPos.next <== BookKeepingIndex;
 									IF (subTick === RShrinkCycles) {
@@ -602,7 +629,6 @@ class SVMStateMachine extends KernelStateMachine {
 									IF (hasthetaKUpdateFinished === true){
 										gotoMoveFetchQ();
 									}
-									
 								}
 								CASE(9) {
 									// N[index] moves from R to S
@@ -611,10 +637,38 @@ class SVMStateMachine extends KernelStateMachine {
 										gotoMoveFetchQ();
 									}
 								}
-//								CASE(10) {}
-//								CASE(11) {}
-//								CASE(12) {}
-//								CASE(13) {}
+								CASE(10) {
+									// Xc is removed by joining R and terminate - DEC only
+									groupWrite(GroupIndexXcCount, 'N');
+									Mode.next <== Modes.DECFINISH;
+									
+									debug.simPrintf("[%4d] =======> Item[%d] joins R, hence removed.\n", Tick, GroupIndexXcCount);
+								}
+								CASE(11) {
+									// S[index] moves from S to E				
+									// begin RShrink and hXi update when subTick===1
+									SMaskPos.next <== BookKeepingIndex;
+									IF (subTick === RShrinkCycles) {
+										Mode.next <== Modes.MOVES2E;
+									}									
+								}
+								CASE(12) {
+									// N[index] moves from E to S
+									NMaskPos.next <== BookKeepingIndex; // should keep that value through moving process
+									IF (hasthetaKUpdateFinished === true){
+										gotoMoveFetchQ();
+									}
+								}
+								CASE(13) {
+									// N[index] moves from R to S
+									NMaskPos.next <== BookKeepingIndex; // should keep that value through moving process
+									IF (hasthetaKUpdateFinished === true){
+										gotoMoveFetchQ();
+									}
+								}
+								
+								// CASE 14,15 are handled the same way
+								
 								CASE(14) {
 									// N[index] moves from S to R
 									// begin RShrink and hXi update when subTick===1
@@ -623,12 +677,18 @@ class SVMStateMachine extends KernelStateMachine {
 										Mode.next <== Modes.MOVES2R;
 									}
 								}
-//								CASE(15) {}
+								CASE(15) {
+									// N[index] moves from S to R
+									// begin RShrink and hXi update when subTick===1
+									SMaskPos.next <== BookKeepingIndex;
+									IF (subTick === RShrinkCycles) {
+										Mode.next <== Modes.MOVES2R;
+									}
+								}
 								OTHERWISE {
 									debug.simPrintf("[%4d] [ERROR] Invalid Bookkeeping Flag (BKFlag=%d).\n", Tick, BKFlag);
 									Mode.next <== Modes.SUBIDLE;
 								}
-								
 							}
 						}
 						// Move item from N to S : Fetch Q
@@ -873,11 +933,11 @@ class SVMStateMachine extends KernelStateMachine {
 		beginGammaKCalc 		<== (Mode === Modes.GAMMAKCALC) & (subTick === 0);
 		isGammaKCalculating 		<== (Mode === Modes.GAMMAKCALC);
 		beginGammaCREnlarge 	<== (Mode === Modes.INCFLAG) & (BKFlag === 5) & (subTick === 0);
-		beginRInit 				<== (Mode === Modes.INCFLAG) & ((BKFlag === 1) | (BKFlag === 2)) & SMaskBase.isEmpty() & (subTick === 0);
-		beginRShrink 			<== (Mode === Modes.INCFLAG) & ((BKFlag === 7) | (BKFlag === 14)) & (subTick === 1);
-		isRShrinking 				<== (Mode === Modes.INCFLAG) & ((BKFlag === 7) | (BKFlag === 14)) & (subTick > 0);
-		beginThetaKUpdate 		<== (Mode === Modes.INCFLAG) & ((BKFlag === 8) | (BKFlag === 9)) & (subTick === 1);
-		isThetaKUpdating 			<== (Mode === Modes.INCFLAG) & ((BKFlag === 8) | (BKFlag === 9)) & (subTick > 0);
+		beginRInit 				<== (Mode === Modes.INCFLAG) & ((BKFlag === 1)|(BKFlag === 2)|(BKFlag === 3)|(BKFlag === 4)) & SMaskBase.isEmpty() & (subTick === 0);
+		beginRShrink 			<== (Mode === Modes.INCFLAG) & ((BKFlag === 7) | (BKFlag === 14) | (BKFlag === 11) | (BKFlag === 15)) & (subTick === 1);
+		isRShrinking 				<== (Mode === Modes.INCFLAG) & ((BKFlag === 7) | (BKFlag === 14) | (BKFlag === 11) | (BKFlag === 15)) & (subTick > 0);
+		beginThetaKUpdate 		<== (Mode === Modes.INCFLAG) & ((BKFlag === 8) | (BKFlag === 9) | (BKFlag === 12) | (BKFlag === 13)) & (subTick === 1);
+		isThetaKUpdating 			<== (Mode === Modes.INCFLAG) & ((BKFlag === 8) | (BKFlag === 9) | (BKFlag === 12) | (BKFlag === 13)) & (subTick > 0);
 		beginRShrinkForXcRemove 	<== (Mode === Modes.XCREMOVE) & (Group.dataOutA === 1) & (SMaskGroupIndex.get(SMaskPos) === GroupIndexXcCount);
 		
         }

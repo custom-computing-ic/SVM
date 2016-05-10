@@ -43,7 +43,7 @@ class SVMKernel extends Kernel {
 		DFEType BaseAddrType 	= dfeUInt(MathUtils.bitsToAddress(numBlocks));
 		DFEType OffsetAddrType 	= dfeUInt(MathUtils.bitsToAddress(blockDim));
 		DFEType PosType 			= dfeUInt(MathUtils.bitsToAddress(WinSize));
-		DFEType FlagType 		= dfeUInt(4);
+		DFEType FlagType 		= dfeUInt(3);
 		DFEType BoolType			= dfeBool();
 		
 		
@@ -298,10 +298,10 @@ class SVMKernel extends Kernel {
 		DFEVar FlagbC = constant.var(FlagType, 0);
 		// bE
 		DFEVar bE = (((q>0)&(hXi<-Def.ep))|((q<0)&(hXi>Def.ep))) ? KernelMath.abs(hXi+qep) : BKINF;
-		DFEVar FlagbE = isInc ? constant.var(FlagType, 1) : constant.var(FlagType, 3);
+		DFEVar FlagbE = constant.var(FlagType, 1);
 		// bR
 		DFEVar bR = KernelMath.abs(hXi-qep);
-		DFEVar FlagbR = isInc ? constant.var(FlagType, 2) : constant.var(FlagType, 4);
+		DFEVar FlagbR = constant.var(FlagType, 1);
 		
 		// Empty S - Decremental Training - bE, bR same as INC, but no bC
 		
@@ -319,35 +319,32 @@ class SVMKernel extends Kernel {
 		DFEVar LC2_INC = KernelMath.abs(qC-BKthetaSeq);
 		// LC_INC
 		DFEVar LC_INC = (LC1_INC < LC2_INC) ? LC1_INC : LC2_INC;
-		DFEVar FlagLC_INC = (LC1_INC < LC2_INC) ? constant.var(FlagType, 5) : constant.var(FlagType, 6);
+		DFEVar FlagLC_INC = (LC1_INC < LC2_INC) ? constant.var(FlagType, 2) : constant.var(FlagType, 3);
+
 		// LiS
 		DFEVar qbi 			= (q>0) ? BKbetaSeq : -BKbetaSeq;
 		DFEVar LSPos 		= (BKthetaSeq>=0) ? (Def.C - BKthetaSeq) : BKthetaSeq;
 		DFEVar LSNeg 		= (BKthetaSeq<=0) ? (Def.C + BKthetaSeq) : BKthetaSeq;
 		DFEVar toLS 			= ((qbi>0) ? LSPos : LSNeg) / BKbetaSeq;
 		DFEVar LS 			= (qbi===0) ? BKINF : KernelMath.abs(toLS);				
-		DFEVar FlagLSPosINC 	= (BKthetaSeq>=0) ? constant.var(FlagType, 7) : constant.var(FlagType, 14);
-		DFEVar FlagLSNegINC 	= (BKthetaSeq<=0) ? constant.var(FlagType, 7) : constant.var(FlagType, 14);
-		DFEVar FlagLSINC 		= (qbi>0) ? FlagLSPosINC : FlagLSNegINC;
-		DFEVar FlagLSPosDEC 	= (BKthetaSeq>=0) ? constant.var(FlagType, 11) : constant.var(FlagType, 15);
-		DFEVar FlagLSNegDEC 	= (BKthetaSeq<=0) ? constant.var(FlagType, 11) : constant.var(FlagType, 15);
-		DFEVar FlagLSDEC 	= (qbi>0) ? FlagLSPosDEC : FlagLSNegDEC;		
-		DFEVar FlagLS 		= (isInc) ? FlagLSINC : FlagLSDEC;
+		DFEVar FlagLSPos 		= (BKthetaSeq>=0) ? constant.var(FlagType, 4) : constant.var(FlagType, 7);
+		DFEVar FlagLSNeg 	= (BKthetaSeq<=0) ? constant.var(FlagType, 4) : constant.var(FlagType, 7);
+		DFEVar FlagLS 		= (qbi>0) ? FlagLSPos : FlagLSNeg;
 		// LiE and LiR shared resources
 		DFEVar qri = (q>0) ? BKgammaSeq : -BKgammaSeq;
 		DFEVar hXiPlusEpDivGammaSeq = KernelMath.abs((hXi+Def.ep)/BKgammaSeq);
 		DFEVar hXiMinusEpDivGammaSeq = KernelMath.abs((hXi-Def.ep)/BKgammaSeq);		
 		// LiE
 		DFEVar LE = ((qri>0)&(hXi<=-Def.ep)) ? hXiPlusEpDivGammaSeq : (((qri<0)&(hXi>=Def.ep)) ? hXiMinusEpDivGammaSeq : BKINF);
-		DFEVar FlagLE = (isInc) ? constant.var(FlagType, 8) : constant.var(FlagType, 12);
+		DFEVar FlagLE = constant.var(FlagType, 5);
 		// LiR
 		DFEVar LR = (qri===0) ? BKINF : ((qri>0) ? hXiMinusEpDivGammaSeq : hXiPlusEpDivGammaSeq);
-		DFEVar FlagLR = isInc ? constant.var(FlagType, 9) : constant.var(FlagType, 13);
-		
+		DFEVar FlagLR = constant.var(FlagType, 5);
+
 		// Non-Empty S - Decremental Training - LiS, LiE, LiR same as INC, but LC2 is different, and no LC1
 		// LC_DEC
 		DFEVar LC_DEC = KernelMath.abs(BKthetaSeq);
-		DFEVar FlagLC_DEC = constant.var(FlagType, 10);
+		DFEVar FlagLC_DEC = constant.var(FlagType, 6);
 		
 		// Overall LC
 		DFEVar LC = isInc ? LC_INC : LC_DEC;
@@ -433,7 +430,7 @@ class SVMKernel extends Kernel {
 		
 		
 		// REnlarge - triggered by beginGammaCREnlarge or begin automatically after gamma_k calculated
-		gammaInv 		<== (1.0 / ((BookKeepingFlag === 5) ? gamma_c : gamma_k)).cast(Def.RType);
+		gammaInv 		<== (1.0 / ((BookKeepingFlag === 2) ? gamma_c : gamma_k)).cast(Def.RType);
 		beginREnlarge 	<== beginGammaCREnlarge | stream.offset((isGammaKCalculating & GammaResultValid), -1);
 		
 		// RShrink

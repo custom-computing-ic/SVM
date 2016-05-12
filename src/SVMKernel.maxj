@@ -109,8 +109,6 @@ class SVMKernel extends Kernel {
 		DFEVar beginRInit 			= SM.getOutput("beginRInit");
 		DFEVar beginRShrink 			= SM.getOutput("beginRShrink");
 		DFEVar isRShrinking 			= SM.getOutput("isRShrinking");
-		DFEVar beginThetaKUpdate 	= SM.getOutput("beginThetaKUpdate");
-		DFEVar isThetaKUpdating 		= SM.getOutput("isThetaKUpdating"); 
 		DFEVar beginRShrinkForXcRemove = SM.getOutput("beginRShrinkForXcRemove");
 		
 		
@@ -120,11 +118,9 @@ class SVMKernel extends Kernel {
 		DFEVar hasFinished = BoolType.newInstance(this);
 		DFEVar hasBetaCalcFinished = BoolType.newInstance(this);
 		DFEVar hasGammaVCalcFinished = BoolType.newInstance(this);
-		DFEVar hasthetaKUpdateFinished = BoolType.newInstance(this);
 		SM.connectInput("hasFinished", hasFinished);
 		SM.connectInput("hasBetaCalcFinished", hasBetaCalcFinished);
 		SM.connectInput("hasGammaVCalcFinished", hasGammaVCalcFinished);
-		SM.connectInput("hasthetaKUpdateFinished", hasthetaKUpdateFinished);
 
 		// BookKeeping
 		DFEVar BookKeepingFlagOffseted = FlagType.newInstance(this);
@@ -204,10 +200,9 @@ class SVMKernel extends Kernel {
 		DFEVar thetaImmediateWrite 	= BoolType.newInstance(this);
 		DFEVar EnThetaIterateWrite 	= isProcessingNewXc;
 		DFEVar EnThetaIterate 			= (EnInput | beginRShrink);
-		thetaCalc thetaBlock = new thetaCalc (this, "theta", numBlocks, blockDim, thetaIn, thetaWrBaseAddr, thetaWrOffsetAddr, thetaRdBaseAddr, thetaRdOffsetAddr, thetaImmediateWrite, EnThetaIterateWrite, EnThetaIterate, beginThetaKUpdate, isThetaKUpdating);
+		thetaCalc thetaBlock = new thetaCalc (this, "theta", numBlocks, blockDim, thetaIn, thetaWrBaseAddr, thetaWrOffsetAddr, thetaRdBaseAddr, thetaRdOffsetAddr, thetaImmediateWrite, EnThetaIterateWrite, EnThetaIterate);
 		DFEVector<DFEVar> thetaVector = thetaBlock.getDataVec();
 		DFEVar thetaSeq = thetaBlock.getDataVal();
-		DFEVar thetaKUpdateFinishedFromThetaBlock = thetaBlock.hasThetaKUpdateFinished();
 
 		
 		// b
@@ -415,7 +410,12 @@ class SVMKernel extends Kernel {
 		
 		// Update theta
 		OffsetExpr thetaOffset 					= stream.makeOffsetAutoLoop("thetaOffset");
-		DFEVar thetaInUnOffseted 				= (BKthetaSeq + (beginUpdate ? thetaCNonEmptyS : bThetaNonEmptyS)).cast(Def.thetaType);
+		DFEVar newThetaC 					= (BKthetaSeq + thetaCNonEmptyS).cast(Def.thetaType);
+		DFEVar newThetaDefault 				= (BKthetaSeq + bThetaNonEmptyS).cast(Def.thetaType);
+		DFEVar newThetaK 					= (BookKeepingFlag === 7) ? 0 : ((newThetaDefault > 0) ? constant.var(Def.thetaType, Def.C) : -Def.C);
+		DFEVar isCurItemThetaK 				= ((BookKeepingFlag === 4)|(BookKeepingFlag === 7)) & (IndexSMask === BookKeepingIndex);
+		DFEVar newTheta 						= isCurItemThetaK ? newThetaK : newThetaDefault;
+		DFEVar thetaInUnOffseted 				= beginUpdate ? newThetaC 	: newTheta;
 		DFEVar thetaWrBaseAddrUnOffseted 		= beginUpdate ? BaseAddrXc 	: BaseAddrSMask;
 		DFEVar thetaWrOffsetAddrUnOffseted 	= beginUpdate ? OffsetAddrXc 	: OffsetAddrSMask;		
 		DFEVar thetaImmediateWriteUnOffseted 	= (~isEmptyS) & (beginUpdate | isUpdating & SMaskValid);
@@ -424,8 +424,8 @@ class SVMKernel extends Kernel {
 		DFEVar thetaWrOffsetAddrOffseted 		= stream.offset(thetaWrOffsetAddrUnOffseted, -thetaOffset);
 		DFEVar thetaImmediateWriteOffseted 	= stream.offset(thetaImmediateWriteUnOffseted, -thetaOffset);
 		thetaIn 				<== isProcessingNewXc ? constant.var(Def.thetaType, 0) : thetaInOffseted;
-		thetaWrBaseAddr 		<== isThetaKUpdating ? BaseAddrNMask : (isProcessingNewXc ? BaseAddrXc : thetaWrBaseAddrOffseted);
-		thetaWrOffsetAddr 	<== isThetaKUpdating ? OffsetAddrNMask : (isProcessingNewXc ? OffsetAddrXc : thetaWrOffsetAddrOffseted);
+		thetaWrBaseAddr 		<== isProcessingNewXc ? BaseAddrXc : thetaWrBaseAddrOffseted;
+		thetaWrOffsetAddr 	<== isProcessingNewXc ? OffsetAddrXc : thetaWrOffsetAddrOffseted;
 		thetaImmediateWrite 	<== isProcessingNewXc ? constant.var(dfeBool(), 0) : thetaImmediateWriteOffseted;
 		
 		
@@ -464,9 +464,6 @@ class SVMKernel extends Kernel {
 		OffsetExpr BookKeepingOffset = stream.makeOffsetAutoLoop("BookKeepingOffset");
 		BookKeepingFlagOffseted <== stream.offset(BookKeepingFlag, -BookKeepingOffset);
 		BookKeepingIndexOffseted <== stream.offset(BookKeepingIndex, -BookKeepingOffset);
-
-		// has Theta[k] update finished?
-		hasthetaKUpdateFinished <== thetaKUpdateFinishedFromThetaBlock;
 			
 
 		////////////////////////// Debug /////////////////////////
@@ -495,6 +492,8 @@ class SVMKernel extends Kernel {
 //		debug.simPrintf(isGammaKCalculating, "[%4d] [GammaKCalc] beginGammaKCalc=%d | QVal([%d][%d], [%d][%d])=%.12f\n", Tick, beginGammaKCalc, BaseAddrRow, OffsetAddrRow, BaseAddrCol, OffsetAddrCol, MatrixQ.getQVal());
 //		debug.simPrintf(GammaResultValid, "[%4d] [GammaCalc] BG CVK=%d%d%d, CVK=%d%d%d | N=%d, S=%d, NMask[%d], SMask[%d] | Beta=%2.6f, Result=%.12f, Valid=%d | Gamma[C]=%.12f, Gamma[K]=%.12f\n", Tick, beginGammaCCalc, beginGammaVCalc, beginGammaKCalc, isGammaCCalculating, isGammaVCalculating, isGammaKCalculating, NSize, SSize, IndexNMask, IndexSMask, betaSeq, GammaResult, GammaResultValid, gamma_c, gamma_k);
 
+		// theta Update
+//		debug.simPrintf(thetaImmediateWrite, "[%4d] [thetaUpdate] theta[%d][%d] <= %.12f, En=%d\n", Tick, thetaWrBaseAddr, thetaWrOffsetAddr, thetaIn, thetaImmediateWrite);
 		// hXi update
 //		debug.simPrintf(hXiWrEn, "[%4d] [hXiUpdate] hXi[%d] <= %.12f, En=%d \n", Tick, hXiWrAddr, hXiWrData, hXiWrEn);
 		

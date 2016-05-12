@@ -26,11 +26,11 @@ class Def {
 	public static final int streamLength 		= 8;
 	
 	// Latency
-	public static final int QUpdateLatency 	= 140; 	// hXcOffset + fromhXcValidtoXcJoinR
-	public static final int BookKeepingLatency	= 200; 	// BookKeepingOffset
-	public static final int REnlargeLatency 	= 220; 	// REnlargeLatency
+	public static final int QUpdateLatency 	= 150; 	// hXcOffset + fromhXcValidtoXcJoinR
+	public static final int BookKeepingLatency	= 220; 	// BookKeepingOffset
+	public static final int REnlargeLatency 	= 240; 	// REnlargeLatency
 	public static final int FetchLatency 		= 80; 	// KElemInvLatency
-	public static final int RShrinkLatency 		= 220; 	// RShrinkLatency
+	public static final int RShrinkLatency 		= 240; 	// RShrinkLatency
 
 
 	///////////////////////// SVM Parameters /////////////////////////
@@ -42,11 +42,12 @@ class Def {
 	public static final double sigma_sq 	= 50;
 	public static final double eps 		= 1e-7;
 	
+	public static final int FractionalBits 	= 40;
 
 	///////////////////////// Types /////////////////////////
 	
 	// Default Fix-Point Type used in various places
-	public static final DFEType FixType = KernelLib.dfeFixOffset(56, -40, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType FixType = KernelLib.dfeFixOffset(56, -FractionalBits, SignMode.TWOSCOMPLEMENT);
 
 	// Data X Types
 	// DataType should be able to hold X[i], and X[i] - X[j]
@@ -55,18 +56,18 @@ class Def {
 	public static final DFEType DataMultType = KernelLib.dfeFixOffset(36, -24, SignMode.TWOSCOMPLEMENT);
 
 	// Data Y Type: used by dataY and b
-	public static final DFEType DataYType = KernelLib.dfeFixOffset(64, -40, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType DataYType = KernelLib.dfeFixOffset(64, -FractionalBits, SignMode.TWOSCOMPLEMENT);
 	
 	// Q Type
-	public static final DFEType QType = KernelLib.dfeFixOffset(40, -39, SignMode.UNSIGNED);
+	public static final DFEType QType = KernelLib.dfeFixOffset(FractionalBits+1, -FractionalBits, SignMode.UNSIGNED);
 	
 	// theta Type
 	public static final DFEType thetaType = FixType;
-	public static final DFEType thetaKAccumulatorType = KernelLib.dfeFixOffset(64, -40, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType thetaKAccumulatorType = KernelLib.dfeFixOffset(64, -FractionalBits, SignMode.TWOSCOMPLEMENT);
 	
 	// R Type
 	public static final DFEType RType = FixType;
-	public static final DFEType RCalcType = KernelLib.dfeFixOffset(64, -40, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType RCalcType = KernelLib.dfeFixOffset(64, -FractionalBits, SignMode.TWOSCOMPLEMENT);
 	
 	// betaType
 	public static final DFEType betaType = FixType;
@@ -78,8 +79,8 @@ class Def {
 	public static final DFEType hXiType = FixType;
 	
 	// BookKeeping Type
-	public static final double BookKeepingTH = 8000000;
-	public static final DFEType BookKeepingType = KernelLib.dfeFixOffset(64, -40, SignMode.TWOSCOMPLEMENT);
+	public static final double BookKeepingTH = 100000;
+	public static final DFEType BookKeepingType = KernelLib.dfeFixOffset(64, -FractionalBits, SignMode.TWOSCOMPLEMENT);
 
 
 	///////////////////////// Software Utility Functions /////////////////////////

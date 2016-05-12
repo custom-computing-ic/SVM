@@ -60,7 +60,6 @@ class SVMStateMachine extends KernelStateMachine {
 	private final DFEsmInput hasFinished;
 	private final DFEsmInput hasBetaCalcFinished;
 	private final DFEsmInput hasGammaVCalcFinished;
-	private final DFEsmInput hasthetaKUpdateFinished;
 	
 	// BookKeeping
 	private final DFEsmInput BKFlag;
@@ -126,8 +125,6 @@ class SVMStateMachine extends KernelStateMachine {
 	private final DFEsmOutput beginGammaCREnlarge;
 	private final DFEsmOutput beginRShrink;
 	private final DFEsmOutput isRShrinking;
-	private final DFEsmOutput beginThetaKUpdate;
-	private final DFEsmOutput isThetaKUpdating;
 	
 	// Decremental Training
 	private final DFEsmOutput beginRShrinkForXcRemove;
@@ -224,7 +221,6 @@ class SVMStateMachine extends KernelStateMachine {
 		hasFinished 				= io.input("hasFinished", BoolType);
 		hasBetaCalcFinished 		= io.input("hasBetaCalcFinished", BoolType);
 		hasGammaVCalcFinished 	= io.input("hasGammaVCalcFinished", BoolType);
-		hasthetaKUpdateFinished 	= io.input("hasthetaKUpdateFinished", BoolType);
 	
 		// BookKeeping
 		BKFlag 					= io.input("BookKeepingFlag", dfeUInt(3));
@@ -290,8 +286,8 @@ class SVMStateMachine extends KernelStateMachine {
 		beginGammaCREnlarge 	= io.output("beginGammaCREnlarge", BoolType); 
 		beginRShrink 			= io.output("beginRShrink", BoolType);
 		isRShrinking 				= io.output("isRShrinking", BoolType);
-		beginThetaKUpdate 		= io.output("beginThetaKUpdate", BoolType);
-		isThetaKUpdating 			= io.output("isThetaKUpdating", BoolType);
+
+		// Decremental Training
 		beginRShrinkForXcRemove 	= io.output("beginRShrinkForXcRemove", BoolType);
 		
 
@@ -343,7 +339,7 @@ class SVMStateMachine extends KernelStateMachine {
 		////////////////////////// Debug /////////////////////////
 		
 		Tick.next <== Tick + 1;
-		IF (subTick===0) debug.simPrintf("[%4d] Mode[%d] = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d \n", Tick, subTick, Mode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos);
+//		IF (subTick===0) debug.simPrintf("[%4d] Mode[%d] = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d \n", Tick, subTick, Mode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos);
 //		IF (Mode === Modes.BOOKKEEPING_PRE | Mode === Modes.BOOKKEEPING_C | Mode === Modes.BOOKKEEPING_N | Mode === Modes.BOOKKEEPING_S) debug.simPrintf("[%4d] Mode[%4d] = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d | Group[prev]=%d \n", Tick, subTick, Mode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos, Group.dataOutA);
 		
 
@@ -602,15 +598,13 @@ class SVMStateMachine extends KernelStateMachine {
 						// begin RShrink and hXi update when subTick===1
 						SMaskPos.next <== BookKeepingIndex;
 						IF (subTick === RShrinkCycles) {
-						Mode.next <== Modes.MOVES2E;
+							Mode.next <== Modes.MOVES2E;
 						}
 					}
 					CASE(5) {
 						// N[index] moves from N to S
 						NMaskPos.next <== BookKeepingIndex; // should keep that value through moving process
-						IF (hasthetaKUpdateFinished === true){
-							gotoMoveFetchQ();
-						}
+						gotoMoveFetchQ();
 					}
 					CASE(6) {
 						// Xc is removed by joining R and terminate - DEC only
@@ -879,8 +873,6 @@ class SVMStateMachine extends KernelStateMachine {
 		beginRInit 				<== (Mode === Modes.INCFLAG) & (BKFlag === 1) & (subTick === 0);
 		beginRShrink 			<== (Mode === Modes.INCFLAG) & ((BKFlag === 4) | (BKFlag === 7)) & (subTick === 1);
 		isRShrinking 				<== (Mode === Modes.INCFLAG) & ((BKFlag === 4) | (BKFlag === 7)) & (subTick > 0);
-		beginThetaKUpdate 		<== (Mode === Modes.INCFLAG) & (BKFlag === 5) & (subTick === 1);
-		isThetaKUpdating 			<== (Mode === Modes.INCFLAG) & (BKFlag === 5) & (subTick > 0);
 		beginRShrinkForXcRemove 	<== (Mode === Modes.REMOVEXCFROMS);
 		
         }

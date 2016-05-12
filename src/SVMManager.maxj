@@ -21,7 +21,7 @@ public class SVMManager extends CustomManager{
 			BuildConfig Config = new BuildConfig(BuildConfig.Level.FULL_BUILD);
                 	Config.setBuildEffort(BuildConfig.Effort.HIGH);
                 	Config.setMPPRCostTableSearchRange(1, 20);
-                	Config.setMPPRParallelism(6);
+                	Config.setMPPRParallelism(8);
                 	Config.setEnableTimingAnalysis(true);
                 	setBuildConfig(Config);
                 	config.setDefaultStreamClockFrequency(Def.KernelFrequencyMAX4);

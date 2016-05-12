@@ -4,12 +4,7 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Stream.OffsetExpr;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Accumulator;
 
-import maxpower.KernelBinaryOp.Add;
-import maxpower.TreeReduce;
 
 /**
  * This block maintains theta
@@ -31,11 +26,9 @@ class thetaCalc extends KernelLib{
 
 	private DFEVector<DFEVar> VecOUT;
 	private DFEVar ValOUT;
-	private DFEVar thetaKUpdateFinish;
 		
 	public DFEVector<DFEVar> getDataVec() 		{return VecOUT;}
 	public DFEVar getDataVal() 			{return ValOUT;}
-	public DFEVar hasThetaKUpdateFinished() 		{return thetaKUpdateFinish;}
 	
 	
 	thetaCalc ( 	KernelLib owner, 
@@ -49,9 +42,7 @@ class thetaCalc extends KernelLib{
 					DFEVar OffsetAddrRead, 
 					DFEVar immediateWrite,
 					DFEVar EnIterateWrite, 
-					DFEVar beginIterate,
-					DFEVar beginThetaKUpdate,
-					DFEVar isThetaKUpdating) 
+					DFEVar beginIterate) 
 	{
 		
 		super(owner);
@@ -59,52 +50,29 @@ class thetaCalc extends KernelLib{
 		/////////////////////// Type ///////////////////////		
 		
 		DFEVectorType<DFEVar> VecType = new DFEVectorType<DFEVar>(Def.thetaType, numBlocks);
-		DFEVectorType<DFEVar> thetaKAccVecType = new DFEVectorType<DFEVar>(Def.thetaKAccumulatorType, numBlocks);
 		
 		/////////////////////// Memory ///////////////////////
                 
                 // Address
                 AddrGenerator XAddrGen = new AddrGenerator(owner, 1, blockDim, beginIterate);
                 DFEVar XAddr = XAddrGen.getAddr();
-                
-                // Counter for theta[K] accumulator
-                AddrGenerator thetaKUpdateCounter = new AddrGenerator(owner, 1, blockDim, beginThetaKUpdate);
-                DFEVar thetaAddr = thetaKUpdateCounter.getAddr();
-                DFEVar EnAccumulation = thetaKUpdateCounter.isValid();
 		
 		// Data
 		VecOUT 						= VecType.newInstance(this);
-		DFEVector<DFEVar> forThetaK 	= thetaKAccVecType.newInstance(this);
 		DFEVector<DFEVar> toMux 	= VecType.newInstance(this);
-		DFEVar newThetaKOffseted 		= Def.thetaType.newInstance(this);
-		DFEVar thetaKWrEnOffseted 	= dfeBool().newInstance(this);
 		
 		// Memory
 		for(int i=0; i<numBlocks; ++i) {
 			Memory<DFEVar> block = mem.alloc(Def.thetaType, blockDim);
 			block.mapToCPU(name+i);
-			DFEVar RdAddr 	= EnAccumulation ? thetaAddr : OffsetAddrRead;
-			DFEVar WrAddr 	= (immediateWrite | isThetaKUpdating) ? OffsetAddrWrite : XAddr;
-			DFEVar WrData 	= isThetaKUpdating ? newThetaKOffseted : dataIn;
-			DFEVar WrEn 		= isThetaKUpdating ? ((BaseAddrWrite === i) & thetaKWrEnOffseted) : ((BaseAddrWrite === i) & (immediateWrite | (EnIterateWrite & (OffsetAddrWrite === XAddr))));
+			DFEVar WrAddr 	= immediateWrite ? OffsetAddrWrite : XAddr;
+			DFEVar WrData 	= dataIn;
+			DFEVar WrEn 		= (BaseAddrWrite === i) & (immediateWrite | (EnIterateWrite & (OffsetAddrWrite === XAddr)));
 			VecOUT[i] 		<== block.port(WrAddr, WrData, WrEn, RamWriteMode.WRITE_FIRST);
-			toMux[i] 			<== block.read(RdAddr);
-			forThetaK[i] 		<== ((BaseAddrWrite === i) & (OffsetAddrWrite === thetaAddr)) ? 0 : toMux[i].cast(Def.thetaKAccumulatorType);
+			toMux[i] 			<== block.read(OffsetAddrRead);
 		}
 		ValOUT = control.mux(BaseAddrRead, toMux.getElementsAsList());
-		
-		// theta[K] update
-		Accumulator.Params Param = Reductions.accumulator.makeAccumulatorConfig(Def.thetaKAccumulatorType)
-									.withEnable(EnAccumulation)
-									.withClear(stream.offset(beginThetaKUpdate, 1));
-		DFEVar toAccumulator = TreeReduce.reduce(new Add<DFEVar>(), forThetaK.getElementsAsList());
-		DFEVar sum = Reductions.accumulator.makeAccumulator(toAccumulator, Param);
-		DFEVar newThetaKUnOffseted 	= -sum.cast(Def.thetaType);
-		DFEVar thetaKWrEnUnOffseted 	= EnAccumulation & (thetaAddr === blockDim-1);
-		OffsetExpr thetaKOffset 		= stream.makeOffsetAutoLoop("thetaKOffset");
-		newThetaKOffseted 			<== stream.offset(newThetaKUnOffseted, -thetaKOffset);
-		thetaKWrEnOffseted 			<== stream.offset(thetaKWrEnUnOffseted, -thetaKOffset);
-		thetaKUpdateFinish 			= thetaKWrEnOffseted;
+
 	}
 
 }

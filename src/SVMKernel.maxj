@@ -483,7 +483,7 @@ class SVMKernel extends Kernel {
 		// BookKeeping
 		debug.simPrintf(beginBookKeeping, "[%4d] ----------- Begin BookKeeping ------------\n", Tick);
 //		debug.simPrintf(BookKeepingValid, "[%4d] N[%d] S[%d] Sel=%d | hXi[%d]=%f, betaSeq=%f, thetaSeq=%f \n                           bC[0]=%f, bE[1]=%f, bR[2]=%f, LC[3]=%f, LS[4]=%f, LE[5]=%f, LR[6]=%f\n", Tick, IndexNMask, IndexSMask, BKSel, hXiRdAddr, hXi, betaSeq, thetaSeq, bC, bE, bR, LC, LS, LE, LR);
-		debug.simPrintf(beginUpdate, "[%4d] =======> BookKeeping Result: Flag=%d, Index=%d, minL = %e ------------\n", Tick, BookKeepingFlag, BookKeepingIndex, minL);
+		debug.simPrintf(beginUpdate, "[%4d] =======> BookKeeping Result: Flag=%d, Index=%d, minL = %.12e ------------\n", Tick, BookKeepingFlag, BookKeepingIndex, minL);
 		
 		// Q Fetch
 //		debug.simPrintf(QBufEnWrite, "[%4d] [QBuffer] SMask[%d] - Base=%d, Offset=%d, GroupIndex=%d | Q[%d][%d][%d][%d] => %f | QBuffer[Base][%d] <= %f \n", Tick, IndexSMask, BaseAddrSMask, OffsetAddrSMask, GroupIndexSMask, BaseAddrRow, OffsetAddrRow, BaseAddrCol, OffsetAddrCol, QVal, QBufWriteOffsetAddr, QVal);

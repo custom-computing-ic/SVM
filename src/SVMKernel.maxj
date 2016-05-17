@@ -436,7 +436,7 @@ class SVMKernel extends Kernel {
 		// RShrink
 		OffsetExpr SMaskIDToRemoveOffset = stream.makeOffsetAutoLoop("SMaskIDToRemoveOffset");
 		DFEVar SMaskIDToRemoveBKUpdate = stream.offset(BookKeepingIndex, -SMaskIDToRemoveOffset);
-		DFEVar SMaskIDToRemoveXcRemove = Reductions.streamHold(IndexSMask, beginRShrinkForXcRemove);
+		DFEVar SMaskIDToRemoveXcRemove = Reductions.streamHold(IndexSMask, stream.offset(beginRShrinkForXcRemove, 1));
 		SMaskIDToRemove <== isRShrinking ? SMaskIDToRemoveBKUpdate : SMaskIDToRemoveXcRemove;
 
 

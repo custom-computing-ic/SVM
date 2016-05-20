@@ -4,7 +4,6 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEFix.SignMode;
 import com.maxeler.maxcompiler.v2.utils.Bits;
 import java.util.List;
 import java.util.ArrayList;
-import java.lang.Math;
 
 
 class Def {
@@ -16,17 +15,17 @@ class Def {
 	public static final int KernelFrequencyMAX3 = 100;
 	
 	// Fanout Limit
-	public static final int MaxFanout 			= 8;
+	public static final int MaxFanout 			= 6;
 	public static final double PipeFactor 		= 0.85;
 	
 	// Kernel Settings
 	public static final int DataDim 			= 30;
 	public static final int numBlocks 			= 4;
 	public static final int blockDim 			= 120;
-	public static final int streamLength 		= 8;
+	public static final int streamLength 		= 2333;
 	
 	// Latency
-	public static final int QUpdateLatency 	= 150; 	// hXcOffset + fromhXcValidtoXcJoinR
+	public static final int QUpdateLatency 	= 160; 	// hXcOffset + fromhXcValidtoXcJoinR
 	public static final int BookKeepingLatency	= 220; 	// BookKeepingOffset
 	public static final int REnlargeLatency 	= 240; 	// REnlargeLatency
 	public static final int FetchLatency 		= 80; 	// KElemInvLatency
@@ -36,51 +35,41 @@ class Def {
 	///////////////////////// SVM Parameters /////////////////////////
 
 	// Window Size = numBlocks * blockDim
-	public static final int WinSize 		= numBlocks * blockDim;
-	public static final double ep 		= 0.01;
-	public static final double C 			= 1000;
-	public static final double sigma_sq 	= 50;
-	public static final double eps 		= 1e-7;
+	public static final int WinSize 			= numBlocks * blockDim;
+	public static final double ep 			= 0.01;
+	public static final double C 				= 1000;
+	public static final double sigma_sq 		= 50;
+	public static final double eps 			= 1e-7;
+	public static final double BookKeepingTH 	= 100000;
 	
-	public static final int FractionalBits 	= 40;
 
 	///////////////////////// Types /////////////////////////
 	
-	// Default Fix-Point Type used in various places
-	public static final DFEType FixType = KernelLib.dfeFixOffset(56, -FractionalBits, SignMode.TWOSCOMPLEMENT);
-
+	// Precision
+	public static final int FractionalBits = 40;
+	
+	// Default Fix-Point Type
+	public static final DFEType FixType 			= KernelLib.dfeFixOffset(56, -FractionalBits, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType betaType 			= FixType;
+	public static final DFEType gammaType 		= FixType;
+	public static final DFEType thetaType 			= FixType;
+	public static final DFEType hXiType 			= FixType;
+	public static final DFEType RType 			= FixType;
+	
+	// High Range Fix-Point Type
+	public static final DFEType HighFixType 		= KernelLib.dfeFixOffset(64, -FractionalBits, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType DataYType 		= HighFixType;
+	public static final DFEType RCalcType 		= HighFixType;
+	public static final DFEType BookKeepingType 	= HighFixType;
+	
 	// Data X Types
 	// DataType should be able to hold X[i], and X[i] - X[j]
 	// DataMultType should be able to hold (X[i] - X[j])^2
-	public static final DFEType DataType = KernelLib.dfeFixOffset(32, -24, SignMode.TWOSCOMPLEMENT);
-	public static final DFEType DataMultType = KernelLib.dfeFixOffset(36, -24, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType DataType 			= KernelLib.dfeFixOffset(32, -24, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType DataMultType 		= KernelLib.dfeFixOffset(36, -24, SignMode.TWOSCOMPLEMENT);
 
-	// Data Y Type: used by dataY and b
-	public static final DFEType DataYType = KernelLib.dfeFixOffset(64, -FractionalBits, SignMode.TWOSCOMPLEMENT);
-	
 	// Q Type
 	public static final DFEType QType = KernelLib.dfeFixOffset(FractionalBits+1, -FractionalBits, SignMode.UNSIGNED);
-	
-	// theta Type
-	public static final DFEType thetaType = FixType;
-	public static final DFEType thetaKAccumulatorType = KernelLib.dfeFixOffset(64, -FractionalBits, SignMode.TWOSCOMPLEMENT);
-	
-	// R Type
-	public static final DFEType RType = FixType;
-	public static final DFEType RCalcType = KernelLib.dfeFixOffset(64, -FractionalBits, SignMode.TWOSCOMPLEMENT);
-	
-	// betaType
-	public static final DFEType betaType = FixType;
-	
-	// gammaType
-	public static final DFEType gammaType = FixType;
-	
-	// hXi Type
-	public static final DFEType hXiType = FixType;
-	
-	// BookKeeping Type
-	public static final double BookKeepingTH = 100000;
-	public static final DFEType BookKeepingType = KernelLib.dfeFixOffset(64, -FractionalBits, SignMode.TWOSCOMPLEMENT);
 
 
 	///////////////////////// Software Utility Functions /////////////////////////
@@ -97,13 +86,5 @@ class Def {
 		}
 		return encodedData;
 	}
-
-	// RBFKernel
-	public static double RBFKernel (int [] X1, int [] X2, int DataDim, double sigma_sq) {
-		double sum = 0;
-		for (int i=0; i<DataDim; ++i) sum -= (X1[i] - X2[i]) * (X1[i] - X2[i]);
-		return Math.exp(sum/2/sigma_sq);
-	}
-
 
 }

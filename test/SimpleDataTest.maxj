@@ -14,7 +14,7 @@ public class SimpleDataTest {
 	
 		/////////////////////// Settings ///////////////////////
 		
-		final int numTicks = 400000;
+		final int numTicks = 350000;
 		final int numBlocks = 4;
 		final int blockDim = 4;
 		final int dataDim = 1;

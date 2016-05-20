@@ -16,6 +16,7 @@ import com.maxeler.maxcompiler.v2.utils.MathUtils;
 import maxpower.ZeroLatencyInput;
 import maxpower.KernelBinaryOp.Add;
 import maxpower.TreeReduce;
+import maxpower.FanoutLimiter;
 
 class SVMKernel extends Kernel {
 
@@ -45,6 +46,7 @@ class SVMKernel extends Kernel {
 		DFEType PosType 			= dfeUInt(MathUtils.bitsToAddress(WinSize));
 		DFEType FlagType 		= dfeUInt(3);
 		DFEType BoolType			= dfeBool();
+		DFEVectorType<DFEVar> DataVecType = new DFEVectorType<DFEVar>(Def.DataType, dataDim);
 		
 		
 		////////////////////////// From State Machine /////////////////////////
@@ -131,20 +133,20 @@ class SVMKernel extends Kernel {
 
 		////////////////////////// Input /////////////////////////
 		
-		// Data Vector
-		DFEVectorType<DFEVar> DataVecType = new DFEVectorType<DFEVar>(Def.DataType, dataDim);
+		// EnInput
+		FanoutLimiter<DFEVar> EnInputFanout = new FanoutLimiter<DFEVar>(EnInput, Def.MaxFanout);
 
 		// Xc FIFO
-		DFEVector<DFEVar> Xc_IN = ZeroLatencyInput.input("Xc", DataVecType, EnInput, constant.var(dfeUInt(32), streamLength));
+		DFEVector<DFEVar> Xc_IN = ZeroLatencyInput.input("Xc", DataVecType, EnInputFanout.get(), constant.var(dfeUInt(32), streamLength));
 		Queue<DFEVector<DFEVar>> XcQueue = mem.queue(DataVecType, 2);
-		XcQueue.insert(Xc_IN, EnInput);
-		DFEVector<DFEVar> Xc = XcQueue.remove(EnInput);
+		XcQueue.insert(Xc_IN, EnInputFanout.get());
+		DFEVector<DFEVar> Xc = XcQueue.remove(EnInputFanout.get());
 		
 		// Yc FIFO
-		DFEVar Yc_IN = ZeroLatencyInput.input("Yc", Def.DataYType, EnInput, constant.var(dfeUInt(32), streamLength));
+		DFEVar Yc_IN = ZeroLatencyInput.input("Yc", Def.DataYType, EnInputFanout.get(), constant.var(dfeUInt(32), streamLength));
 		Queue<DFEVar> YcQueue = mem.queue(Def.DataYType, 2);
-		YcQueue.insert(Yc_IN, EnInput);
-		DFEVar Yc = YcQueue.remove(EnInput);
+		YcQueue.insert(Yc_IN, EnInputFanout.get());
+		DFEVar Yc = YcQueue.remove(EnInputFanout.get());
 
 
 		////////////////////////// Handling New item Xc /////////////////////////
@@ -153,14 +155,14 @@ class SVMKernel extends Kernel {
 		//     EnInput: 0, 0, 1, 0, 0, 0, 0, ...,                  0, 0, 0, 0, 0...
 		// blockAddr: 0, 0, 0, 1, 2, 3, 4, ..., blockDim-1, 0, 0, 0, 0...
 		//          valid: 0, 0, 1, 1, 1, 1, 1, ...,                 1, 0, 0, 0, 0...
-		AddrGenerator blockAddrGen = new AddrGenerator(this, 1, blockDim, EnInput);
+		AddrGenerator blockAddrGen = new AddrGenerator(this, 1, blockDim, EnInputFanout.get());
 		DFEVar isProcessingNewXc = blockAddrGen.isValid();
 
 		// dataX
 		dataXBlock [] DataXBlock = new dataXBlock[numBlocks];
 		DFEVector<DFEVector<DFEVar>> dataX = (new DFEVectorType<DFEVector<DFEVar>>(DataVecType, numBlocks)).newInstance(this);
 		for (int i=0; i<numBlocks; ++i) {
-			DataXBlock[i] = new dataXBlock(this, i, blockDim, dataDim, Xc, BaseAddrXc, OffsetAddrXc, EnInput);
+			DataXBlock[i] = new dataXBlock(this, i, blockDim, dataDim, Xc, BaseAddrXc, OffsetAddrXc, EnInputFanout.get());
 			dataX[i] <== DataXBlock[i].getData();
 		}
 
@@ -282,8 +284,6 @@ class SVMKernel extends Kernel {
 		
 		////////////////////////// Bookkeeping /////////////////////////
 		
-		optimization.pushPipeliningFactor(Def.PipeFactor);
-		
 		DFEVar BKINF = constant.var(Def.BookKeepingType, Def.BookKeepingTH);
 		
 		// Empty S - Incremental Training - NEED q and hXi
@@ -344,8 +344,6 @@ class SVMKernel extends Kernel {
 		// Overall LC
 		DFEVar LC = isInc ? LC_INC : LC_DEC;
 		DFEVar FlagLC = isInc ? FlagLC_INC : FlagLC_DEC;
-		
-		optimization.popPipeliningFactor();
 		
 		
 		// BookKeeping - must offset BookKeepingSel by 1 when iterating over NMask, as Group RAM in StateMachine has latency 1

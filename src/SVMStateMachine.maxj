@@ -46,8 +46,7 @@ class SVMStateMachine extends KernelStateMachine {
 		REMOVEXCFROMS, 	// Remove Xc from SMask
 		REMOVEXCFROMN, 	// Remove Xc from NMask
                 XCREMOVEWAIT, 		// Waiting for Xc Removal Finish
-                DECFINISH, 			// Decremental Training has Finished
-                
+                DECFINISH 			// Decremental Training has Finished
 	}
 	
 	enum maskModes {

@@ -46,6 +46,7 @@ class SVMKernel extends Kernel {
 		DFEType PosType 			= dfeUInt(MathUtils.bitsToAddress(WinSize));
 		DFEType FlagType 		= dfeUInt(3);
 		DFEType BoolType			= dfeBool();
+		DFEVectorType<DFEVar> InputVecType = new DFEVectorType<DFEVar>(Def.InputType, dataDim);
 		DFEVectorType<DFEVar> DataVecType = new DFEVectorType<DFEVar>(Def.DataType, dataDim);
 		
 		
@@ -137,16 +138,19 @@ class SVMKernel extends Kernel {
 		FanoutLimiter<DFEVar> EnInputFanout = new FanoutLimiter<DFEVar>(EnInput, Def.MaxFanout);
 
 		// Xc FIFO
-		DFEVector<DFEVar> Xc_IN = ZeroLatencyInput.input("Xc", DataVecType, EnInputFanout.get(), constant.var(dfeUInt(32), streamLength));
-		Queue<DFEVector<DFEVar>> XcQueue = mem.queue(DataVecType, 2);
+		DFEVector<DFEVar> Xc_IN = ZeroLatencyInput.input("Xc", InputVecType, EnInputFanout.get(), constant.var(dfeUInt(32), streamLength));
+		Queue<DFEVector<DFEVar>> XcQueue = mem.queue(InputVecType, 2);
 		XcQueue.insert(Xc_IN, EnInputFanout.get());
-		DFEVector<DFEVar> Xc = XcQueue.remove(EnInputFanout.get());
+		DFEVector<DFEVar> Xc_InputType = XcQueue.remove(EnInputFanout.get());
+		DFEVector<DFEVar> Xc = DataVecType.newInstance(this);
+		for (int i=0; i<dataDim; ++i) Xc[i] <== Xc_InputType[i].cast(Def.DataType);
 		
 		// Yc FIFO
-		DFEVar Yc_IN = ZeroLatencyInput.input("Yc", Def.DataYType, EnInputFanout.get(), constant.var(dfeUInt(32), streamLength));
-		Queue<DFEVar> YcQueue = mem.queue(Def.DataYType, 2);
+		DFEVar Yc_IN = ZeroLatencyInput.input("Yc", Def.InputType, EnInputFanout.get(), constant.var(dfeUInt(32), streamLength));
+		Queue<DFEVar> YcQueue = mem.queue(Def.InputType, 2);
 		YcQueue.insert(Yc_IN, EnInputFanout.get());
-		DFEVar Yc = YcQueue.remove(EnInputFanout.get());
+		DFEVar Yc_InputType = YcQueue.remove(EnInputFanout.get());
+		DFEVar Yc = Yc_InputType.cast(Def.DataYType);
 
 
 		////////////////////////// Handling New item Xc /////////////////////////
@@ -474,7 +478,7 @@ class SVMKernel extends Kernel {
 		
 		// hXc calculation
 		debug.simPrintf(EnInput, "\n[%4d]--------[NEW INPUT]-------(Xc[%d][%d],Yc)=(%f,%f)--------------------- b=%.12f ----------------------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc, b);
-		//debug.simPrintf(isProcessingNewXc, "[%4d] Addr=%2d, En=%d | Q[0:3]=(%.4f,%.4f,%.4f,%.4f) theta[0:3]=(%.4f,%.4f,%.4f,%.4f) | b = %f | hXc = %f, Valid=%d | XcJoinR=%d, hasFinished=%d\n", Tick, blockAddrGen.getAddr(), isProcessingNewXc, QVector[0], QVector[1], QVector[2], QVector[3], thetaVector[0], thetaVector[1], thetaVector[2], thetaVector[3], b, hXiCalcResult, hXcValid, XcJoinR, hasFinished);
+//		debug.simPrintf(isProcessingNewXc, "[%4d] Addr=%2d, En=%d | Q[0:3]=(%.4f,%.4f,%.4f,%.4f) theta[0:3]=(%.4f,%.4f,%.4f,%.4f) | b = %f | hXc = %f, Valid=%d | XcJoinR=%d, hasFinished=%d\n", Tick, blockAddrGen.getAddr(), isProcessingNewXc, QVector[0], QVector[1], QVector[2], QVector[3], thetaVector[0], thetaVector[1], thetaVector[2], thetaVector[3], b, hXiCalcResult, hXcValid, XcJoinR, hasFinished);
 //		debug.simPrintf(hasQUpdateFinished, "[%4d] ----------- QUpdate Finished ------------\n", Tick);
 		debug.simPrintf(hasFinished, "[%4d] (Xc[%d][%d],Yc) = (%f,%f) joins R. \n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
 		

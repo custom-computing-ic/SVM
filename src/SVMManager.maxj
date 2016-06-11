@@ -2,6 +2,7 @@ import com.maxeler.maxcompiler.v2.managers.engine_interfaces.CPUTypes;
 import com.maxeler.maxcompiler.v2.managers.engine_interfaces.EngineInterface;
 import com.maxeler.maxcompiler.v2.managers.engine_interfaces.InterfaceParam;
 import com.maxeler.maxcompiler.v2.managers.custom.CustomManager;
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelConfiguration;
 import com.maxeler.maxcompiler.v2.managers.BuildConfig;
 import com.maxeler.maxcompiler.v2.managers.custom.blocks.KernelBlock;
 import com.maxeler.maxcompiler.v2.build.EngineParameters;
@@ -44,7 +45,8 @@ public class SVMManager extends CustomManager{
 		
 
 		///////////////////////// Kernel Configuration /////////////////////////
-
+		
+		getCurrentKernelConfig().simulation.setRAMAddressCollisionBehaviour(KernelConfiguration.SimulationOptions.SimulationBehaviour.IGNORE);
 		KernelBlock k = addKernel(new SVMKernel(makeKernelParameters(Name), Def.numBlocks, Def.blockDim, Def.DataDim, Def.streamLength));
 		k.getInput("Xc") <== addStreamFromCPU("Xc");
 		k.getInput("Yc") <== addStreamFromCPU("Yc");
@@ -63,8 +65,8 @@ public class SVMManager extends CustomManager{
 		// Inputs
 		InterfaceParam numItems 	= engine_interface.addConstant(Def.streamLength);
 		InterfaceParam dataDim 	= engine_interface.addConstant(Def.DataDim);
-		engine_interface.setStream("Xc", CPUTypes.FLOAT, numItems * dataDim * CPUTypes.FLOAT.sizeInBytes());
-		engine_interface.setStream("Yc", CPUTypes.FLOAT, numItems * CPUTypes.FLOAT.sizeInBytes());
+		engine_interface.setStream("Xc", CPUTypes.DOUBLE, numItems * dataDim * CPUTypes.DOUBLE.sizeInBytes());
+		engine_interface.setStream("Yc", CPUTypes.DOUBLE, numItems * CPUTypes.DOUBLE.sizeInBytes());
 		
 		// Output
 		engine_interface.setStream("output", CPUTypes.INT32, numTicks * CPUTypes.INT32.sizeInBytes());

@@ -8,6 +8,9 @@ import java.util.ArrayList;
 
 class Def {
 
+
+
+
 	///////////////////////// FPGA Configuration /////////////////////////
 
 	// FPGA Frequency
@@ -18,30 +21,30 @@ class Def {
 	public static final int MaxFanout 			= 6;
 	public static final double PipeFactor 		= 0.85;
 	
-	// Kernel Settings
-	public static final int DataDim 			= 30;
-	public static final int numBlocks 			= 4;
-	public static final int blockDim 			= 120;
-	public static final int streamLength 		= 2333;
-	
 	// Latency
 	public static final int QUpdateLatency 	= 160; 	// hXcOffset + fromhXcValidtoXcJoinR
 	public static final int BookKeepingLatency	= 220; 	// BookKeepingOffset
-	public static final int REnlargeLatency 	= 240; 	// REnlargeLatency
+	public static final int REnlargeLatency 	= 220; 	// REnlargeLatency
 	public static final int FetchLatency 		= 80; 	// KElemInvLatency
-	public static final int RShrinkLatency 		= 240; 	// RShrinkLatency
+	public static final int RShrinkLatency 		= 220; 	// RShrinkLatency
 
 
 	///////////////////////// SVM Parameters /////////////////////////
+	
+	// Kernel Settings
+	public static final int DataDim 			= 1;
+	public static final int numBlocks 			= 4;
+	public static final int blockDim 			= 4;
+	public static final int streamLength 		= 40;
 
 	// Window Size = numBlocks * blockDim
 	public static final int WinSize 			= numBlocks * blockDim;
 	public static final double ep 			= 0.01;
 	public static final double C 				= 1000;
 	public static final double sigma_sq 		= 50;
-	public static final double eps 			= 1e-7;
+	public static final double eps 			= 1e-6;
 	public static final double BookKeepingTH 	= 100000;
-	
+
 
 	///////////////////////// Types /////////////////////////
 	
@@ -62,6 +65,9 @@ class Def {
 	public static final DFEType RCalcType 		= HighFixType;
 	public static final DFEType BookKeepingType 	= HighFixType;
 	
+	// Input Type
+	public static final DFEType InputType 			= KernelLib.dfeFloat(11, 53);
+	
 	// Data X Types
 	// DataType should be able to hold X[i], and X[i] - X[j]
 	// DataMultType should be able to hold (X[i] - X[j])^2
@@ -78,9 +84,9 @@ class Def {
 	public static List<Bits> FloatVectorDataGenerator(double [][] data, int numTicks, int VectorWidth) {
 		final List<Bits> encodedData = new ArrayList<Bits>(numTicks);
 		for (int i=0; i<numTicks; ++i) {
-			Bits thisStepBits = DataType.encodeConstant(data[i][0]);
+			Bits thisStepBits = InputType.encodeConstant(data[i][0]);
 			for (int j=1; j<VectorWidth; ++j){
-				thisStepBits = DataType.encodeConstant(data[i][j]).cat(thisStepBits);
+				thisStepBits = InputType.encodeConstant(data[i][j]).cat(thisStepBits);
 			}
 			encodedData.add(thisStepBits);
 		}

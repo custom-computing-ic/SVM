@@ -4,7 +4,6 @@
 #include <math.h>
 
 #include "Maxfiles.h"
-#include "MaxSLiCInterface.h"
 
 
 ////////////////////// Definitions //////////////////////
@@ -28,17 +27,17 @@
 // SVR Parameters
 typedef struct {
 	char * InFile;				// Input File Name
-	char * OutFile;				// Output File Name
-	char * LogFile;				// Log File Name
+	char * OutFile;			// Output File Name
+	char * LogFile;			// Log File Name
 	FILE * LogFileHandle; 		// Log File Pointer
 	size_t DataSize; 			// SVR: Number of samples
 	size_t DataDim; 			// SVR: Number of features
-	size_t WinSize;				// SVR: Window Size
+	size_t WinSize;			// SVR: Window Size
 	size_t RSize; 				// SVR: Size of R (RSize<=WinSize+1)
 	CalcType ep; 				// SVR: Epsilon
 	CalcType C; 				// SVR: C
-	CalcType sigma_sq; 			// SVR: sigma^2 (RBF Kernel)
-	CalcType eps; 				// SVR: eps (detect ties)
+	CalcType sigma_sq; 		// SVR: sigma^2 (RBF Kernel)
+	CalcType eps; 			// SVR: eps (detect ties)
 } Param;
 
 #ifdef EN_STAT
@@ -359,8 +358,6 @@ void initSVM(		DataType *X1,
 				size_t *NMask,
 				CalcType *Q,
 				CalcType *R,
-				CalcType *beta,
-				CalcType *gamma,
 				CalcType *theta,
 				CalcType *b,
 				CalcType *hXi,
@@ -1435,41 +1432,6 @@ int decSVM(		size_t ID,
 }
 
 
-/*
-int DemoKernel() {
-
-	const int inSize = 384;
-
-	int *a = malloc(sizeof(int) * inSize);
-	int *b = malloc(sizeof(int) * inSize);
-	int *expected = malloc(sizeof(int) * inSize);
-	int *out = malloc(sizeof(int) * inSize);
-
-	memset(out, 0, sizeof(int) * inSize);
-
-	for(int i = 0; i < inSize; ++i) {
-		a[i] = i + 1;
-		b[i] = i - 1;
-		expected[i] = 2 * i;
-	}
-
-	printf("Running on DFE.\n");
-	Demo(inSize, a, b, out);
-
-	for (int i = 0; i < inSize; i++)
-		if (out[i] != expected[i]) {
-			fprintf(stderr, "Output from DFE did not match CPU: %d : %d != %d\n", i, out[i], expected[i]);
-			return 1;
-		}
-
-	free(a); free(b);
-	free(expected); free(out);
-
-	printf("Test passed!\n");
-	return 0;
-}
-*/
-
 int SimpleDataSet(Param param){
 
 
@@ -1592,7 +1554,7 @@ int SimpleDataSet(Param param){
 	/////////////////////////// Initialise SVM ///////////////////////////
 
 	// initialise SVM using 2 data points
-	initSVM(&X_IN[0*DataDim], Y_IN[0], &X_IN[1*DataDim], Y_IN[1], dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, &CurSize, &SSize, &NSize, param);
+	initSVM(&X_IN[0*DataDim], Y_IN[0], &X_IN[1*DataDim], Y_IN[1], dataX, dataY, Group, SMask, NMask, Q, R, theta, &b, hXi, &CurSize, &SSize, &NSize, param);
 
 	// Calculate Objective Function Value
 	CalcType init_obj = objCalc(dataY, Group, theta, Q, &b, C, ep, WinSize);
@@ -1832,7 +1794,7 @@ int LIBSVMData(Param param){
 	/////////////////////////// Initialise SVM ///////////////////////////
 
 	// initialise SVM using 2 data points
-	initSVM(&X_IN[0*DataDim], Y_IN[0], &X_IN[1*DataDim], Y_IN[1], dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, &CurSize, &SSize, &NSize, param);
+	initSVM(&X_IN[0*DataDim], Y_IN[0], &X_IN[1*DataDim], Y_IN[1], dataX, dataY, Group, SMask, NMask, Q, R, theta, &b, hXi, &CurSize, &SSize, &NSize, param);
 
 	// Calculate Objective Function Value
 	CalcType init_obj = objCalc(dataY, Group, theta, Q, &b, C, ep, WinSize);
@@ -1970,6 +1932,190 @@ int LIBSVMData(Param param){
 	return 0;
 }
 
+
+int runDFE(Param param, int Ticks, int blockDim) {
+
+
+	/////////////////////////// SVM Parameters ///////////////////////////
+
+	const size_t DataSize = param.DataSize;
+	const size_t DataDim = param.DataDim;
+	const size_t WinSize = param.WinSize;
+	const size_t RSize = param.RSize;
+	const CalcType ep = param.ep;
+	const CalcType C  = param.C;
+	const CalcType sigma_sq = param.sigma_sq;
+
+
+	/////////////////////////// Initialise SVM ///////////////////////////
+
+	// Allocating Memory for SVM
+	fprintf(stderr, "[INFO] Allocating Memory for SVM...");
+	size_t CurSize, SSize, NSize;
+	CalcType b;
+	DataType *X_IN = calloc(DataSize * DataDim, sizeof(DataType));
+	CalcType *Y_IN = calloc(DataSize, sizeof(CalcType));
+	DataType *dataX = calloc(WinSize * DataDim, sizeof(DataType));
+	CalcType *dataY = calloc(WinSize, sizeof(CalcType));
+	char *Group = malloc(sizeof(char) * WinSize);
+	size_t *SMask = calloc(WinSize, sizeof(size_t));
+	size_t *NMask = calloc(WinSize, sizeof(size_t));
+	CalcType *Q = calloc(WinSize * WinSize, sizeof(CalcType));
+	CalcType *R = calloc(WinSize * WinSize, sizeof(CalcType));
+	CalcType *theta = calloc(WinSize, sizeof(CalcType));
+	CalcType *hXi = calloc(WinSize, sizeof(CalcType));
+	fprintf(stderr, " Done.\n");
+
+	// Open input file
+	fprintf(stderr, "[INFO] Reading Input File...");
+	char *inFile = param.InFile;
+	FILE *infp = fopen(inFile, "r");
+	if (infp==NULL) {
+		fprintf(stderr, "[ERROR] Cannot open input file [%s]. \n", inFile);
+  		exit(1);
+	}
+
+	// read file into memory - We use LibSVM data format
+	size_t ActualDataSize = 0;
+#ifdef EN_DOUBLE
+	while(!feof(infp) && ActualDataSize<DataSize) {
+		fscanf(infp, "%lf", &Y_IN[ActualDataSize]);
+		for (size_t j=0; j<DataDim; ++j) {
+			fscanf(infp, "%*d:%lf", &X_IN[ActualDataSize*DataDim+j]);
+		}
+		++ActualDataSize;
+	}
+#else
+	while(!feof(infp) && ActualDataSize<DataSize) {
+		fscanf(infp, "%f", &Y_IN[ActualDataSize]);
+		for (size_t j=0; j<DataDim; ++j) {
+			fscanf(infp, "%*d:%f", &X_IN[ActualDataSize*DataDim+j]);
+		}
+		++ActualDataSize;
+	}
+#endif
+	fclose(infp);
+	fprintf(stderr, " Done.\n");
+
+	// initialise SVM using 2 data points
+	fprintf(stderr, "[INFO] Calculating Initial SVM with 2 Samples...");
+	initSVM(&X_IN[0*DataDim], Y_IN[0], &X_IN[1*DataDim], Y_IN[1], dataX, dataY, Group, SMask, NMask, Q, R, theta, &b, hXi, &CurSize, &SSize, &NSize, param);
+	fprintf(stderr, " Done.\n");
+	
+	
+	/////////////////////////// Initialise FPGA ///////////////////////////
+	
+	// lnit system
+	fprintf(stderr, "[INFO] Loading MaxFile and FPGA...");
+	max_file_t* maxfile = SVM_init();
+	max_engine_t* engine = max_load(maxfile, "*");
+	max_actions_t* init_action = max_actions_init(maxfile, NULL);
+	max_enable_partial_memory(init_action);
+	fprintf(stderr, " Done.\n");
+	
+	// Set dataX
+	for (size_t i=0; i<DataDim; ++i) {
+		int numWidth = (i<2) ? 2 : (int)((ceil(log10((float)i))+1));
+		char *name = malloc(sizeof(char) * (numWidth+strlen("dataXBlock0Dim")));
+		char *buffer = malloc(sizeof(char) * numWidth);
+		strcpy(name, "dataXBlock0Dim");
+		sprintf(buffer, "%d", (int)i);
+		strcat(name, buffer);
+		max_set_mem_double(init_action, "SVMKernel", name, 0, (double)dataX[0*DataDim+i]);
+		max_set_mem_double(init_action, "SVMKernel", name, 1, (double)dataX[1*DataDim+i]);
+		free(name);
+		free(buffer);
+	}
+	// Set dataY
+	max_set_mem_double(init_action, "SVMKernel", "dataY", 0, (double)dataY[0]);
+	max_set_mem_double(init_action, "SVMKernel", "dataY", 1, (double)dataY[1]);
+	// Set theta
+	max_set_mem_double(init_action, "SVMKernel", "theta0", 0, (double)theta[0]);
+	max_set_mem_double(init_action, "SVMKernel", "theta0", 1, (double)theta[1]);
+	// Set b
+	max_set_mem_double(init_action, "SVMKernel", "b", 0, (double)b);
+	// Set Q
+	max_set_mem_double(init_action, "SVMKernel", "QBlockX0Y0", 0*blockDim+0, (double)Q[0*WinSize+0]);
+	max_set_mem_double(init_action, "SVMKernel", "QBlockX0Y0", 0*blockDim+1, (double)Q[0*WinSize+1]);
+	max_set_mem_double(init_action, "SVMKernel", "QBlockX0Y0", 1*blockDim+0, (double)Q[1*WinSize+0]);
+	max_set_mem_double(init_action, "SVMKernel", "QBlockX0Y0", 1*blockDim+1, (double)Q[1*WinSize+1]);
+	// Set hXi
+	max_set_mem_double(init_action, "SVMKernel", "hXi", 0, (double)hXi[0]);
+	max_set_mem_double(init_action, "SVMKernel", "hXi", 1, (double)hXi[1]);
+	// Set Group
+	for (int i=0; i<2; ++i) {
+		uint64_t wrData;
+		switch (Group[i]) {
+			case 'S': wrData = 1; break;
+			case 'E': wrData = 2; break;
+			case 'R': wrData = 3; break;
+			case 'C': wrData = 4; break;
+			default: wrData = 0; break;
+		}
+		max_set_mem_uint64t(init_action, "SVMKernel", "SVMControl.Group", i, wrData);
+	}
+	// TODO - initialise SMask and NMask in the StateMachine
+	// Currently it's hardwired - assuming first two samples belong to N (true in most cases)
+	
+	// Initialise FPGA
+	fprintf(stderr, "[INFO] Initialisating Mapped Memories...");
+	max_run(engine, init_action);
+	fprintf(stderr, " Done.\n");
+	
+	// Clean Up
+	max_actions_free(init_action);
+	free(dataX); free(dataY);
+	free(Q); free(R); free(theta); free(hXi);
+	free(Group); free(SMask); free(NMask);
+
+	/////////////////////////// Run FPGA ///////////////////////////
+	
+	// Prepare data
+	fprintf(stderr, "[INFO] Allocating Memory for FPGA...");
+	double *Xc = malloc((DataSize-2)*DataDim*sizeof(double));
+	double *Yc = malloc((DataSize-2)*sizeof(double));
+	int *dummy_out = malloc(Ticks*sizeof(int));
+	for (size_t i=0; i<DataSize-2; ++i) {
+		for (size_t j=0; j<DataDim; ++j) {
+			Xc[i*DataDim+j] = (double)X_IN[(i+2)*DataDim+j];
+		}
+		Yc[i] = (double)Y_IN[i+2];
+	}
+	fprintf(stderr, " Done.\n");
+	
+	// Settings
+	max_actions_t* run_action = max_actions_init(maxfile, NULL);
+	max_enable_partial_memory(run_action);
+	max_set_ticks(run_action, "SVMKernel", Ticks);
+	max_queue_input(run_action, "Xc", Xc, (DataSize-2)*DataDim*sizeof(double));
+	max_queue_input(run_action, "Yc", Yc, (DataSize-2)*sizeof(double));
+	max_queue_output(run_action, "output", dummy_out, Ticks*sizeof(int));
+	
+	// Run
+	fprintf(stderr, "[INFO] Running on FPGA...");
+	struct timeval tv1, tv2;
+	gettimeofday(&tv1, NULL);
+	max_run(engine, run_action);
+	gettimeofday(&tv2, NULL);
+	double runtimeS = ((tv2.tv_sec-tv1.tv_sec) * (double)1E6 + (tv2.tv_usec-tv1.tv_usec)) / (double)1E6;
+	fprintf(stderr, " Done.\n");
+	fprintf(stderr, "[INFO] Elasped Time (FPGA) is %f seconds.\n", runtimeS);
+	
+	// Clean Up
+	max_actions_free(run_action);
+	max_unload(engine);
+
+	/////////////////////////// Clean up ///////////////////////////
+	
+	fprintf(stderr, "[INFO] Cleaning up...");
+	free(X_IN); free(Y_IN);
+	free(Xc); free(Yc); free(dummy_out);
+	fprintf(stderr, " Done.\n");
+	
+	return 0;
+}
+
+
 int main(){
 
 	///////////// Simple Data Set /////////////
@@ -1990,10 +2136,10 @@ int main(){
 //	SimpleDataSet(ParamSimple10);
 
 	Param ParamSimple40;
-	ParamSimple40.InFile 	= "SimpleData40.txt";
-	ParamSimple40.OutFile  	= "SimpleResult40.txt";
-	ParamSimple40.LogFile	= "SimpleLog40.txt";
-	ParamSimple40.DataSize  = 40;
+	ParamSimple40.InFile 	= "SimpleData42.txt";
+	ParamSimple40.OutFile  	= "SimpleResult42.txt";
+	ParamSimple40.LogFile	= "SimpleLog42.txt";
+	ParamSimple40.DataSize  = 42;
 	ParamSimple40.DataDim  	= 1;
 	ParamSimple40.WinSize  	= 16;
 	ParamSimple40.RSize 	= 10;
@@ -2002,7 +2148,7 @@ int main(){
 	ParamSimple40.sigma_sq  = 50;
 	ParamSimple40.eps  		= 1e-6;
 
-	LIBSVMData(ParamSimple40);
+//	LIBSVMData(ParamSimple40);
 
 	///////////// Order Book Data /////////////
 
@@ -2012,7 +2158,7 @@ int main(){
 	ParamOrderBook.LogFile		= "data9970log.txt";
 	ParamOrderBook.DataSize  	= 10000;
 	ParamOrderBook.DataDim  	= 16;
-	ParamOrderBook.WinSize  	= 500;
+	ParamOrderBook.WinSize  	= 400;
 	ParamOrderBook.RSize 		= ParamOrderBook.WinSize;
 	ParamOrderBook.ep 			= 1500;
 	ParamOrderBook.C 			= 5000;
@@ -2074,10 +2220,11 @@ int main(){
 //	LIBSVMData(ParamStress);
 
 	///////////// DFE /////////////
+	
+	// NOTE: The settings in Def.maxj should also be changed
+	runDFE(ParamSimple40, 10000, 4);
 
-//	int Result = DemoKernel();
-
-	printf("[System] Job Finished.\n");
+	printf("[INFO] Job Finished.\n");
 
 	return 0;
 }

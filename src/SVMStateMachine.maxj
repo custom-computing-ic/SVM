@@ -239,7 +239,6 @@ class SVMStateMachine extends KernelStateMachine {
 		DFEsmValueType PosType 		= dfeUInt(MathUtils.bitsToAddress(WinSize));
 		DFEsmValueType CurSizeType 	= dfeUInt(MathUtils.bitsToRepresent(WinSize));
 		DFEsmValueType TickType 		= dfeUInt(20);
-		DFEsmValueType CountType 	= dfeUInt(16);
 		DFEsmValueType SelType 		= dfeUInt(3);
 		DFEsmValueType GroupType 	= dfeUInt(3);
 

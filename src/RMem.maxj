@@ -168,6 +168,7 @@ class RMem extends KernelLib{
 		DFEVar KElemInv = Reductions.streamHold(toKElemInvStreamHold, enKElemInvStreamHold).cast(Def.RCalcType);
 		OffsetExpr KElemInvLatency = stream.measureDistance("KElemInvLatency", toXBuffer[0], toKElemInvStreamHold);
 		
+		
 		// YElem / R[K][K]
 		DFEVector<DFEVar> YElemKElemInv = RCalcVec.newInstance(this);
 		optimization.pushPipeliningFactor(Def.PipeFactor);
@@ -393,7 +394,7 @@ class RMem extends KernelLib{
 			optimization.popPipeliningFactor();
 			DFEVar REnlargePortData = isREnlargeCorner ? REnlargeCornerData : (isREnlargeXEdge ? REnlargeXEdgeData : (isREnlargeYEdge ? REnlargeYEdgeData : REnlargeInnerData));
 			DFEVar REnlargePortEn = isEnlarging & blockAddrValid;
-			OffsetExpr REnlargeLatency = stream.measureDistance("REnlargeLatency"+X+Y, readItem, REnlargeInnerData);
+			OffsetExpr REnlargeCalcLatency = stream.measureDistance("REnlargeCalcLatency"+X+Y, readItem, REnlargeInnerData);
 
 
 			/////////////////////// RShrink ///////////////////////
@@ -449,7 +450,7 @@ class RMem extends KernelLib{
 			optimization.popPipeliningFactor();
 			
 			// Stream Offset
-			OffsetExpr RBlockOffset = stream.makeOffsetAutoLoop("OffsetRBlockX"+X+"Y"+Y);
+			OffsetExpr RBlockOffset = stream.makeOffsetAutoLoop("OffsetRBlock"+X+Y);
 
 			// Write Data
 			DFEVar PortDataUnOffseted = isEnlarging ? REnlargePortData : RShrinkPortData;

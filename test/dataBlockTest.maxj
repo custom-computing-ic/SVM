@@ -1,5 +1,6 @@
 import org.junit.Test;
 import java.util.List;
+import java.util.ArrayList;
 
 import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelParameters;
@@ -67,7 +68,19 @@ public class dataBlockTest {
 
 		}
 	}
-
+	
+	// Float Input Data Generator
+	public static List<Bits> FloatVectorDataGenerator(double [][] data, int numTicks, int VectorWidth) {
+		final List<Bits> encodedData = new ArrayList<Bits>(numTicks);
+		for (int i=0; i<numTicks; ++i) {
+			Bits thisStepBits = Def.DataType.encodeConstant(data[i][0]);
+			for (int j=1; j<VectorWidth; ++j){
+				thisStepBits = Def.DataType.encodeConstant(data[i][j]).cat(thisStepBits);
+			}
+			encodedData.add(thisStepBits);
+		}
+		return encodedData;
+	}
 
 	@Test 
 	public void test1() {
@@ -81,7 +94,7 @@ public class dataBlockTest {
 				data[tick][dim] = (double)tick*0.1;
 			}
 		}
-		List<Bits> input = Def.FloatVectorDataGenerator(data, numTicks, VecWidth);
+		List<Bits> input = FloatVectorDataGenerator(data, numTicks, VecWidth);
 		test(numTicks, numBlocks, blockDim, VecWidth, input);
 	}
 	

@@ -1720,16 +1720,14 @@ int LIBSVMData(Param param){
 	// We use LibSVM data format
 	size_t ActualDataSize = 0;
 #ifdef EN_DOUBLE
-	while(!feof(infp) && ActualDataSize<DataSize) {
-		fscanf(infp, "%lf", &Y_IN[ActualDataSize]);
+	while((fscanf(infp, "%lf", &Y_IN[ActualDataSize])==1) && ActualDataSize<DataSize) {
 		for (size_t j=0; j<DataDim; ++j) {
 			fscanf(infp, "%*d:%lf", &X_IN[ActualDataSize*DataDim+j]);
 		}
 		++ActualDataSize;
 	}
 #else
-	while(!feof(infp) && ActualDataSize<DataSize) {
-		fscanf(infp, "%f", &Y_IN[ActualDataSize]);
+	while((fscanf(infp, "%f", &Y_IN[ActualDataSize])==1) && ActualDataSize<DataSize) {
 		for (size_t j=0; j<DataDim; ++j) {
 			fscanf(infp, "%*d:%f", &X_IN[ActualDataSize*DataDim+j]);
 		}
@@ -2092,13 +2090,13 @@ int runDFE(Param param, int Ticks, int blockDim) {
 	max_queue_output(run_action, "output", dummy_out, Ticks*sizeof(int));
 	
 	// Run
-	fprintf(stderr, "[INFO] Running on FPGA...");
+	fprintf(stderr, "[INFO] Running on FPGA...\n");
 	struct timeval tv1, tv2;
 	gettimeofday(&tv1, NULL);
 	max_run(engine, run_action);
 	gettimeofday(&tv2, NULL);
 	double runtimeS = ((tv2.tv_sec-tv1.tv_sec) * (double)1E6 + (tv2.tv_usec-tv1.tv_usec)) / (double)1E6;
-	fprintf(stderr, " Done.\n");
+	fprintf(stderr, "[INFO] Running on FPGA... Done.\n");
 	fprintf(stderr, "[INFO] Elasped Time (FPGA) is %f seconds.\n", runtimeS);
 	
 	// Clean Up
@@ -2160,7 +2158,7 @@ int main(){
 	ParamOrderBook.DataDim  	= 16;
 	ParamOrderBook.WinSize  	= 400;
 	ParamOrderBook.RSize 		= ParamOrderBook.WinSize;
-	ParamOrderBook.ep 			= 1500;
+	ParamOrderBook.ep 			= 1500*0.0001;
 	ParamOrderBook.C 			= 5000;
 	ParamOrderBook.sigma_sq  	= 0.0625;
 	ParamOrderBook.eps  		= 1e-6;
@@ -2222,7 +2220,7 @@ int main(){
 	///////////// DFE /////////////
 	
 	// NOTE: The settings in Def.maxj should also be changed
-	runDFE(ParamSimple40, 10000, 4);
+	runDFE(ParamSimple40, 350000, 4);
 
 	printf("[INFO] Job Finished.\n");
 

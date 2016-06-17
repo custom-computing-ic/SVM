@@ -2220,7 +2220,8 @@ int main(){
 	///////////// DFE /////////////
 	
 	// NOTE: The settings in Def.maxj should also be changed
-	runDFE(ParamSimple40, 350000, 4);
+//	runDFE(ParamSimple40, 350000, 4);
+	runDFE(ParamOrderBook, 5000000, 4);
 
 	printf("[INFO] Job Finished.\n");
 

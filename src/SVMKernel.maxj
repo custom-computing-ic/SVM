@@ -228,7 +228,7 @@ class SVMKernel extends Kernel {
 		DFEVar hXiCalcResult = hXiCalc.getCalcResult();
 		DFEVar hXiCalcResultValid = hXiCalc.isValid();
 		DFEVar hXcValid = hXiCalcResultValid & isProcessingNewXc;
-		DFEVar XcJoinR = (KernelMath.abs(hXiCalcResult)<Def.ep) & hXcValid;
+		DFEVar XcJoinR = (KernelMath.abs(hXiCalcResult)<Def.ep+Def.eps) & hXcValid;
 	
 
 		// q
@@ -337,7 +337,7 @@ class SVMKernel extends Kernel {
 		DFEVar LE = ((qri>0)&(hXi<=-Def.ep)) ? hXiPlusEpDivGammaSeq : (((qri<0)&(hXi>=Def.ep)) ? hXiMinusEpDivGammaSeq : BKINF);
 		DFEVar FlagLE = constant.var(FlagType, 5);
 		// LiR
-		DFEVar LR = (qri===0) ? BKINF : ((qri>0) ? hXiMinusEpDivGammaSeq : hXiPlusEpDivGammaSeq);
+		DFEVar LR = (KernelMath.abs(BKgammaSeq)<Def.eps_gamma) ? BKINF : ((qri>0) ? hXiMinusEpDivGammaSeq : hXiPlusEpDivGammaSeq);
 		DFEVar FlagLR = constant.var(FlagType, 5);
 
 		// Non-Empty S - Decremental Training - LiS, LiE, LiR same as INC, but LC2 is different, and no LC1
@@ -357,6 +357,7 @@ class SVMKernel extends Kernel {
 		DFEVar BKIndex 	= control.mux(BKSel, GroupIndexXc, IndexNMask, IndexNMask, GroupIndexXc, IndexSMask, IndexNMask, IndexNMask);
 		
 		// A Preliminary solution that handles ties
+
 		DFEVar BKVal_cutoff = (BKVal > BKINF) ? BKINF : BKVal;
 		DFEVar minC = Reductions.streamHold(BKVal_cutoff, beginBookKeeping);
 		DFEVar FlagC = Reductions.streamHold(BKFlag, beginBookKeeping);
@@ -471,20 +472,26 @@ class SVMKernel extends Kernel {
 		////////////////////////// Debug /////////////////////////
 	
 		DFEVar Tick = control.count.simpleCounter(32);
+		AddrGenerator ItemCounter = new AddrGenerator(this, 1, 10000, (Tick===1), EnInput);
+		DFEVar ItemCount = ItemCounter.getAddr() + 2;
 		
 		// From Input FIFO
 //		debug.simPrintf(EnInput, "[%4d]-----[FIFO]---------------data[%d][%d] = (%f,%f) Pushed into FIFO----------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc_IN[0], Yc_IN);
 //		debug.simPrintf(XcQueue.valid(), "[%4d]-----[FIFO]---------------data[%d][%d] = (%f,%f) Poped from FIFO----------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
 		
 		// hXc calculation
-		debug.simPrintf(EnInput, "\n[%4d]--------[NEW INPUT]-------(Xc[%d][%d],Yc)=(%f,%f)--------------------- b=%.12f ----------------------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc, b);
+		debug.simPrintf(EnInput, "\n[%4d]--------[NEW INPUT]----data[%d]---(Xc[%d][%d],Yc)=(%f,%f)--------------------- b=%.12f ----------------------\n", Tick, ItemCount, BaseAddrXc, OffsetAddrXc, Xc[0], Yc, b);
 //		debug.simPrintf(isProcessingNewXc, "[%4d] Addr=%2d, En=%d | Q[0:3]=(%.4f,%.4f,%.4f,%.4f) theta[0:3]=(%.4f,%.4f,%.4f,%.4f) | b = %f | hXc = %f, Valid=%d | XcJoinR=%d, hasFinished=%d\n", Tick, blockAddrGen.getAddr(), isProcessingNewXc, QVector[0], QVector[1], QVector[2], QVector[3], thetaVector[0], thetaVector[1], thetaVector[2], thetaVector[3], b, hXiCalcResult, hXcValid, XcJoinR, hasFinished);
 //		debug.simPrintf(hasQUpdateFinished, "[%4d] ----------- QUpdate Finished ------------\n", Tick);
+		debug.simPrintf(hXcValid, "[%4d] hXc=%e, ep=%e, XcJoinR=%d\n", Tick, KernelMath.abs(hXiCalcResult), Def.ep, XcJoinR);
 		debug.simPrintf(hasFinished, "[%4d] (Xc[%d][%d],Yc) = (%f,%f) joins R. \n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
 		
 		// BookKeeping
-		debug.simPrintf(beginBookKeeping, "[%4d] ----------- Begin BookKeeping ------------\n", Tick);
+//		debug.simPrintf(beginBookKeeping, "[%4d] ----------- Begin BookKeeping ------[q=%d]------\n", Tick, q);
 //		debug.simPrintf(BookKeepingValid, "[%4d] N[%d] S[%d] Sel=%d | hXi[%d]=%f, betaSeq=%f, thetaSeq=%f \n                           bC[0]=%f, bE[1]=%f, bR[2]=%f, LC[3]=%f, LS[4]=%f, LE[5]=%f, LR[6]=%f\n", Tick, IndexNMask, IndexSMask, BKSel, hXiRdAddr, hXi, betaSeq, thetaSeq, bC, bE, bR, LC, LS, LE, LR);
+//		debug.simPrintf((BKSel===4)&BookKeepingValid, "[%4d] SMask[%d] | [S] | theta[%d]=%.12e, beta[%d]=%.12e => L=%.12e\n", Tick, IndexSMask, GroupIndexSMask, BKthetaSeq, IndexSMask, BKbetaSeq, BKVal);
+//		debug.simPrintf(((BKSel===1)|(BKSel===5))&BookKeepingValid, "[%4d] NMask[%d] | [E] | hXi[%d]=%.12e, gamma[%d]=%.12e => L=%.12e\n", Tick, IndexNMask, GroupIndexNMask, hXi, IndexNMask, BKgammaSeq, BKVal);
+//		debug.simPrintf(((BKSel===2)|(BKSel===6))&BookKeepingValid, "[%4d] NMask[%d] | [R] | hXi[%d]=%.12e, gamma[%d]=%.12e => L=%.12e\n", Tick, IndexNMask, GroupIndexNMask, hXi, IndexNMask, BKgammaSeq, BKVal);
 		debug.simPrintf(beginUpdate, "[%4d] =======> BookKeeping Result: Flag=%d, Index=%d, minL = %.12e ------------\n", Tick, BookKeepingFlag, BookKeepingIndex, minL);
 		
 		// Q Fetch

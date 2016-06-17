@@ -31,9 +31,26 @@ class Def {
 
 	///////////////////////// SVM Parameters /////////////////////////
 
+	// Settings for OrderBookData
+	// Kernel Settings
+	public static final int DataDim 			= 16;
+	public static final int numBlocks 			= 4;
+	public static final int blockDim 			= 100;
+	public static final int streamLength 		= 9968;
+
+	// Window Size = numBlocks * blockDim
+	public static final int WinSize 			= numBlocks * blockDim;
+	public static final double ep 			= 1500*0.0001;
+	public static final double C 				= 5000;
+	public static final double sigma_sq 		= 0.0625;
+	public static final double eps 			= 1e-10;
+	public static final double eps_gamma 	= 1e-8;
+	public static final double BookKeepingTH 	= 100000;
+
+
 
 	// Settings for SimpleDataSet
-	// Kernel Settings
+/*	// Kernel Settings
 	public static final int DataDim 			= 1;
 	public static final int numBlocks 			= 4;
 	public static final int blockDim 			= 4;
@@ -45,8 +62,9 @@ class Def {
 	public static final double C 				= 1000;
 	public static final double sigma_sq 		= 50;
 	public static final double eps 			= 1e-6;
+	public static final double eps_gamma 	= 1e-8;
 	public static final double BookKeepingTH 	= 100000;
-
+*/
 
 
 	///////////////////////// Types /////////////////////////
@@ -67,7 +85,10 @@ class Def {
 	public static final DFEType RCalcType 		= HighFixType;
 	public static final DFEType betaType 			= HighFixType;
 	public static final DFEType gammaType 		= HighFixType;
-	public static final DFEType BookKeepingType 	= HighFixType;
+	
+	// Very High Range Fix-Point Type
+	public static final DFEType VeryHighFixType 	= KernelLib.dfeFixOffset(80, -FractionalBits, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType BookKeepingType 	= VeryHighFixType;
 	
 	// Data X Types
 	public static final DFEType InputType 			= KernelLib.dfeFloat(11, 53);

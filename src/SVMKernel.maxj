@@ -136,6 +136,9 @@ class SVMKernel extends Kernel {
 		
 		// EnInput
 		FanoutLimiter<DFEVar> EnInputFanout = new FanoutLimiter<DFEVar>(EnInput, Def.MaxFanout);
+		
+		// Number of Training Samples
+		DFEVar numSamples = io.scalarInput("numSamples", dfeInt(32));
 
 		// Xc FIFO
 		DFEVector<DFEVar> Xc_IN = ZeroLatencyInput.input("Xc", InputVecType, EnInputFanout.get(), constant.var(dfeUInt(32), streamLength));
@@ -183,15 +186,14 @@ class SVMKernel extends Kernel {
 		}
 		
 		// Matrix Q
-		// NOTE: hXi[k] calculation is done during RShrink process, so Row Addr set to SMask during RShrink
 		DFEVar BaseAddrColG 		= beginGammaKCalc ? BaseAddrNMask : ((beginGammaVCalc | beginGammaCCalc) ? BaseAddrXc : BaseAddrSMask);
 		DFEVar OffsetAddrColG 	= beginGammaKCalc ? OffsetAddrNMask : ((beginGammaVCalc | beginGammaCCalc) ? OffsetAddrXc : OffsetAddrSMask);
 		DFEVar BaseAddrCol 		= (isFetchingQ | isMoveFetchingQ) ? BaseAddrSMask 	: BaseAddrColG;
 		DFEVar OffsetAddrCol 		= (isFetchingQ | isMoveFetchingQ) ? OffsetAddrSMask 	: OffsetAddrColG;
-		DFEVar BaseAddrRow 		= isRShrinking ? BaseAddrSMask   : ((isGammaVCalculating | isGammaKCalculating | isMoveFetchingQ) ? BaseAddrNMask : BaseAddrXc);
-		DFEVar OffsetAddrRow 		= isRShrinking ? OffsetAddrSMask : ((isGammaVCalculating | isGammaKCalculating | isMoveFetchingQ) ? OffsetAddrNMask : OffsetAddrXc);
+		DFEVar BaseAddrRow 		= (isGammaVCalculating | isGammaKCalculating | isMoveFetchingQ) ? BaseAddrNMask : BaseAddrXc;
+		DFEVar OffsetAddrRow 		= (isGammaVCalculating | isGammaKCalculating | isMoveFetchingQ) ? OffsetAddrNMask : OffsetAddrXc;
 		DFEVar MatQEnWrite 		= isProcessingNewXc;
-		DFEVar MatQEnIterate 		= (EnInput | beginRShrink);
+		DFEVar MatQEnIterate 		= EnInput;
 		QMem MatrixQ = new QMem(this, numBlocks, blockDim, KernelVec, BaseAddrRow, OffsetAddrRow, MatQEnWrite, MatQEnIterate, BaseAddrCol, OffsetAddrCol);
 		DFEVector<DFEVar> QVector = MatrixQ.getQValVec();
 		DFEVar QVal = MatrixQ.getQVal();
@@ -218,8 +220,8 @@ class SVMKernel extends Kernel {
 			
 		
 		// hXi - hCalc needs blockDim cycles, WrEn enables write results to WrAddr at the end of calculation
-		DFEVar beginhCalc 		= (EnInput | beginRShrink);
-		DFEVar hXiRdAddr 		= (beginBookKeeping | beginUpdate) ? GroupIndexXc : GroupIndexNMask;
+		DFEVar beginhCalc 		= EnInput;
+		DFEVar hXiRdAddr 		= beginRShrink ? GroupIndexSMask : ((beginBookKeeping | beginUpdate) ? GroupIndexXc : GroupIndexNMask);
 		DFEVar hXiWrAddr 		= PosType.newInstance(this);
 		DFEVar hXiWrData 		= Def.hXiType.newInstance(this);
 		DFEVar hXiWrEn 			= BoolType.newInstance(this);
@@ -400,14 +402,17 @@ class SVMKernel extends Kernel {
 		bMem.port(constant.var(dfeUInt(1),0), bWrDataOffseted, bWrEnOffseted, RamWriteMode.WRITE_FIRST);
 		
 		// Update hXi
+		// NOTE: hXi[K], i.e. hXi value of the item that moves from S to N, is updated at 'beginRShrink' cycle
 		OffsetExpr hXiOffset 			= stream.makeOffsetAutoLoop("hXiOffset");
-		DFEVar hXiWrAddrUnOffseted 	= beginUpdate ? GroupIndexXc : GroupIndexNMask;
-		DFEVar hXiWrDataUnOffseted 	= (hXi + (isEmptyS ? hXiEmptyS : (beginUpdate ? hXcNonEmptyS : hXiNonEmptyS))).cast(Def.hXiType);
-		DFEVar hXiWrEnUnOffseted 	= beginUpdate | isUpdating & NMaskValid;
+		DFEVar hXiWrAddrUnOffseted 	= beginRShrink ? GroupIndexSMask : (beginUpdate ? GroupIndexXc : GroupIndexNMask);
+		DFEVar hXiValForXcAndNMask 	= (hXi + (isEmptyS ? hXiEmptyS : (beginUpdate ? hXcNonEmptyS : hXiNonEmptyS))).cast(Def.hXiType);
+		DFEVar hXiValForK 			= (hXi > 0) ? constant.var(Def.hXiType, Def.ep) : constant.var(Def.hXiType, -Def.ep);
+		DFEVar hXiWrDataUnOffseted 	= beginRShrink ? hXiValForK : hXiValForXcAndNMask;
+		DFEVar hXiWrEnUnOffseted 	= beginRShrink | beginUpdate | isUpdating & NMaskValid;
 		DFEVar hXiWrAddrOffseted 		= stream.offset(hXiWrAddrUnOffseted, -hXiOffset);
 		DFEVar hXiWrDataOffseted 		= stream.offset(hXiWrDataUnOffseted, -hXiOffset);
 		DFEVar hXiWrEnOffseted 		= stream.offset(hXiWrEnUnOffseted, -hXiOffset);
-		hXiWrAddr 	<== isRShrinking ? GroupIndexSMask : (isProcessingNewXc ? GroupIndexXc : hXiWrAddrOffseted);
+		hXiWrAddr 	<== isProcessingNewXc ? GroupIndexXc : hXiWrAddrOffseted;
 		hXiWrData 	<== hXiWrDataOffseted;
 		hXiWrEn 	<== hXiWrEnOffseted;
 		
@@ -469,18 +474,24 @@ class SVMKernel extends Kernel {
 		BookKeepingIndexOffseted <== stream.offset(BookKeepingIndex, -BookKeepingOffset);
 			
 
-		////////////////////////// Debug /////////////////////////
-	
+		////////////////////////// Output /////////////////////////
+		
 		DFEVar Tick = control.count.simpleCounter(32);
 		AddrGenerator ItemCounter = new AddrGenerator(this, 1, 10000, (Tick===1), EnInput);
-		DFEVar ItemCount = ItemCounter.getAddr() + 2;
-		
+		DFEVar ItemIndex = ItemCounter.getAddr().cast(dfeInt(32)) + 2;
+		DFEVar isTraining = (ItemIndex<(numSamples-1)) | ((ItemIndex===numSamples-1)&isInc);
+		DFEVar outputVal = isTraining ? ItemIndex : -1;
+		io.output("output", outputVal, dfeInt(32));
+
+
+		////////////////////////// Debug /////////////////////////
+
 		// From Input FIFO
 //		debug.simPrintf(EnInput, "[%4d]-----[FIFO]---------------data[%d][%d] = (%f,%f) Pushed into FIFO----------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc_IN[0], Yc_IN);
 //		debug.simPrintf(XcQueue.valid(), "[%4d]-----[FIFO]---------------data[%d][%d] = (%f,%f) Poped from FIFO----------\n", Tick, BaseAddrXc, OffsetAddrXc, Xc[0], Yc);
 		
 		// hXc calculation
-		debug.simPrintf(EnInput, "\n[%4d]--------[NEW INPUT]----data[%d]---(Xc[%d][%d],Yc)=(%f,%f)--------------------- b=%.12f ----------------------\n", Tick, ItemCount, BaseAddrXc, OffsetAddrXc, Xc[0], Yc, b);
+		debug.simPrintf(EnInput, "\n[%4d]--------[NEW INPUT]----data[%d]---(Xc[%d][%d],Yc)=(%f,%f)--------------------- b=%.12f ----------------------\n", Tick, ItemIndex, BaseAddrXc, OffsetAddrXc, Xc[0], Yc, b);
 //		debug.simPrintf(isProcessingNewXc, "[%4d] Addr=%2d, En=%d | Q[0:3]=(%.4f,%.4f,%.4f,%.4f) theta[0:3]=(%.4f,%.4f,%.4f,%.4f) | b = %f | hXc = %f, Valid=%d | XcJoinR=%d, hasFinished=%d\n", Tick, blockAddrGen.getAddr(), isProcessingNewXc, QVector[0], QVector[1], QVector[2], QVector[3], thetaVector[0], thetaVector[1], thetaVector[2], thetaVector[3], b, hXiCalcResult, hXcValid, XcJoinR, hasFinished);
 //		debug.simPrintf(hasQUpdateFinished, "[%4d] ----------- QUpdate Finished ------------\n", Tick);
 		debug.simPrintf(hXcValid, "[%4d] hXc=%e, ep=%e, XcJoinR=%d\n", Tick, KernelMath.abs(hXiCalcResult), Def.ep, XcJoinR);
@@ -489,9 +500,9 @@ class SVMKernel extends Kernel {
 		// BookKeeping
 //		debug.simPrintf(beginBookKeeping, "[%4d] ----------- Begin BookKeeping ------[q=%d]------\n", Tick, q);
 //		debug.simPrintf(BookKeepingValid, "[%4d] N[%d] S[%d] Sel=%d | hXi[%d]=%f, betaSeq=%f, thetaSeq=%f \n                           bC[0]=%f, bE[1]=%f, bR[2]=%f, LC[3]=%f, LS[4]=%f, LE[5]=%f, LR[6]=%f\n", Tick, IndexNMask, IndexSMask, BKSel, hXiRdAddr, hXi, betaSeq, thetaSeq, bC, bE, bR, LC, LS, LE, LR);
-//		debug.simPrintf((BKSel===4)&BookKeepingValid, "[%4d] SMask[%d] | [S] | theta[%d]=%.12e, beta[%d]=%.12e => L=%.12e\n", Tick, IndexSMask, GroupIndexSMask, BKthetaSeq, IndexSMask, BKbetaSeq, BKVal);
-//		debug.simPrintf(((BKSel===1)|(BKSel===5))&BookKeepingValid, "[%4d] NMask[%d] | [E] | hXi[%d]=%.12e, gamma[%d]=%.12e => L=%.12e\n", Tick, IndexNMask, GroupIndexNMask, hXi, IndexNMask, BKgammaSeq, BKVal);
-//		debug.simPrintf(((BKSel===2)|(BKSel===6))&BookKeepingValid, "[%4d] NMask[%d] | [R] | hXi[%d]=%.12e, gamma[%d]=%.12e => L=%.12e\n", Tick, IndexNMask, GroupIndexNMask, hXi, IndexNMask, BKgammaSeq, BKVal);
+//		debug.simPrintf((BKSel===4)&BookKeepingValid, "[%4d] SMask[%3d] | [S] | theta[%d]=%.12e, beta[%d]=%.12e => L=%.12e\n", Tick, IndexSMask, GroupIndexSMask, BKthetaSeq, IndexSMask, BKbetaSeq, BKVal);
+//		debug.simPrintf(((BKSel===1)|(BKSel===5))&BookKeepingValid, "[%4d] NMask[%3d] | [E] | hXi[%d]=%.12e, gamma[%d]=%.12e => L=%.12e\n", Tick, IndexNMask, GroupIndexNMask, hXi, IndexNMask, BKgammaSeq, BKVal);
+//		debug.simPrintf(((BKSel===2)|(BKSel===6))&BookKeepingValid, "[%4d] NMask[%3d] | [R] | hXi[%d]=%.12e, gamma[%d]=%.12e => L=%.12e\n", Tick, IndexNMask, GroupIndexNMask, hXi, IndexNMask, BKgammaSeq, BKVal);
 		debug.simPrintf(beginUpdate, "[%4d] =======> BookKeeping Result: Flag=%d, Index=%d, minL = %.12e ------------\n", Tick, BookKeepingFlag, BookKeepingIndex, minL);
 		
 		// Q Fetch
@@ -508,11 +519,7 @@ class SVMKernel extends Kernel {
 		
 		// b update
 //		debug.simPrintf(bWrEnOffseted, "[%4d] [bUpdate] b <= %.12f \n", Tick, bWrDataOffseted);
-
-
-		////////////////////////// Simple Kernel /////////////////////////
-
-		io.output("output", Tick, dfeUInt(32));
+	
 
 	}
 	

@@ -125,7 +125,7 @@ class betaCalc extends KernelLib{
 		// For sequential read
 		seqRead = control.mux(muxSelect, readVec.getElementsAsList());
 		
-//		debug.simPrintf(isCalculating, "[%4d] [BetaCalc] [%2d] Finish=%d | X=%2d Y=%2d | QBuf=(%.12f, %.2f, %.2f, %.2f), R=(%.12f, %.2f, %.2f, %.2f) | Wr[0:3][%d] = (%.12f, %.2f, %.2f, %.2f), En=%d \n", control.count.simpleCounter(32), betaCalcCount, hasFinished, XAddr, YAddr, QBufVec[0], QBufVec[1], QBufVec[2], QBufVec[3], RVec[0][0], RVec[0][1], RVec[0][2], RVec[0][3], YAddr, WrData[0], WrData[1], WrData[2], WrData[3], isCalculating & XAddrCounter.getWrap());
+//		debug.simPrintf(isCalculating, "[%4d] [Beta] [%2d] Finish=%d | X=%d Y=%d | QBuf=(%.6e, %.1e, %.1e, %.1e), R=(%.6e, %.1e, %.1e, %.1e) | Wr[0:3][%d] = (%.6e, %.1e, %.1e, %.1e), En=%d \n", control.count.simpleCounter(32), betaCalcCount, hasFinished, XAddr, YAddr, QBufVec[0], QBufVec[1], QBufVec[2], QBufVec[3], RVec[0][0], RVec[0][1], RVec[0][2], RVec[0][3], YAddr, WrData[0], WrData[1], WrData[2], WrData[3], isCalculating & XAddrCounter.getWrap());
 		
 	}
 

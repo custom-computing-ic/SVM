@@ -2011,6 +2011,8 @@ int runDFE(Param param, int Ticks, int blockDim) {
 	max_enable_partial_memory(init_action);
 	fprintf(stderr, " Done.\n");
 	
+	// Set Number of Samples
+	max_set_uint64t (init_action, "SVMKernel", "numSamples", (uint64_t)DataSize);
 	// Set dataX
 	for (size_t i=0; i<DataDim; ++i) {
 		int numWidth = (i<2) ? 2 : (int)((ceil(log10((float)i))+1));
@@ -2072,7 +2074,7 @@ int runDFE(Param param, int Ticks, int blockDim) {
 	fprintf(stderr, "[INFO] Allocating Memory for FPGA...");
 	double *Xc = malloc((DataSize-2)*DataDim*sizeof(double));
 	double *Yc = malloc((DataSize-2)*sizeof(double));
-	int *dummy_out = malloc(Ticks*sizeof(int));
+	int *outValue = malloc(Ticks*sizeof(int));
 	for (size_t i=0; i<DataSize-2; ++i) {
 		for (size_t j=0; j<DataDim; ++j) {
 			Xc[i*DataDim+j] = (double)X_IN[(i+2)*DataDim+j];
@@ -2087,7 +2089,7 @@ int runDFE(Param param, int Ticks, int blockDim) {
 	max_set_ticks(run_action, "SVMKernel", Ticks);
 	max_queue_input(run_action, "Xc", Xc, (DataSize-2)*DataDim*sizeof(double));
 	max_queue_input(run_action, "Yc", Yc, (DataSize-2)*sizeof(double));
-	max_queue_output(run_action, "output", dummy_out, Ticks*sizeof(int));
+	max_queue_output(run_action, "output", outValue, Ticks*sizeof(int));
 	
 	// Run
 	fprintf(stderr, "[INFO] Running on FPGA...\n");
@@ -2102,12 +2104,20 @@ int runDFE(Param param, int Ticks, int blockDim) {
 	// Clean Up
 	max_actions_free(run_action);
 	max_unload(engine);
+	
+	// Find how many cycles to run
+	for (size_t i=0; i<Ticks; ++i) {
+		if (outValue[i]==-1) {
+			fprintf(stderr, "[INFO] Need %zu cycles to train %zu samples.\n", i, DataSize);
+			break;
+		}
+	}
 
 	/////////////////////////// Clean up ///////////////////////////
 	
 	fprintf(stderr, "[INFO] Cleaning up...");
 	free(X_IN); free(Y_IN);
-	free(Xc); free(Yc); free(dummy_out);
+	free(Xc); free(Yc); free(outValue);
 	fprintf(stderr, " Done.\n");
 	
 	return 0;
@@ -2220,8 +2230,8 @@ int main(){
 	///////////// DFE /////////////
 	
 	// NOTE: The settings in Def.maxj should also be changed
-//	runDFE(ParamSimple40, 350000, 4);
-	runDFE(ParamOrderBook, 5000000, 4);
+//	runDFE(ParamSimple40, 333000, 4);
+	runDFE(ParamOrderBook, 100000000, 80);
 
 	printf("[INFO] Job Finished.\n");
 

@@ -14,7 +14,7 @@ public class SimpleDataTest {
 	
 		/////////////////////// Settings ///////////////////////
 		
-		final int numTicks = 350000;
+		final int numTicks = 320000;
 		final int numBlocks = 4;
 		final int blockDim = 4;
 		final int dataDim = 1;
@@ -26,7 +26,7 @@ public class SimpleDataTest {
 		// set Kernel Configuration - ignore read/write collision during simulation
 		mgr.getCurrentKernelConfig().simulation.setRAMAddressCollisionBehaviour(KernelConfiguration.SimulationOptions.SimulationBehaviour.IGNORE);
 		// create kernel
-		SVMKernel kernel = new SVMKernel(mgr.makeKernelParameters(),  numBlocks, blockDim, dataDim, streamLength);
+		SVMKernel kernel = new SVMKernel(mgr.makeKernelParameters(),  numBlocks, blockDim, dataDim);
 		mgr.setKernel(kernel);
 		
 		
@@ -54,6 +54,10 @@ public class SimpleDataTest {
                 // init hXi
                 mgr.setMappedRam("hXi", 0, -17.949797249168114);
                 mgr.setMappedRam("hXi", 1, 17.949797249168114);
+                // init Scalar
+                mgr.setScalarInput("numSamples", streamLength+2);
+                mgr.setScalarInput("Xc_ZLI_inputLength", streamLength);
+                mgr.setScalarInput("Yc_ZLI_inputLength", streamLength);
 		
 		/////////////////////// Set Input Data ///////////////////////
 

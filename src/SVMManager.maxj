@@ -47,29 +47,36 @@ public class SVMManager extends CustomManager{
 		///////////////////////// Kernel Configuration /////////////////////////
 		
 		getCurrentKernelConfig().simulation.setRAMAddressCollisionBehaviour(KernelConfiguration.SimulationOptions.SimulationBehaviour.IGNORE);
-		KernelBlock k = addKernel(new SVMKernel(makeKernelParameters(Name), Def.numBlocks, Def.blockDim, Def.DataDim, Def.streamLength));
+		KernelBlock k = addKernel(new SVMKernel(makeKernelParameters(Name), Def.numBlocks, Def.blockDim, Def.DataDim));
 		k.getInput("Xc") <== addStreamFromCPU("Xc");
 		k.getInput("Yc") <== addStreamFromCPU("Yc");
 		addStreamToCPU("output") <== k.getOutput("output");
 
 	}
 
-	private static EngineInterface interfaceDefault() {
+	private static EngineInterface runSVM() {
 	
-		EngineInterface engine_interface = new EngineInterface();
+		EngineInterface engine_interface = new EngineInterface("runSVM");
 
 		// Ticks
-		InterfaceParam numTicks = engine_interface.addParam("numTicks", CPUTypes.INT);
+		InterfaceParam numTicks = engine_interface.addParam("numTicks", CPUTypes.UINT32);
 		engine_interface.setTicks(Name, numTicks);
 		
-		// Inputs
-		InterfaceParam numItems 	= engine_interface.addConstant(Def.streamLength);
-		InterfaceParam dataDim 	= engine_interface.addConstant(Def.DataDim);
-		engine_interface.setStream("Xc", CPUTypes.DOUBLE, numItems * dataDim * CPUTypes.DOUBLE.sizeInBytes());
-		engine_interface.setStream("Yc", CPUTypes.DOUBLE, numItems * CPUTypes.DOUBLE.sizeInBytes());
+		// Scalar
+		InterfaceParam numSamples 	= engine_interface.addParam("numSamples", CPUTypes.UINT32);
+		InterfaceParam inputLength 	= numSamples - 2;
+		engine_interface.setScalar(Name, "numSamples", numSamples);
+		engine_interface.setScalar(Name, "Xc_ZLI_inputLength", inputLength);
+		engine_interface.setScalar(Name, "Yc_ZLI_inputLength", inputLength);
 		
-		// Output
+		// Stream
+		InterfaceParam dataDim 	= engine_interface.addConstant(Def.DataDim);
+		engine_interface.setStream("Xc", CPUTypes.DOUBLE, inputLength * dataDim * CPUTypes.DOUBLE.sizeInBytes());
+		engine_interface.setStream("Yc", CPUTypes.DOUBLE, inputLength * CPUTypes.DOUBLE.sizeInBytes());
 		engine_interface.setStream("output", CPUTypes.INT32, numTicks * CPUTypes.INT32.sizeInBytes());
+		
+		// Ignore Mem
+		engine_interface.ignoreAll(EngineInterface.Direction.IN_OUT);
 		
 		return engine_interface;
 	}
@@ -77,7 +84,7 @@ public class SVMManager extends CustomManager{
 	public static void main(String[] args) {
 	
 		SVMManager manager = new SVMManager(new EngineParameters(args));
-		manager.createSLiCinterface(interfaceDefault());
+		manager.createSLiCinterface(runSVM());
 		manager.build();
 		
 	}

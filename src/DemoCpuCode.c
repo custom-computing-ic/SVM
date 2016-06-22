@@ -1993,10 +1993,10 @@ int runDFE(Param param, int Ticks, int blockDim) {
 	}
 #endif
 	fclose(infp);
-	fprintf(stderr, " Done.\n");
+	fprintf(stderr, " Done. %zu samples read.\n", ActualDataSize);
 
 	// initialise SVM using 2 data points
-	fprintf(stderr, "[INFO] Calculating Initial SVM with 2 Samples...");
+	fprintf(stderr, "[INFO] Calculating Initial SVM with first 2 Samples...");
 	initSVM(&X_IN[0*DataDim], Y_IN[0], &X_IN[1*DataDim], Y_IN[1], dataX, dataY, Group, SMask, NMask, Q, R, theta, &b, hXi, &CurSize, &SSize, &NSize, param);
 	fprintf(stderr, " Done.\n");
 	
@@ -2012,7 +2012,9 @@ int runDFE(Param param, int Ticks, int blockDim) {
 	fprintf(stderr, " Done.\n");
 	
 	// Set Number of Samples
-	max_set_uint64t (init_action, "SVMKernel", "numSamples", (uint64_t)DataSize);
+	max_set_uint64t (init_action, "SVMKernel", "numSamples", DataSize);
+	max_set_uint64t (init_action, "SVMKernel", "Xc_ZLI_inputLength", DataSize-2);
+	max_set_uint64t (init_action, "SVMKernel", "Yc_ZLI_inputLength", DataSize-2);
 	// Set dataX
 	for (size_t i=0; i<DataDim; ++i) {
 		int numWidth = (i<2) ? 2 : (int)((ceil(log10((float)i))+1));
@@ -2092,13 +2094,23 @@ int runDFE(Param param, int Ticks, int blockDim) {
 	max_queue_output(run_action, "output", outValue, Ticks*sizeof(int));
 	
 	// Run
-	fprintf(stderr, "[INFO] Running on FPGA...\n");
+	fprintf(stderr, "[INFO] Running on FPGA...");
 	struct timeval tv1, tv2;
 	gettimeofday(&tv1, NULL);
-	max_run(engine, run_action);
+	
+	SVM_runSVM_actions_t runSVM;
+	runSVM.param_numSamples = DataSize;
+	runSVM.param_numTicks = Ticks;
+	runSVM.instream_Xc = Xc;
+	runSVM.instream_Yc = Yc;
+	runSVM.outstream_output = outValue;
+	SVM_runSVM_run(engine, &runSVM);
+	
+	//max_run(engine, run_action);
+	
 	gettimeofday(&tv2, NULL);
 	double runtimeS = ((tv2.tv_sec-tv1.tv_sec) * (double)1E6 + (tv2.tv_usec-tv1.tv_usec)) / (double)1E6;
-	fprintf(stderr, "[INFO] Running on FPGA... Done.\n");
+	fprintf(stderr, " Done.\n");
 	fprintf(stderr, "[INFO] Elasped Time (FPGA) is %f seconds.\n", runtimeS);
 	
 	// Clean Up
@@ -2230,8 +2242,8 @@ int main(){
 	///////////// DFE /////////////
 	
 	// NOTE: The settings in Def.maxj should also be changed
-//	runDFE(ParamSimple40, 333000, 4);
-	runDFE(ParamOrderBook, 100000000, 80);
+	runDFE(ParamSimple40, 340000, 4);
+//	runDFE(ParamOrderBook, 100000000, 80);
 
 	printf("[INFO] Job Finished.\n");
 

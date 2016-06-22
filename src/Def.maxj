@@ -36,7 +36,6 @@ class Def {
 	public static final int DataDim 			= 16;
 	public static final int numBlocks 			= 5;
 	public static final int blockDim 			= 80;
-	public static final int streamLength 		= 9968;
 
 	// Window Size = numBlocks * blockDim
 	public static final int WinSize 			= numBlocks * blockDim;
@@ -50,11 +49,10 @@ class Def {
 
 
 	// Settings for SimpleDataSet
-	// Kernel Settings
-/*	public static final int DataDim 			= 1;
+/*	// Kernel Settings
+	public static final int DataDim 			= 1;
 	public static final int numBlocks 			= 4;
 	public static final int blockDim 			= 4;
-	public static final int streamLength 		= 40;
 
 	// Window Size = numBlocks * blockDim
 	public static final int WinSize 			= numBlocks * blockDim;
@@ -65,7 +63,6 @@ class Def {
 	public static final double eps_gamma 	= 1e-8;
 	public static final double BookKeepingTH 	= 100000;
 */
-
 
 	///////////////////////// Types /////////////////////////
 	
@@ -93,11 +90,10 @@ class Def {
 	// Data X Types
 	public static final DFEType InputType 			= KernelLib.dfeFloat(11, 53);
 	// DataType should be able to hold X[i], and X[i] - X[j]; DataMultType should be able to hold (X[i] - X[j])^2
-	public static final DFEType DataType 			= KernelLib.dfeFixOffset(64, -52, SignMode.TWOSCOMPLEMENT);
-	public static final DFEType DataMultType 		= KernelLib.dfeFixOffset(64, -52, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType DataType 			= KernelLib.dfeFixOffset(52, -40, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType DataMultType 		= KernelLib.dfeFixOffset(52, -40, SignMode.TWOSCOMPLEMENT);
 
 	// Q Type
-//	public static final DFEType QType = KernelLib.dfeFixOffset(51, -50, SignMode.UNSIGNED);
 	public static final DFEType QType = KernelLib.dfeFixOffset(FractionalBits+1, -FractionalBits, SignMode.UNSIGNED);
 
 

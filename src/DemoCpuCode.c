@@ -1432,246 +1432,6 @@ int decSVM(		size_t ID,
 }
 
 
-int SimpleDataSet(Param param){
-
-
-	/////////////////////////// SVM Parameters ///////////////////////////
-
-	const size_t DataSize = param.DataSize;
-	const size_t DataDim = param.DataDim;
-	const size_t WinSize = param.WinSize;
-	const size_t RSize = param.RSize;
-	const CalcType ep = param.ep;
-	const CalcType C  = param.C;
-	const CalcType sigma_sq = param.sigma_sq;
-
-
-	/////////////////////////// Open Log File ///////////////////////////
-
-	// Open log file
-	param.LogFileHandle = fopen(param.LogFile, "w");
-	if (param.LogFileHandle==NULL) {
-		fprintf(stderr, "[ERROR] Cannot open log file [%s]. \n", param.LogFile);
-  		exit(1);
-	}
-
-
-	/////////////////////////// Read data file ///////////////////////////
-
-	// Open input file
-	char *inFile = param.InFile;
-	FILE *infp = fopen(inFile, "r");
-	if (infp==NULL) {
-		fprintf(stderr, "[ERROR] Cannot open input file [%s]. \n", inFile);
-  		exit(1);
-	}
-
-	// Allocating Memory for input data
-	DataType *X_IN = calloc(DataSize * DataDim, sizeof(DataType));
-	CalcType *Y_IN = calloc(DataSize, sizeof(CalcType));
-
-	// read file into memory
-	// We use LibSVM data format
-	size_t ActualDataSize = 0;
-#ifdef EN_DOUBLE
-	while(!feof(infp) && ActualDataSize<DataSize) {
-		fscanf(infp, "%lf", &Y_IN[ActualDataSize]);
-		for (size_t j=0; j<DataDim; ++j) {
-			fscanf(infp, "%*d:%lf", &X_IN[ActualDataSize*DataDim+j]);
-		}
-		++ActualDataSize;
-	}
-#else
-	while(!feof(infp) && ActualDataSize<DataSize) {
-		fscanf(infp, "%f", &Y_IN[ActualDataSize]);
-		for (size_t j=0; j<DataDim; ++j) {
-			fscanf(infp, "%*d:%f", &X_IN[ActualDataSize*DataDim+j]);
-		}
-		++ActualDataSize;
-	}
-#endif
-	fclose(infp);
-
-	// At least we need 2 data points to initialise SVM
-	if (ActualDataSize<2) {
-		free(X_IN); free(Y_IN);
-		fprintf(stderr, "[ERROR] At least we need 2 data points, but there are only %zu. \n", ActualDataSize);
-  		exit(1);
-	}
-
-	/////////////////////////// Allocating Memory for SVM ///////////////////////////
-
-	// Current Number of Elements
-	size_t CurSize = 0;
-
-	// Record of Input Data (X, Y)
-	DataType *dataX = calloc(WinSize * DataDim, sizeof(DataType));
-	CalcType *dataY = calloc(WinSize, sizeof(CalcType));
-
-	// Prediction of Y from SVM
-	CalcType *Ypredict = calloc(DataSize, sizeof(CalcType));
-
-	// Group: 'S', 'E', 'R', 'C', 'N'
-	char *Group = malloc(sizeof(char) * WinSize);
-	for (size_t i=0; i<WinSize; ++i) Group[i] = 'N';
-
-	// Position of each S vector
-	size_t SSize = 0;
-	size_t *SMask = calloc(WinSize, sizeof(size_t));
-
-	// Position of each E or R vector
-	size_t NSize = 0;
-	size_t *NMask = calloc(WinSize, sizeof(size_t));
-
-	// Matrix Q
-	CalcType *Q = calloc(WinSize * WinSize, sizeof(CalcType));
-
-	// Matrix R : should be (1+S)-by-(1+S)
-	CalcType *R = calloc(RSize * RSize, sizeof(CalcType));
-
-	// Coeff beta
-	CalcType *beta = calloc(WinSize, sizeof(CalcType));
-
-	// Coeff gamma
-	CalcType *gamma = calloc(WinSize, sizeof(CalcType));
-
-	// Coeff theta
-	CalcType *theta = calloc(WinSize, sizeof(CalcType));
-
-	// hXi
-	CalcType *hXi = calloc(WinSize, sizeof(CalcType));
-
-	// val
-	CalcType *val = calloc(WinSize, sizeof(CalcType));
-
-	// flag
-	size_t *flag = calloc(WinSize, sizeof(size_t));
-
-	// Coeff b
-	CalcType b = 0;
-
-
-	/////////////////////////// Initialise SVM ///////////////////////////
-
-	// initialise SVM using 2 data points
-	initSVM(&X_IN[0*DataDim], Y_IN[0], &X_IN[1*DataDim], Y_IN[1], dataX, dataY, Group, SMask, NMask, Q, R, theta, &b, hXi, &CurSize, &SSize, &NSize, param);
-
-	// Calculate Objective Function Value
-	CalcType init_obj = objCalc(dataY, Group, theta, Q, &b, C, ep, WinSize);
-	printf("[SVM] CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
-	printf("----------------------------------------------------\n");
-	fprintf(param.LogFileHandle, "[SVM] CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
-	fprintf(param.LogFileHandle, "----------------------------------------------------\n");
-
-	/////////////////////////// Incremental Training ///////////////////////////
-
-	DataType Xc[DataDim];
-	CalcType Yc;
-
-	for (size_t i=2; i<ActualDataSize; ++i) {
-
-		// read current data point
-		for (size_t j=0; j<DataDim; ++j) {
-			Xc[j] = X_IN[i*DataDim+j];
-		}
-		Yc = Y_IN[i];
-
-		// calculate SVM prediction of Yc
-		Ypredict[i] = regSVM(Xc, dataX, theta, &b, WinSize, DataDim, sigma_sq);
-
-		// Assign the place for Xc
-		size_t ID = i;
-
-		// Display the new item
-		printf("\n--------[NEW INPUT]-------(%f,%f)------b=%.9f------------------------\n", Xc[0], Yc, b);
-		fprintf(param.LogFileHandle,"\n--------[NEW INPUT]-------(%f,%f)------b=%.9f------------------------\n", Xc[0], Yc, b);
-
-		// train SVM incrementally
-		int isTrainingSuccessful = incSVM(ID, Xc, Yc, dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, val, flag, &CurSize, &SSize, &NSize, param);
-
-		if (isTrainingSuccessful!=0) {
-			free(X_IN); free(Y_IN); free(dataX); free(dataY); free(Ypredict);
-			free(Group); free(SMask); free(NMask);
-			free(Q); free(R);
-			free(beta); free(gamma); free(theta);
-			free(hXi); free(val); free(flag);
-			fprintf(stderr, "[ERROR] Incremental SVM training failed at data[%zu]. \n", i);
-			fprintf(param.LogFileHandle, "[ERROR] Incremental SVM training failed at data[%zu]. \n", i);
-			fclose(param.LogFileHandle);
-			return -1;
-		}
-
-		// Calculate Objective Function Value
-		CalcType init_obj = objCalc(dataY, Group, theta, Q, &b, C, ep, WinSize);
-		printf("[SVM] CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
-		printf("----------------------------------------------------\n");
-		fprintf(param.LogFileHandle, "[SVM] CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
-		fprintf(param.LogFileHandle, "----------------------------------------------------\n");
-
-	}
-
-#ifdef EN_STAT
-	stat_report();
-#endif
-
-	/////////////////////////// Decremental Training ///////////////////////////
-
-	for (size_t ID=ActualDataSize-1; ID>1; ID--) {
-
-		// Decremental Training
-		int isTrainingSuccessful = decSVM(ID, dataX, dataY, Group, SMask, NMask, Q, R, beta, gamma, theta, &b, hXi, val, flag, &CurSize, &SSize, &NSize, param);
-
-		if (isTrainingSuccessful!=0) {
-			free(X_IN); free(Y_IN); free(dataX); free(dataY); free(Ypredict);
-			free(Group); free(SMask); free(NMask);
-			free(Q); free(R);
-			free(beta); free(gamma); free(theta);
-			free(hXi);  free(val); free(flag);
-			fprintf(stderr, "[ERROR] Decremental SVM training failed at data[%zu]. \n", ID);
-			fprintf(param.LogFileHandle, "[ERROR] Decremental SVM training failed at data[%zu]. \n", ID);
-			fclose(param.LogFileHandle);
-			return -1;
-		}
-		// Calculate Objective Function Value
-		CalcType init_obj = objCalc(dataY, Group, theta, Q, &b, C, ep, WinSize);
-		printf("[SVM]CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
-		printf("----------------------------------------------------\n");
-		fprintf(param.LogFileHandle, "[SVM]CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
-		fprintf(param.LogFileHandle, "----------------------------------------------------\n");
-	}
-
-
-
-	/////////////////////////// Checking Results ///////////////////////////
-
-	// Open output file
-	char *outFile = param.OutFile;
-	FILE *outfp = fopen(outFile, "w");
-	if (outfp==NULL) {
-		fprintf(stderr, "[ERROR] Cannot open output file [%s]. \n", outFile);
-  		exit(1);
-	}
-
-	// write results
-	for (size_t i=2; i<ActualDataSize; ++i) {
-		fprintf(outfp, "%f %f\n", Y_IN[i], Ypredict[i]);
-	}
-	fclose(outfp);
-
-
-	/////////////////////////// Clean up ///////////////////////////
-
-	free(X_IN); free(Y_IN); free(dataX); free(dataY); free(Ypredict);
-	free(Group); free(SMask); free(NMask);
-	free(Q); free(R);
-	free(beta); free(gamma); free(theta);
-	free(hXi);  free(val); free(flag);
-	fclose(param.LogFileHandle);
-
-	return 0;
-}
-
-
 int LIBSVMData(Param param){
 
 
@@ -2098,15 +1858,8 @@ int runDFE(Param param, int Ticks, int blockDim) {
 	struct timeval tv1, tv2;
 	gettimeofday(&tv1, NULL);
 	
-	SVM_runSVM_actions_t runSVM;
-	runSVM.param_numSamples = DataSize;
-	runSVM.param_numTicks = Ticks;
-	runSVM.instream_Xc = Xc;
-	runSVM.instream_Yc = Yc;
-	runSVM.outstream_output = outValue;
-	SVM_runSVM_run(engine, &runSVM);
-	
-	//max_run(engine, run_action);
+	max_set_debug(run_action, "SVM", MAX_DEBUG_ALWAYS);
+	max_run(engine, run_action);
 	
 	gettimeofday(&tv2, NULL);
 	double runtimeS = ((tv2.tv_sec-tv1.tv_sec) * (double)1E6 + (tv2.tv_usec-tv1.tv_usec)) / (double)1E6;
@@ -2123,6 +1876,7 @@ int runDFE(Param param, int Ticks, int blockDim) {
 			fprintf(stderr, "[INFO] Need %zu cycles to train %zu samples.\n", i, DataSize);
 			break;
 		}
+		if (i==Ticks-1) fprintf(stderr, "[INFO] Need more cycles (%d/%zu samples trained in %zu cycles).\n", outValue[i]-1, DataSize, i);
 	}
 
 	/////////////////////////// Clean up ///////////////////////////
@@ -2139,21 +1893,6 @@ int runDFE(Param param, int Ticks, int blockDim) {
 int main(){
 
 	///////////// Simple Data Set /////////////
-
-	Param ParamSimple10;
-	ParamSimple10.InFile 	= "SimpleData10.txt";
-	ParamSimple10.OutFile  	= "SimpleResult10.txt";
-	ParamSimple10.LogFile	= "SimpleLog10.txt";
-	ParamSimple10.DataSize  = 10;
-	ParamSimple10.DataDim  	= 1;
-	ParamSimple10.WinSize  	= 10;
-	ParamSimple10.RSize 	= 5;
-	ParamSimple10.ep 		= 0.01;
-	ParamSimple10.C 		= 1000;
-	ParamSimple10.sigma_sq  = 50;
-	ParamSimple10.eps  		= 1e-6;
-
-//	SimpleDataSet(ParamSimple10);
 
 	Param ParamSimple40;
 	ParamSimple40.InFile 	= "SimpleData42.txt";
@@ -2173,19 +1912,20 @@ int main(){
 	///////////// Order Book Data /////////////
 
 	Param ParamOrderBook;
-	ParamOrderBook.InFile 		= "data9970.txt";
+	ParamOrderBook.InFile 	= "data9970.txt";
 	ParamOrderBook.OutFile  	= "data9970result.txt";
-	ParamOrderBook.LogFile		= "data9970log.txt";
-	ParamOrderBook.DataSize  	= 10000;
+	ParamOrderBook.LogFile	= "data9970log.txt";
+	ParamOrderBook.DataSize  	= 9970;
 	ParamOrderBook.DataDim  	= 16;
 	ParamOrderBook.WinSize  	= 400;
-	ParamOrderBook.RSize 		= ParamOrderBook.WinSize;
-	ParamOrderBook.ep 			= 1500*0.0001;
-	ParamOrderBook.C 			= 5000;
+	ParamOrderBook.RSize 	= ParamOrderBook.WinSize;
+	ParamOrderBook.ep 		= 1500*0.0001;
+	ParamOrderBook.C 		= 5000;
 	ParamOrderBook.sigma_sq  	= 0.0625;
 	ParamOrderBook.eps  		= 1e-6;
 
 //	LIBSVMData(ParamOrderBook);
+
 
 	///////////// CPU_SMALL DATASET /////////////
 
@@ -2221,7 +1961,6 @@ int main(){
 
 //	LIBSVMData(ParamMG);
 
-
 	///////////// Stress Encoding DATASET /////////////
 
 	Param ParamStress;
@@ -2242,7 +1981,7 @@ int main(){
 	///////////// DFE /////////////
 	
 	// NOTE: The settings in Def.maxj should also be changed
-	runDFE(ParamSimple40, 340000, 4);
+//	runDFE(ParamSimple40, 340000, 4);
 //	runDFE(ParamOrderBook, 100000000, 80);
 
 	printf("[INFO] Job Finished.\n");

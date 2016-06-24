@@ -1691,7 +1691,7 @@ int LIBSVMData(Param param){
 }
 
 
-int runDFE(Param param, int Ticks, int blockDim) {
+int runDFE(Param param, int Ticks, size_t blockDim) {
 
 
 	/////////////////////////// SVM Parameters ///////////////////////////
@@ -1703,6 +1703,7 @@ int runDFE(Param param, int Ticks, int blockDim) {
 	const CalcType ep = param.ep;
 	const CalcType C  = param.C;
 	const CalcType sigma_sq = param.sigma_sq;
+	size_t numBlocks = WinSize/blockDim;
 
 
 	/////////////////////////// Initialise SVM ///////////////////////////
@@ -1776,34 +1777,101 @@ int runDFE(Param param, int Ticks, int blockDim) {
 	max_set_uint64t (init_action, "SVMKernel", "Xc_ZLI_inputLength", DataSize-2);
 	max_set_uint64t (init_action, "SVMKernel", "Yc_ZLI_inputLength", DataSize-2);
 	// Set dataX
-	for (size_t i=0; i<DataDim; ++i) {
-		int numWidth = (i<2) ? 2 : (int)((ceil(log10((float)i))+1));
-		char *name = malloc(sizeof(char) * (numWidth+strlen("dataXBlock0Dim")));
-		char *buffer = malloc(sizeof(char) * numWidth);
-		strcpy(name, "dataXBlock0Dim");
-		sprintf(buffer, "%d", (int)i);
-		strcat(name, buffer);
-		max_set_mem_double(init_action, "SVMKernel", name, 0, (double)dataX[0*DataDim+i]);
-		max_set_mem_double(init_action, "SVMKernel", name, 1, (double)dataX[1*DataDim+i]);
-		free(name);
-		free(buffer);
+	for (size_t id=0; id<numBlocks; ++id) {
+		int idWidth = (id<2) ? 2 : (int)((ceil(log10((float)id))+1));
+		char *name0 = malloc(sizeof(char) * (idWidth+strlen("dataXBlock")));
+		char *name1 = malloc(sizeof(char) * (idWidth+strlen("dataXBlock")+strlen("Dim")));
+		char *buffer1 = malloc(sizeof(char) * idWidth);
+		strcpy(name0, "dataXBlock");
+		sprintf(buffer1, "%d", (int)id);
+		strcat(name0, buffer1);
+		strcpy(name1, name0);
+		strcat(name1, "Dim");
+		for (size_t i=0; i<DataDim; ++i) {
+			int numWidth = (i<2) ? 2 : (int)((ceil(log10((float)i))+1));
+			char *name2 = malloc(sizeof(char) * (numWidth+strlen(name1)));
+			char *buffer2 = malloc(sizeof(char) * numWidth);
+			strcpy(name2, name1);
+			sprintf(buffer2, "%d", (int)i);
+			strcat(name2, buffer2);
+			// Setting Data Items
+			max_set_mem_double(init_action, "SVMKernel", name2, 0, (double)dataX[0*DataDim+i]);
+			max_set_mem_double(init_action, "SVMKernel", name2, 1, (double)dataX[1*DataDim+i]);
+			for (size_t j=2; j<blockDim; ++j) {
+				max_set_mem_double(init_action, "SVMKernel", name2, j, 0.0);
+			}
+			free(name2);
+			free(buffer2);
+		}
+		free(name0);
+		free(name1);
+		free(buffer1);
 	}
 	// Set dataY
 	max_set_mem_double(init_action, "SVMKernel", "dataY", 0, (double)dataY[0]);
 	max_set_mem_double(init_action, "SVMKernel", "dataY", 1, (double)dataY[1]);
+	for (size_t j=2; j<WinSize; ++j) {
+		max_set_mem_double(init_action, "SVMKernel", "dataY", j, 0.0);
+	}	
 	// Set theta
-	max_set_mem_double(init_action, "SVMKernel", "theta0", 0, (double)theta[0]);
-	max_set_mem_double(init_action, "SVMKernel", "theta0", 1, (double)theta[1]);
+	for (size_t i=0; i<numBlocks; ++i) {
+		int numWidth = (i<2) ? 2 : (int)((ceil(log10((float)i))+1));
+		char *name = malloc(sizeof(char) * (numWidth+strlen("theta")));
+		char *buffer = malloc(sizeof(char) * numWidth);
+		strcpy(name, "theta");
+		sprintf(buffer, "%d", (int)i);
+		strcat(name, buffer);
+		for (size_t j=0; j<blockDim; ++j) {
+			if ((i==0)&&(j==0)) max_set_mem_double(init_action, "SVMKernel", name, 0, (double)theta[0]);
+			if ((i==0)&&(j==1)) max_set_mem_double(init_action, "SVMKernel", name, 1, (double)theta[1]);		
+		}
+		free(name);
+		free(buffer);
+	}
 	// Set b
 	max_set_mem_double(init_action, "SVMKernel", "b", 0, (double)b);
 	// Set Q
-	max_set_mem_double(init_action, "SVMKernel", "QBlockX0Y0", 0*blockDim+0, (double)Q[0*WinSize+0]);
-	max_set_mem_double(init_action, "SVMKernel", "QBlockX0Y0", 0*blockDim+1, (double)Q[0*WinSize+1]);
-	max_set_mem_double(init_action, "SVMKernel", "QBlockX0Y0", 1*blockDim+0, (double)Q[1*WinSize+0]);
-	max_set_mem_double(init_action, "SVMKernel", "QBlockX0Y0", 1*blockDim+1, (double)Q[1*WinSize+1]);
+	for (size_t X=0; X<numBlocks; ++X) {
+		int idWidth = (X<2) ? 2 : (int)((ceil(log10((float)X))+1));
+		char *name0 = malloc(sizeof(char) * (idWidth+strlen("QBlockX")));
+		char *name1 = malloc(sizeof(char) * (idWidth+strlen("QBlockX")+strlen("Y")));
+		char *buffer1 = malloc(sizeof(char) * idWidth);
+		strcpy(name0, "QBlockX");
+		sprintf(buffer1, "%d", (int)X);
+		strcat(name0, buffer1);
+		strcpy(name1, name0);
+		strcat(name1, "Y");
+		for (size_t Y=0; Y<=X; ++Y) {
+			int numWidth = (Y<2) ? 2 : (int)((ceil(log10((float)Y))+1));
+			char *name2 = malloc(sizeof(char) * (numWidth+strlen(name1)));
+			char *buffer2 = malloc(sizeof(char) * numWidth);
+			strcpy(name2, name1);
+			sprintf(buffer2, "%d", (int)Y);
+			strcat(name2, buffer2);
+			// Setting Data Items
+			for (size_t j=0; j<blockDim*blockDim; ++j) {
+				if ((X==0)&&(Y==0)) {
+					if (j==(0*blockDim+0)) max_set_mem_double(init_action, "SVMKernel", name2, 0*blockDim+0, (double)Q[0*WinSize+0]);
+					else if (j==(0*blockDim+1)) max_set_mem_double(init_action, "SVMKernel", name2, 0*blockDim+1, (double)Q[0*WinSize+1]);
+					else if (j==(1*blockDim+0)) max_set_mem_double(init_action, "SVMKernel", name2, 1*blockDim+0, (double)Q[1*WinSize+0]);
+					else if (j==(1*blockDim+1)) max_set_mem_double(init_action, "SVMKernel", name2, 1*blockDim+1, (double)Q[1*WinSize+1]);
+					else max_set_mem_double(init_action, "SVMKernel", name2, j, 0.0);
+				}
+				else max_set_mem_double(init_action, "SVMKernel", name2, j, 0.0);
+			}
+			free(name2);
+			free(buffer2);
+		}
+		free(name0);
+		free(name1);
+		free(buffer1);
+	}
 	// Set hXi
 	max_set_mem_double(init_action, "SVMKernel", "hXi", 0, (double)hXi[0]);
 	max_set_mem_double(init_action, "SVMKernel", "hXi", 1, (double)hXi[1]);
+	for (size_t j=2; j<WinSize; ++j) {
+		max_set_mem_double(init_action, "SVMKernel", "hXi", j, 0.0);
+	}	
 	// Set Group
 	for (int i=0; i<2; ++i) {
 		uint64_t wrData;
@@ -1816,6 +1884,9 @@ int runDFE(Param param, int Ticks, int blockDim) {
 		}
 		max_set_mem_uint64t(init_action, "SVMKernel", "SVMControl.Group", i, wrData);
 	}
+	for (size_t j=2; j<WinSize; ++j) {
+		max_set_mem_uint64t(init_action, "SVMKernel", "SVMControl.Group", j, 0);
+	}	
 	// TODO - initialise SMask and NMask in the StateMachine
 	// Currently it's hardwired - assuming first two samples belong to N (true in most cases)
 	
@@ -1858,7 +1929,7 @@ int runDFE(Param param, int Ticks, int blockDim) {
 	struct timeval tv1, tv2;
 	gettimeofday(&tv1, NULL);
 	
-	max_set_debug(run_action, "SVM", MAX_DEBUG_ALWAYS);
+//	max_set_debug(run_action, "SVM", MAX_DEBUG_ALWAYS);
 	max_run(engine, run_action);
 	
 	gettimeofday(&tv2, NULL);
@@ -1982,7 +2053,7 @@ int main(){
 	
 	// NOTE: The settings in Def.maxj should also be changed
 //	runDFE(ParamSimple40, 340000, 4);
-//	runDFE(ParamOrderBook, 100000000, 80);
+//	runDFE(ParamOrderBook, 400*1E6, 80);
 
 	printf("[INFO] Job Finished.\n");
 

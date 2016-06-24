@@ -93,8 +93,8 @@ class RMem extends KernelLib{
 
  		/////////////////////// RInit ///////////////////////
 
-		// Control Signal for RInit - blockDim*2 cycles
-		AddrGenerator RInitCounter = new AddrGenerator(owner, 1, blockDim*2, beginRInit);
+		// Control Signal for RInit - blockDim^2 cycles
+		AddrGenerator RInitCounter = new AddrGenerator(owner, 1, blockDim*blockDim, beginRInit);
 		DFEVar isInit = RInitCounter.isValid();
 
 		

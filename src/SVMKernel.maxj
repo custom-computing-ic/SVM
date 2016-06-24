@@ -129,6 +129,10 @@ class SVMKernel extends Kernel {
 		SM.connectInput("BookKeepingFlag", BookKeepingFlagOffseted);
 		SM.connectInput("BookKeepingIndex", BookKeepingIndexOffseted);
 		
+		
+		////////////////////////// Tick /////////////////////////		
+		
+		DFEVar Tick = control.count.simpleCounter(32);
 
 		////////////////////////// Input /////////////////////////
 		
@@ -337,7 +341,7 @@ class SVMKernel extends Kernel {
 		DFEVar LE = ((qri>0)&(hXi<=-Def.ep)) ? hXiPlusEpDivGammaSeq : (((qri<0)&(hXi>=Def.ep)) ? hXiMinusEpDivGammaSeq : BKINF);
 		DFEVar FlagLE = constant.var(FlagType, 5);
 		// LiR
-		DFEVar LR = (KernelMath.abs(BKgammaSeq)<Def.eps_gamma) ? BKINF : ((qri>0) ? hXiMinusEpDivGammaSeq : hXiPlusEpDivGammaSeq);
+		DFEVar LR = (KernelMath.abs(BKgammaSeq)<Def.eps) ? BKINF : ((qri>0) ? hXiMinusEpDivGammaSeq : hXiPlusEpDivGammaSeq);
 		DFEVar FlagLR = constant.var(FlagType, 5);
 
 		// Non-Empty S - Decremental Training - LiS, LiE, LiR same as INC, but LC2 is different, and no LC1
@@ -357,13 +361,13 @@ class SVMKernel extends Kernel {
 		DFEVar BKIndex 	= control.mux(BKSel, GroupIndexXc, IndexNMask, IndexNMask, GroupIndexXc, IndexSMask, IndexNMask, IndexNMask);
 		
 		// A Preliminary solution that handles ties
-
 		DFEVar BKVal_cutoff = (BKVal > BKINF) ? BKINF : BKVal;
 		DFEVar minC = Reductions.streamHold(BKVal_cutoff, beginBookKeeping);
 		DFEVar FlagC = Reductions.streamHold(BKFlag, beginBookKeeping);
 		Reductions.StreamMinInfo BookKeep1 = Reductions.streamMinWithMetadata(BKVal_cutoff, BKFlag, stream.offset(beginBookKeeping, -1), BookKeepingValid);
 		Reductions.StreamMinInfo BookKeep2 = Reductions.streamMinWithMetadata(BKVal_cutoff, BKIndex, stream.offset(beginBookKeeping, -1), BookKeepingValid);
-		DFEVar isCSmaller = ((minC + Def.eps) < BookKeep1.getMin());
+//		DFEVar isCSmaller = ((minC + Def.eps) < BookKeep1.getMin());
+		DFEVar isCSmaller = ((minC>10*Def.eps)&(BookKeep1.getMin()>10*Def.eps)) ? ((minC + Def.eps) < BookKeep1.getMin()) : (minC<BookKeep1.getMin());
 		DFEVar BookKeepingFlag 	= isCSmaller ? FlagC : BookKeep1.getMetaData();
 		DFEVar BookKeepingIndex 	= isCSmaller ? GroupIndexXc : BookKeep2.getMetaData();
 		DFEVar minL = isCSmaller ? minC : BookKeep1.getMin();
@@ -450,7 +454,7 @@ class SVMKernel extends Kernel {
 
 		// has Xc Join R?
 		OffsetExpr hXcOffset = stream.makeOffsetAutoLoop("hXcOffset");
-		DFEVar XcJoinROffseted = stream.offset(XcJoinR, -hXcOffset);
+		DFEVar XcJoinROffseted = (Tick<=hXcOffset.getDFEVar(this, dfeUInt(32))) ? constant.var(dfeBool(), 0) : stream.offset(XcJoinR, -hXcOffset);
 		hasFinished <== XcJoinROffseted;
 
 		// has Q Update finished?
@@ -474,8 +478,7 @@ class SVMKernel extends Kernel {
 
 		////////////////////////// Output /////////////////////////
 		
-		DFEVar Tick = control.count.simpleCounter(32);
-		AddrGenerator ItemCounter = new AddrGenerator(this, 1, 10000, (Tick===1), EnInput);
+		AddrGenerator ItemCounter = new AddrGenerator(this, 1, 1000000, (Tick===1), EnInput);
 		DFEVar ItemIndex = ItemCounter.getAddr().cast(dfeUInt(32)) + 2;
 		DFEVar isTraining = (ItemIndex<numSamples) | ((ItemIndex===numSamples)&isInc);
 		DFEVar outputVal = isTraining ? ItemIndex.cast(dfeInt(32)) : -1;

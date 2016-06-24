@@ -631,7 +631,7 @@ class SVMStateMachine extends KernelStateMachine {
 					CASE(1) {
 						// N[index] moves from N to S
 						// beginRInit and return to BOOKKEEPING after Finish
-						IF (subTick === blockDim*2) {Mode.next <== Modes.MOVEN2S;}
+						IF (subTick === blockDim*blockDim) {Mode.next <== Modes.MOVEN2S;}
 /*						
 						// S must be empty as we are not handling ties
 						IF (SMaskBase.isEmpty()) {

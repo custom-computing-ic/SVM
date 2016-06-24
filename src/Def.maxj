@@ -42,10 +42,8 @@ class Def {
 	public static final double ep 			= 1500*0.0001;
 	public static final double C 				= 5000;
 	public static final double sigma_sq 		= 0.0625;
-	public static final double eps 			= 1e-10;
-	public static final double eps_gamma 	= 1e-8;
+	public static final double eps 			= 1e-8;
 	public static final double BookKeepingTH 	= 100000;
-
 
 
 	// Settings for SimpleDataSet
@@ -59,8 +57,7 @@ class Def {
 	public static final double ep 			= 0.01;
 	public static final double C 				= 1000;
 	public static final double sigma_sq 		= 50;
-	public static final double eps 			= 1e-6;
-	public static final double eps_gamma 	= 1e-8;
+	public static final double eps 			= 1e-8;
 	public static final double BookKeepingTH 	= 100000;
 */
 

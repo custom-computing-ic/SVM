@@ -1777,7 +1777,9 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 	max_set_uint64t (init_action, "SVMKernel", "Xc_ZLI_inputLength", DataSize-2);
 	max_set_uint64t (init_action, "SVMKernel", "Yc_ZLI_inputLength", DataSize-2);
 	// Set dataX
-	for (size_t id=0; id<numBlocks; ++id) {
+	// NOTE: currently we set dataXBlock0 only, but this should be enough
+//	for (size_t id=0; id<numBlocks; ++id) {
+	for (size_t id=0; id<1; ++id) {
 		int idWidth = (id<2) ? 2 : (int)((ceil(log10((float)id))+1));
 		char *name0 = malloc(sizeof(char) * (idWidth+strlen("dataXBlock")));
 		char *name1 = malloc(sizeof(char) * (idWidth+strlen("dataXBlock")+strlen("Dim")));
@@ -1831,7 +1833,9 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 	// Set b
 	max_set_mem_double(init_action, "SVMKernel", "b", 0, (double)b);
 	// Set Q
-	for (size_t X=0; X<numBlocks; ++X) {
+	// NOTE: currently we set QBlockX0Y0 only, but this should be enough
+//	for (size_t X=0; X<numBlocks; ++X) {
+	for (size_t X=0; X<1; ++X) {
 		int idWidth = (X<2) ? 2 : (int)((ceil(log10((float)X))+1));
 		char *name0 = malloc(sizeof(char) * (idWidth+strlen("QBlockX")));
 		char *name1 = malloc(sizeof(char) * (idWidth+strlen("QBlockX")+strlen("Y")));
@@ -2053,7 +2057,7 @@ int main(){
 	
 	// NOTE: The settings in Def.maxj should also be changed
 //	runDFE(ParamSimple40, 340000, 4);
-//	runDFE(ParamOrderBook, 400*1E6, 80);
+	runDFE(ParamOrderBook, 400*1E6, 80);
 
 	printf("[INFO] Job Finished.\n");
 

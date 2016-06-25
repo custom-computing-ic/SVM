@@ -50,7 +50,7 @@ class dataXBlock extends KernelLib{
 		dataOUT = (new DFEVectorType<DFEVar>(Def.DataType, DataDim)).newInstance(this);
 		for(int i=0; i<DataDim; ++i) {
 			Memory<DFEVar> block = mem.alloc(Def.DataType, blockDim);
-			block.mapToCPU("dataXBlock"+ID+"Dim"+i);
+			if (ID==0) block.mapToCPU("dataXBlock"+ID+"Dim"+i);
 			dataOUT[i] <== block.port(AddrFanout.get(), Xc[i], EnWriteFanout.get(), RamWriteMode.WRITE_FIRST);
 		}
 

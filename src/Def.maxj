@@ -47,8 +47,8 @@ class Def {
 
 
 	// Settings for SimpleDataSet
-/*	// Kernel Settings
-	public static final int DataDim 			= 1;
+	// Kernel Settings
+/*	public static final int DataDim 			= 1;
 	public static final int numBlocks 			= 4;
 	public static final int blockDim 			= 4;
 

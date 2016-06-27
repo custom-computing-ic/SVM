@@ -27,6 +27,15 @@ class Def {
 	public static final int REnlargeLatency 	= 220; 	// REnlargeLatency
 	public static final int FetchLatency 		= 80; 	// KElemInvLatency
 	public static final int RShrinkLatency 		= 220; 	// RShrinkLatency
+	
+	// Initial Cycles
+	// NOTE: Set them to avoid using undefined data from negative stream offset
+	public static final int bInitCycles 			= 200; 	// (bOffset, bOffset+QUpdateLatency+blockDim)
+	public static final int hXiInitCycles 		= 200; 	// (hXiOffset, hXiOffset+QUpdateLatency+blockDim)
+	public static final int thetaInitCycles 		= 200; 	// (thetaOffset, thetaOffset+QUpdateLatency+blockDim)
+	public static final int REnlargeInitCycles 	= 200; 	// >=QUpdateLatency
+	public static final int hXcInitCycles 		= 88; 	// ~(hXcOffset+blockDim)
+	public static final int RInternalCycles 		= 300; 	// (ROffset, QUpdateLatency+BookKeepingLatency)
 
 
 	///////////////////////// SVM Parameters /////////////////////////

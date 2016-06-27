@@ -5,6 +5,7 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Stream.OffsetExpr;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Queue;
@@ -273,7 +274,7 @@ class SVMKernel extends Kernel {
 		betaX <== betaCalcModule.getReadVec();
 		betaY <== betaCalcModule.getPortVec();
 		DFEVar betaSeq = betaCalcModule.getSeqReadData();
-		DFEVar hasBetaCalcFinishedFromBetaCalc = betaCalcModule.hasBetaCalcFinished();		
+		DFEVar hasBetaCalcFinishedFromBetaCalc = betaCalcModule.hasBetaCalcFinished();
 
 		// gamma Calculation
 		DFEVar GReadAddr 	= IndexNMask;
@@ -398,14 +399,16 @@ class SVMKernel extends Kernel {
 		
 		// Update b
 		OffsetExpr bOffset 		= stream.makeOffsetAutoLoop("bOffset");
+		DFEVar bNotReady 		= control.count.pulse(Def.bInitCycles);
 		DFEVar bWrData 			= b + (isEmptyS ? bEmptyS : bThetaNonEmptyS).cast(Def.DataYType);
 		DFEVar bWrDataOffseted 	= stream.offset(bWrData, -bOffset);
-		DFEVar bWrEnOffseted 	= stream.offset(beginUpdate, -bOffset);
+		DFEVar bWrEnOffseted 	= bNotReady ? constant.var(dfeBool(), 0) : stream.offset(beginUpdate, -bOffset);
 		bMem.port(constant.var(dfeUInt(1),0), bWrDataOffseted, bWrEnOffseted, RamWriteMode.WRITE_FIRST);
 		
 		// Update hXi
 		// NOTE: hXi[K], i.e. hXi value of the item that moves from S to N, is updated at 'beginRShrink' cycle
 		OffsetExpr hXiOffset 			= stream.makeOffsetAutoLoop("hXiOffset");
+		DFEVar hXiNotReady 			= control.count.pulse(Def.hXiInitCycles);
 		DFEVar hXiWrAddrUnOffseted 	= beginRShrink ? GroupIndexSMask : (beginUpdate ? GroupIndexXc : GroupIndexNMask);
 		DFEVar hXiValForXcAndNMask 	= (hXi + (isEmptyS ? hXiEmptyS : (beginUpdate ? hXcNonEmptyS : hXiNonEmptyS))).cast(Def.hXiType);
 		DFEVar hXiValForK 			= (hXi > 0) ? constant.var(Def.hXiType, Def.ep) : constant.var(Def.hXiType, -Def.ep);
@@ -413,13 +416,14 @@ class SVMKernel extends Kernel {
 		DFEVar hXiWrEnUnOffseted 	= beginRShrink | beginUpdate | isUpdating & NMaskValid;
 		DFEVar hXiWrAddrOffseted 		= stream.offset(hXiWrAddrUnOffseted, -hXiOffset);
 		DFEVar hXiWrDataOffseted 		= stream.offset(hXiWrDataUnOffseted, -hXiOffset);
-		DFEVar hXiWrEnOffseted 		= stream.offset(hXiWrEnUnOffseted, -hXiOffset);
+		DFEVar hXiWrEnOffseted 		= hXiNotReady ? constant.var(dfeBool(), 0) : stream.offset(hXiWrEnUnOffseted, -hXiOffset);
 		hXiWrAddr 	<== isProcessingNewXc ? GroupIndexXc : hXiWrAddrOffseted;
 		hXiWrData 	<== hXiWrDataOffseted;
 		hXiWrEn 	<== hXiWrEnOffseted;
 		
 		// Update theta
 		OffsetExpr thetaOffset 					= stream.makeOffsetAutoLoop("thetaOffset");
+		DFEVar thetaNotReady 					= control.count.pulse(Def.thetaInitCycles);
 		DFEVar newThetaC 					= (BKthetaSeq + thetaCNonEmptyS).cast(Def.thetaType);
 		DFEVar newThetaDefault 				= (BKthetaSeq + bThetaNonEmptyS).cast(Def.thetaType);
 		DFEVar newThetaK 					= (BookKeepingFlag === 7) ? 0 : ((newThetaDefault > 0) ? constant.var(Def.thetaType, Def.C) : -Def.C);
@@ -427,12 +431,12 @@ class SVMKernel extends Kernel {
 		DFEVar newTheta 						= isCurItemThetaK ? newThetaK : newThetaDefault;
 		DFEVar thetaInUnOffseted 				= beginUpdate ? newThetaC 	: newTheta;
 		DFEVar thetaWrBaseAddrUnOffseted 		= beginUpdate ? BaseAddrXc 	: BaseAddrSMask;
-		DFEVar thetaWrOffsetAddrUnOffseted 	= beginUpdate ? OffsetAddrXc 	: OffsetAddrSMask;		
+		DFEVar thetaWrOffsetAddrUnOffseted 	= beginUpdate ? OffsetAddrXc 	: OffsetAddrSMask;
 		DFEVar thetaImmediateWriteUnOffseted 	= (~isEmptyS) & (beginUpdate | isUpdating & SMaskValid);
 		DFEVar thetaInOffseted 				= stream.offset(thetaInUnOffseted, -thetaOffset);
 		DFEVar thetaWrBaseAddrOffseted 		= stream.offset(thetaWrBaseAddrUnOffseted, -thetaOffset);
 		DFEVar thetaWrOffsetAddrOffseted 		= stream.offset(thetaWrOffsetAddrUnOffseted, -thetaOffset);
-		DFEVar thetaImmediateWriteOffseted 	= stream.offset(thetaImmediateWriteUnOffseted, -thetaOffset);
+		DFEVar thetaImmediateWriteOffseted 	= thetaNotReady ? constant.var(dfeBool(), 0) : stream.offset(thetaImmediateWriteUnOffseted, -thetaOffset);
 		thetaIn 				<== isProcessingNewXc ? constant.var(Def.thetaType, 0) : thetaInOffseted;
 		thetaWrBaseAddr 		<== isProcessingNewXc ? BaseAddrXc : thetaWrBaseAddrOffseted;
 		thetaWrOffsetAddr 	<== isProcessingNewXc ? OffsetAddrXc : thetaWrOffsetAddrOffseted;
@@ -440,8 +444,9 @@ class SVMKernel extends Kernel {
 		
 		
 		// REnlarge - triggered by beginGammaCREnlarge or begin automatically after gamma_k calculated
+		DFEVar REnlargeNotReady = control.count.pulse(Def.REnlargeInitCycles);
 		gammaInv 		<== 1.0 / ((BookKeepingFlag === 2) ? gamma_c.cast(Def.RType) : gamma_k.cast(Def.RType));
-		beginREnlarge 	<== beginGammaCREnlarge | stream.offset((isGammaKCalculating & GammaResultValid), -1);
+		beginREnlarge 	<== REnlargeNotReady ? constant.var(dfeBool(), 0) : (beginGammaCREnlarge | stream.offset((isGammaKCalculating & GammaResultValid), -1));
 		
 		// RShrink
 		OffsetExpr SMaskIDToRemoveOffset = stream.makeOffsetAutoLoop("SMaskIDToRemoveOffset");
@@ -454,7 +459,8 @@ class SVMKernel extends Kernel {
 
 		// has Xc Join R?
 		OffsetExpr hXcOffset = stream.makeOffsetAutoLoop("hXcOffset");
-		DFEVar XcJoinROffseted = (Tick<=hXcOffset.getDFEVar(this, dfeUInt(32))) ? constant.var(dfeBool(), 0) : stream.offset(XcJoinR, -hXcOffset);
+		DFEVar hXcNotReady = control.count.pulse(Def.hXcInitCycles);
+		DFEVar XcJoinROffseted = hXcNotReady ? constant.var(dfeBool(), 0) : stream.offset(XcJoinR, -hXcOffset);
 		hasFinished <== XcJoinROffseted;
 
 		// has Q Update finished?

@@ -1944,6 +1944,7 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 	// Clean Up
 	max_actions_free(run_action);
 	max_unload(engine);
+	SVM_free();
 	
 	// Find how many cycles to run
 	for (size_t i=0; i<Ticks; ++i) {
@@ -2057,7 +2058,7 @@ int main(){
 	
 	// NOTE: The settings in Def.maxj should also be changed
 //	runDFE(ParamSimple40, 340000, 4);
-	runDFE(ParamOrderBook, 400*1E6, 80);
+//	runDFE(ParamOrderBook, 400*1E6, 80);
 
 	printf("[INFO] Job Finished.\n");
 

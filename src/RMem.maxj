@@ -451,6 +451,7 @@ class RMem extends KernelLib{
 			
 			// Stream Offset
 			OffsetExpr RBlockOffset = stream.makeOffsetAutoLoop("OffsetRBlock"+X+Y);
+			DFEVar RNotReady = this.control.count.pulse(Def.RInternalCycles);
 
 			// Write Data
 			DFEVar PortDataUnOffseted = isEnlarging ? REnlargePortData : RShrinkPortData;
@@ -460,7 +461,7 @@ class RMem extends KernelLib{
 			DFEVar PortAddr = isInit ? blockAddr : stream.offset(PortAddrUnOffseted, -RBlockOffset);
 			// Write Enable
 			DFEVar PortWrEnUnOffseted = REnlargePortEn | RShrinkPortEn;
-			DFEVar PortWrEn = isInit ? RInitPortEn : stream.offset(PortWrEnUnOffseted, -RBlockOffset);
+			DFEVar PortWrEn = RNotReady ? constant.var(dfeBool(), 0) : (isInit ? RInitPortEn : stream.offset(PortWrEnUnOffseted, -RBlockOffset));
 			// Write
 			block.port(PortAddr, PortData, PortWrEn, RamWriteMode.WRITE_FIRST);
 

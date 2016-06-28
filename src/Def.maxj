@@ -9,6 +9,35 @@ import java.util.ArrayList;
 class Def {
 
 
+	///////////////////////// SVM Parameters /////////////////////////
+
+	// Settings for OrderBookData
+	// Kernel Settings
+	public static final int DataDim 			= 16;
+	public static final int numBlocks 			= 5;
+	public static final int blockDim 			= 80;
+
+	// Window Size = numBlocks * blockDim
+	public static final int WinSize 			= numBlocks * blockDim;
+	public static final double ep 			= 1500*0.0001;
+	public static final double C 				= 5000;
+	public static final double sigma_sq 		= 0.0625;
+	public static final double BookKeepingTH 	= 100000;
+
+
+	// Settings for SimpleDataSet
+	// Kernel Settings
+/*	public static final int DataDim 			= 1;
+	public static final int numBlocks 			= 4;
+	public static final int blockDim 			= 4;
+
+	// Window Size = numBlocks * blockDim
+	public static final int WinSize 			= numBlocks * blockDim;
+	public static final double ep 			= 0.01;
+	public static final double C 				= 1000;
+	public static final double sigma_sq 		= 50;
+	public static final double BookKeepingTH 	= 100000;
+*/
 
 
 	///////////////////////// FPGA Configuration /////////////////////////
@@ -34,41 +63,9 @@ class Def {
 	public static final int hXiInitCycles 		= 200; 	// (hXiOffset, hXiOffset+QUpdateLatency+blockDim)
 	public static final int thetaInitCycles 		= 200; 	// (thetaOffset, thetaOffset+QUpdateLatency+blockDim)
 	public static final int REnlargeInitCycles 	= 200; 	// >=QUpdateLatency
-	public static final int hXcInitCycles 		= 88; 	// ~(hXcOffset+blockDim)
+	public static final int hXcInitCycles 		= 82+blockDim; 	// ~(hXcOffset+blockDim)
 	public static final int RInternalCycles 		= 300; 	// (ROffset, QUpdateLatency+BookKeepingLatency)
 
-
-	///////////////////////// SVM Parameters /////////////////////////
-
-	// Settings for OrderBookData
-	// Kernel Settings
-	public static final int DataDim 			= 16;
-	public static final int numBlocks 			= 5;
-	public static final int blockDim 			= 80;
-
-	// Window Size = numBlocks * blockDim
-	public static final int WinSize 			= numBlocks * blockDim;
-	public static final double ep 			= 1500*0.0001;
-	public static final double C 				= 5000;
-	public static final double sigma_sq 		= 0.0625;
-	public static final double eps 			= 1e-8;
-	public static final double BookKeepingTH 	= 100000;
-
-
-	// Settings for SimpleDataSet
-	// Kernel Settings
-/*	public static final int DataDim 			= 1;
-	public static final int numBlocks 			= 4;
-	public static final int blockDim 			= 4;
-
-	// Window Size = numBlocks * blockDim
-	public static final int WinSize 			= numBlocks * blockDim;
-	public static final double ep 			= 0.01;
-	public static final double C 				= 1000;
-	public static final double sigma_sq 		= 50;
-	public static final double eps 			= 1e-8;
-	public static final double BookKeepingTH 	= 100000;
-*/
 
 	///////////////////////// Types /////////////////////////
 	

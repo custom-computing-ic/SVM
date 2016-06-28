@@ -1774,11 +1774,11 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 	
 	// Set Number of Samples
 	max_set_uint64t (init_action, "SVMKernel", "numSamples", DataSize);
+	max_set_double (init_action, "SVMKernel", "Eps", param.eps);
 	max_set_uint64t (init_action, "SVMKernel", "Xc_ZLI_inputLength", DataSize-2);
 	max_set_uint64t (init_action, "SVMKernel", "Yc_ZLI_inputLength", DataSize-2);
 	// Set dataX
 	// NOTE: currently we set dataXBlock0 only, but this should be enough
-//	for (size_t id=0; id<numBlocks; ++id) {
 	for (size_t id=0; id<1; ++id) {
 		int idWidth = (id<2) ? 2 : (int)((ceil(log10((float)id))+1));
 		char *name0 = malloc(sizeof(char) * (idWidth+strlen("dataXBlock")));
@@ -1834,7 +1834,6 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 	max_set_mem_double(init_action, "SVMKernel", "b", 0, (double)b);
 	// Set Q
 	// NOTE: currently we set QBlockX0Y0 only, but this should be enough
-//	for (size_t X=0; X<numBlocks; ++X) {
 	for (size_t X=0; X<1; ++X) {
 		int idWidth = (X<2) ? 2 : (int)((ceil(log10((float)X))+1));
 		char *name0 = malloc(sizeof(char) * (idWidth+strlen("QBlockX")));
@@ -1911,7 +1910,7 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 	fprintf(stderr, "[INFO] Allocating Memory for FPGA...");
 	double *Xc = malloc((DataSize-2)*DataDim*sizeof(double));
 	double *Yc = malloc((DataSize-2)*sizeof(double));
-	int *outValue = malloc(Ticks*sizeof(int));
+	unsigned int *outValue = malloc(Ticks/10000*sizeof(unsigned int));
 	for (size_t i=0; i<DataSize-2; ++i) {
 		for (size_t j=0; j<DataDim; ++j) {
 			Xc[i*DataDim+j] = (double)X_IN[(i+2)*DataDim+j];
@@ -1926,7 +1925,7 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 	max_set_ticks(run_action, "SVMKernel", Ticks);
 	max_queue_input(run_action, "Xc", Xc, (DataSize-2)*DataDim*sizeof(double));
 	max_queue_input(run_action, "Yc", Yc, (DataSize-2)*sizeof(double));
-	max_queue_output(run_action, "output", outValue, Ticks*sizeof(int));
+	max_queue_output(run_action, "output", outValue, Ticks/10000*sizeof(unsigned int));
 	
 	// Run
 	fprintf(stderr, "[INFO] Running on FPGA...");
@@ -1947,13 +1946,10 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 	SVM_free();
 	
 	// Find how many cycles to run
-	for (size_t i=0; i<Ticks; ++i) {
-		if (outValue[i]==-1) {
-			fprintf(stderr, "[INFO] Need %zu cycles to train %zu samples.\n", i, DataSize);
-			break;
-		}
-		if (i==Ticks-1) fprintf(stderr, "[INFO] Need more cycles (%d/%zu samples trained in %zu cycles).\n", outValue[i]-1, DataSize, i);
-	}
+	int Value = (int)outValue[Ticks/10000-1];
+	if (Value>DataSize) fprintf(stderr, "[INFO] Need %d cycles to train %zu samples.\n", Value, DataSize);
+	else fprintf(stderr, "[INFO] Need more cycles (%d/%zu samples trained in %d cycles).\n", Value-1, DataSize, Ticks);
+	
 
 	/////////////////////////// Clean up ///////////////////////////
 	
@@ -1998,7 +1994,7 @@ int main(){
 	ParamOrderBook.ep 		= 1500*0.0001;
 	ParamOrderBook.C 		= 5000;
 	ParamOrderBook.sigma_sq  	= 0.0625;
-	ParamOrderBook.eps  		= 1e-6;
+	ParamOrderBook.eps  		= 1e-8;
 
 //	LIBSVMData(ParamOrderBook);
 
@@ -2057,7 +2053,8 @@ int main(){
 	///////////// DFE /////////////
 	
 	// NOTE: The settings in Def.maxj should also be changed
-//	runDFE(ParamSimple40, 340000, 4);
+	// NOTE: Cycles must be a multiple of 40000
+//	runDFE(ParamSimple40, 360000, 4);
 //	runDFE(ParamOrderBook, 400*1E6, 80);
 
 	printf("[INFO] Job Finished.\n");

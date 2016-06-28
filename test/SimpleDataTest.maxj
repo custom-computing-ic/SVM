@@ -56,6 +56,7 @@ public class SimpleDataTest {
                 mgr.setMappedRam("hXi", 1, 17.949797249168114);
                 // init Scalar
                 mgr.setScalarInput("numSamples", streamLength+2);
+                mgr.setScalarInput("Eps", 1e-6);
                 mgr.setScalarInput("Xc_ZLI_inputLength", streamLength);
                 mgr.setScalarInput("Yc_ZLI_inputLength", streamLength);
 		

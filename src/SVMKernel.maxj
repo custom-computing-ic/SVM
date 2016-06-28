@@ -5,7 +5,6 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Stream.OffsetExpr;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Queue;
@@ -139,9 +138,6 @@ class SVMKernel extends Kernel {
 		
 		// EnInput
 		FanoutLimiter<DFEVar> EnInputFanout = new FanoutLimiter<DFEVar>(EnInput, Def.MaxFanout);
-		
-		// Number of Training Samples
-		DFEVar numSamples = io.scalarInput("numSamples", dfeUInt(32));
 
 		// Xc FIFO
 		DFEVector<DFEVar> Xc_IN = ZeroLatencyInput.input("Xc", InputVecType, EnInputFanout.get());
@@ -157,6 +153,10 @@ class SVMKernel extends Kernel {
 		YcQueue.insert(Yc_IN, EnInputFanout.get());
 		DFEVar Yc_InputType = YcQueue.remove(EnInputFanout.get());
 		DFEVar Yc = Yc_InputType.cast(Def.DataYType);
+		
+		// Scalar Inputs
+		DFEVar numSamples = io.scalarInput("numSamples", dfeUInt(32));		
+		DFEVar Eps = io.scalarInput("Eps", Def.InputType).cast(Def.BaseFixType);
 
 
 		////////////////////////// Handling New item Xc /////////////////////////
@@ -233,7 +233,7 @@ class SVMKernel extends Kernel {
 		DFEVar hXiCalcResult = hXiCalc.getCalcResult();
 		DFEVar hXiCalcResultValid = hXiCalc.isValid();
 		DFEVar hXcValid = hXiCalcResultValid & isProcessingNewXc;
-		DFEVar XcJoinR = (KernelMath.abs(hXiCalcResult)<Def.ep+Def.eps) & hXcValid;
+		DFEVar XcJoinR = (KernelMath.abs(hXiCalcResult)<Def.ep+Eps.cast(Def.hXiType)) & hXcValid;
 	
 
 		// q
@@ -342,7 +342,7 @@ class SVMKernel extends Kernel {
 		DFEVar LE = ((qri>0)&(hXi<=-Def.ep)) ? hXiPlusEpDivGammaSeq : (((qri<0)&(hXi>=Def.ep)) ? hXiMinusEpDivGammaSeq : BKINF);
 		DFEVar FlagLE = constant.var(FlagType, 5);
 		// LiR
-		DFEVar LR = (KernelMath.abs(BKgammaSeq)<Def.eps) ? BKINF : ((qri>0) ? hXiMinusEpDivGammaSeq : hXiPlusEpDivGammaSeq);
+		DFEVar LR = (KernelMath.abs(BKgammaSeq)<Eps.cast(Def.BookKeepingType)) ? BKINF : ((qri>0) ? hXiMinusEpDivGammaSeq : hXiPlusEpDivGammaSeq);
 		DFEVar FlagLR = constant.var(FlagType, 5);
 
 		// Non-Empty S - Decremental Training - LiS, LiE, LiR same as INC, but LC2 is different, and no LC1
@@ -367,8 +367,8 @@ class SVMKernel extends Kernel {
 		DFEVar FlagC = Reductions.streamHold(BKFlag, beginBookKeeping);
 		Reductions.StreamMinInfo BookKeep1 = Reductions.streamMinWithMetadata(BKVal_cutoff, BKFlag, stream.offset(beginBookKeeping, -1), BookKeepingValid);
 		Reductions.StreamMinInfo BookKeep2 = Reductions.streamMinWithMetadata(BKVal_cutoff, BKIndex, stream.offset(beginBookKeeping, -1), BookKeepingValid);
-//		DFEVar isCSmaller = ((minC + Def.eps) < BookKeep1.getMin());
-		DFEVar isCSmaller = ((minC>10*Def.eps)&(BookKeep1.getMin()>10*Def.eps)) ? ((minC + Def.eps) < BookKeep1.getMin()) : (minC<BookKeep1.getMin());
+		DFEVar isCSmaller = ((minC + Eps.cast(Def.BookKeepingType)) < BookKeep1.getMin());
+//		DFEVar isCSmaller = ((minC>10*Def.eps)&(BookKeep1.getMin()>10*Def.eps)) ? ((minC + Def.eps) < BookKeep1.getMin()) : (minC<BookKeep1.getMin());
 		DFEVar BookKeepingFlag 	= isCSmaller ? FlagC : BookKeep1.getMetaData();
 		DFEVar BookKeepingIndex 	= isCSmaller ? GroupIndexXc : BookKeep2.getMetaData();
 		DFEVar minL = isCSmaller ? minC : BookKeep1.getMin();
@@ -487,8 +487,10 @@ class SVMKernel extends Kernel {
 		AddrGenerator ItemCounter = new AddrGenerator(this, 1, 1000000, (Tick===1), EnInput);
 		DFEVar ItemIndex = ItemCounter.getAddr().cast(dfeUInt(32)) + 2;
 		DFEVar isTraining = (ItemIndex<numSamples) | ((ItemIndex===numSamples)&isInc);
-		DFEVar outputVal = isTraining ? ItemIndex.cast(dfeInt(32)) : -1;
-		io.output("output", outputVal, dfeInt(32));
+		DFEVar numTicksForTraining = Reductions.streamHold(Tick, isTraining);
+		DFEVar outputVal = isTraining ? ItemIndex : numTicksForTraining;
+		DFEVar EnOutput = (control.count.simpleCounter(14, 10000)===0);
+		io.output("output", outputVal, dfeUInt(32), EnOutput);
 
 
 		////////////////////////// Debug /////////////////////////

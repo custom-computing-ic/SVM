@@ -64,16 +64,18 @@ public class SVMManager extends CustomManager{
 		
 		// Scalar
 		InterfaceParam numSamples 	= engine_interface.addParam("numSamples", CPUTypes.UINT32);
+		InterfaceParam Eps 			= engine_interface.addParam("Eps", CPUTypes.DOUBLE);
 		InterfaceParam inputLength 	= numSamples - 2;
 		engine_interface.setScalar(Name, "numSamples", numSamples);
+		engine_interface.setScalar(Name, "Eps", Eps);
 		engine_interface.setScalar(Name, "Xc_ZLI_inputLength", inputLength);
 		engine_interface.setScalar(Name, "Yc_ZLI_inputLength", inputLength);
 		
 		// Stream
-		InterfaceParam dataDim 	= engine_interface.addConstant(Def.DataDim);
+		InterfaceParam dataDim = engine_interface.addConstant(Def.DataDim);
 		engine_interface.setStream("Xc", CPUTypes.DOUBLE, inputLength * dataDim * CPUTypes.DOUBLE.sizeInBytes());
 		engine_interface.setStream("Yc", CPUTypes.DOUBLE, inputLength * CPUTypes.DOUBLE.sizeInBytes());
-		engine_interface.setStream("output", CPUTypes.INT32, numTicks * CPUTypes.INT32.sizeInBytes());
+		engine_interface.setStream("output", CPUTypes.UINT32, numTicks/10000 * CPUTypes.INT32.sizeInBytes());
 		
 		// Ignore Mem
 		engine_interface.ignoreAll(EngineInterface.Direction.IN_OUT);

@@ -367,8 +367,9 @@ class SVMKernel extends Kernel {
 		DFEVar FlagC = Reductions.streamHold(BKFlag, beginBookKeeping);
 		Reductions.StreamMinInfo BookKeep1 = Reductions.streamMinWithMetadata(BKVal_cutoff, BKFlag, stream.offset(beginBookKeeping, -1), BookKeepingValid);
 		Reductions.StreamMinInfo BookKeep2 = Reductions.streamMinWithMetadata(BKVal_cutoff, BKIndex, stream.offset(beginBookKeeping, -1), BookKeepingValid);
-		DFEVar isCSmaller = ((minC + Eps.cast(Def.BookKeepingType)) < BookKeep1.getMin());
-//		DFEVar isCSmaller = ((minC>10*Def.eps)&(BookKeep1.getMin()>10*Def.eps)) ? ((minC + Def.eps) < BookKeep1.getMin()) : (minC<BookKeep1.getMin());
+//		DFEVar isCSmaller = ((minC + Eps.cast(Def.BookKeepingType)) < BookKeep1.getMin());
+		DFEVar Eps10 = 10*Eps.cast(Def.BookKeepingType);
+		DFEVar isCSmaller = ((minC>Eps10)&(BookKeep1.getMin()>Eps10)) ? ((minC + Eps.cast(Def.BookKeepingType)) < BookKeep1.getMin()) : (minC<BookKeep1.getMin());
 		DFEVar BookKeepingFlag 	= isCSmaller ? FlagC : BookKeep1.getMetaData();
 		DFEVar BookKeepingIndex 	= isCSmaller ? GroupIndexXc : BookKeep2.getMetaData();
 		DFEVar minL = isCSmaller ? minC : BookKeep1.getMin();
@@ -487,10 +488,8 @@ class SVMKernel extends Kernel {
 		AddrGenerator ItemCounter = new AddrGenerator(this, 1, 1000000, (Tick===1), EnInput);
 		DFEVar ItemIndex = ItemCounter.getAddr().cast(dfeUInt(32)) + 2;
 		DFEVar isTraining = (ItemIndex<numSamples) | ((ItemIndex===numSamples)&isInc);
-		DFEVar numTicksForTraining = Reductions.streamHold(Tick, isTraining);
-		DFEVar outputVal = isTraining ? ItemIndex : numTicksForTraining;
-		DFEVar EnOutput = (control.count.simpleCounter(14, 10000)===0);
-		io.output("output", outputVal, dfeUInt(32), EnOutput);
+		DFEVar outputVal = isTraining ? ItemIndex.cast(dfeInt(32)) : -1;
+		io.output("output", outputVal, dfeInt(32));
 
 
 		////////////////////////// Debug /////////////////////////

@@ -75,7 +75,7 @@ public class SVMManager extends CustomManager{
 		InterfaceParam dataDim = engine_interface.addConstant(Def.DataDim);
 		engine_interface.setStream("Xc", CPUTypes.DOUBLE, inputLength * dataDim * CPUTypes.DOUBLE.sizeInBytes());
 		engine_interface.setStream("Yc", CPUTypes.DOUBLE, inputLength * CPUTypes.DOUBLE.sizeInBytes());
-		engine_interface.setStream("output", CPUTypes.UINT32, numTicks/10000 * CPUTypes.INT32.sizeInBytes());
+		engine_interface.setStream("output", CPUTypes.INT32, numTicks * CPUTypes.INT32.sizeInBytes());
 		
 		// Ignore Mem
 		engine_interface.ignoreAll(EngineInterface.Direction.IN_OUT);

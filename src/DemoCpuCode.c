@@ -1910,7 +1910,7 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 	fprintf(stderr, "[INFO] Allocating Memory for FPGA...");
 	double *Xc = malloc((DataSize-2)*DataDim*sizeof(double));
 	double *Yc = malloc((DataSize-2)*sizeof(double));
-	unsigned int *outValue = malloc(Ticks/10000*sizeof(unsigned int));
+	int *outValue = malloc(Ticks*sizeof(int));
 	for (size_t i=0; i<DataSize-2; ++i) {
 		for (size_t j=0; j<DataDim; ++j) {
 			Xc[i*DataDim+j] = (double)X_IN[(i+2)*DataDim+j];
@@ -1925,7 +1925,7 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 	max_set_ticks(run_action, "SVMKernel", Ticks);
 	max_queue_input(run_action, "Xc", Xc, (DataSize-2)*DataDim*sizeof(double));
 	max_queue_input(run_action, "Yc", Yc, (DataSize-2)*sizeof(double));
-	max_queue_output(run_action, "output", outValue, Ticks/10000*sizeof(unsigned int));
+	max_queue_output(run_action, "output", outValue, Ticks*sizeof(int));
 	
 	// Run
 	fprintf(stderr, "[INFO] Running on FPGA...");
@@ -1946,9 +1946,13 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 	SVM_free();
 	
 	// Find how many cycles to run
-	int Value = (int)outValue[Ticks/10000-1];
-	if (Value>DataSize) fprintf(stderr, "[INFO] Need %d cycles to train %zu samples.\n", Value, DataSize);
-	else fprintf(stderr, "[INFO] Need more cycles (%d/%zu samples trained in %d cycles).\n", Value-1, DataSize, Ticks);
+	for (size_t i=0; i<Ticks; ++i) {
+		if (outValue[i]==-1) {
+			fprintf(stderr, "[INFO] Need %zu cycles to train %zu samples.\n", i, DataSize);
+			break;
+		}
+		if (i==Ticks-1) fprintf(stderr, "[INFO] Need more cycles (%d/%zu samples trained in %zu cycles).\n", outValue[i]-1, DataSize, i);
+	}
 	
 
 	/////////////////////////// Clean up ///////////////////////////
@@ -1987,7 +1991,7 @@ int main(){
 	ParamOrderBook.InFile 	= "data9970.txt";
 	ParamOrderBook.OutFile  	= "data9970result.txt";
 	ParamOrderBook.LogFile	= "data9970log.txt";
-	ParamOrderBook.DataSize  	= 9970;
+	ParamOrderBook.DataSize  	= 2002;
 	ParamOrderBook.DataDim  	= 16;
 	ParamOrderBook.WinSize  	= 400;
 	ParamOrderBook.RSize 	= ParamOrderBook.WinSize;
@@ -2055,7 +2059,7 @@ int main(){
 	// NOTE: The settings in Def.maxj should also be changed
 	// NOTE: Cycles must be a multiple of 40000
 //	runDFE(ParamSimple40, 360000, 4);
-//	runDFE(ParamOrderBook, 400*1E6, 80);
+	runDFE(ParamOrderBook, 20*1E6, 80);
 
 	printf("[INFO] Job Finished.\n");
 

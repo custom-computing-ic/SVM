@@ -17,6 +17,7 @@ public class SimpleDataTest {
 		final int numTicks = 320000;
 		final int numBlocks = 4;
 		final int blockDim = 4;
+		final int RBlockDim = 2;
 		final int dataDim = 1;
 		final int streamLength = 38;
 
@@ -26,7 +27,7 @@ public class SimpleDataTest {
 		// set Kernel Configuration - ignore read/write collision during simulation
 		mgr.getCurrentKernelConfig().simulation.setRAMAddressCollisionBehaviour(KernelConfiguration.SimulationOptions.SimulationBehaviour.IGNORE);
 		// create kernel
-		SVMKernel kernel = new SVMKernel(mgr.makeKernelParameters(),  numBlocks, blockDim, dataDim);
+		SVMKernel kernel = new SVMKernel(mgr.makeKernelParameters(),  numBlocks, blockDim, RBlockDim, dataDim);
 		mgr.setKernel(kernel);
 		
 		

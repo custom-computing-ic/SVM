@@ -204,6 +204,7 @@ class SVMStateMachine extends KernelStateMachine {
 	// Dimension Parameters
 	private final int numBlocks;
 	private final int blockDim;
+	private final int RBlockDim;
 	private final int WinSize;
 
 	// Scheduling Parameters
@@ -213,7 +214,7 @@ class SVMStateMachine extends KernelStateMachine {
 	private final int RShrinkCycles;
 
 
-	public SVMStateMachine(KernelLib owner, int numBlocks_IN, int blockDim_IN, int WinSize_IN) {
+	public SVMStateMachine(KernelLib owner, int numBlocks_IN, int blockDim_IN, int RBlockDim_IN, int WinSize_IN) {
 
 	 	////////////////////////// Parameters /////////////////////////  
 
@@ -222,13 +223,14 @@ class SVMStateMachine extends KernelStateMachine {
 		// Dimension Parameters
 		numBlocks 	= numBlocks_IN;
 		blockDim 	= blockDim_IN;
+		RBlockDim 	= RBlockDim_IN;
 		WinSize 		= WinSize_IN;
 		
 		// Scheduling Parameters
 		QUpdateCycles 		= blockDim + Def.QUpdateLatency;
 		BookKeepingLatency 	= Def.BookKeepingLatency;
 		REnlargeLatency 		= Def.REnlargeLatency;
-		RShrinkCycles 		= 3*(blockDim*blockDim + blockDim + Def.RShrinkLatency) + Def.FetchLatency + 1;
+		RShrinkCycles 		= 3*(RBlockDim*RBlockDim + RBlockDim + Def.RShrinkLatency) + Def.FetchLatency + 1;
 
 
                 ////////////////////////// Types /////////////////////////
@@ -236,6 +238,7 @@ class SVMStateMachine extends KernelStateMachine {
 		DFEsmValueType BoolType 		= dfeUInt(1);
 		DFEsmValueType BaseAddrType 	= dfeUInt(MathUtils.bitsToAddress(numBlocks));
 		DFEsmValueType OffsetAddrType = dfeUInt(MathUtils.bitsToAddress(blockDim));
+		DFEsmValueType QBufAddrType 	= dfeUInt(MathUtils.bitsToAddress(RBlockDim));
 		DFEsmValueType PosType 		= dfeUInt(MathUtils.bitsToAddress(WinSize));
 		DFEsmValueType CurSizeType 	= dfeUInt(MathUtils.bitsToRepresent(WinSize));
 		DFEsmValueType TickType 		= dfeUInt(20);
@@ -270,7 +273,7 @@ class SVMStateMachine extends KernelStateMachine {
 		// Control for Q fetch
 		beginFetchQ 				= io.output("beginFetchQ", BoolType);
                 isFetchingQ 				= io.output("isFetchingQ", BoolType);
-                QBufWriteOffsetAddr 		= io.output("QBufWriteOffsetAddr", OffsetAddrType);
+                QBufWriteOffsetAddr 		= io.output("QBufWriteOffsetAddr", QBufAddrType);
 
 		// Base, Offset, Group and Mask Addresses
 		BaseAddrXc 				= io.output("BaseAddrXc", BaseAddrType);
@@ -350,7 +353,7 @@ class SVMStateMachine extends KernelStateMachine {
 		NMaskMode 			= state.enumerated(maskModes.class, maskModes.MASKIDLE);
 
 		// Write Address for QBuffer
-		QBufWriteOffsetAddrCount 	= state.value(OffsetAddrType, 0);
+		QBufWriteOffsetAddrCount 	= state.value(QBufAddrType, 0);
 		
 		// Group
 		Group = mem.ramMappedDualPort("Group", GroupType, WinSize, DualPortRAMMode.READ_ONLY, DualPortRAMMode.WRITE_ONLY, Latency.ONE_CYCLE);
@@ -534,10 +537,10 @@ class SVMStateMachine extends KernelStateMachine {
 			// Fetching a row of Q
 			CASE(Modes.FETCHQ) {
 				// Write Address for Q Buffer
-				IF (QBufWriteOffsetAddrCount === (blockDim-1)) {QBufWriteOffsetAddrCount.next <== 0;}
+				IF (QBufWriteOffsetAddrCount === (RBlockDim-1)) {QBufWriteOffsetAddrCount.next <== 0;}
 				ELSE {QBufWriteOffsetAddrCount.next <== QBufWriteOffsetAddrCount + 1;}
 				// SMask iteration + padding zero
-				IF (subTick === WinSize-2)  {
+				IF (subTick === numBlocks * RBlockDim - 2)  {
 					Mode.next <== Modes.BETACALC; 
 					subTick.next <== 0;
 				}
@@ -631,7 +634,7 @@ class SVMStateMachine extends KernelStateMachine {
 					CASE(1) {
 						// N[index] moves from N to S
 						// beginRInit and return to BOOKKEEPING after Finish
-						IF (subTick === blockDim*blockDim) {Mode.next <== Modes.MOVEN2S;}
+						IF (subTick === RBlockDim*RBlockDim) {Mode.next <== Modes.MOVEN2S;}
 /*						
 						// S must be empty as we are not handling ties
 						IF (SMaskBase.isEmpty()) {
@@ -646,7 +649,7 @@ class SVMStateMachine extends KernelStateMachine {
 					}
 					CASE(2) {
 						// Xc joins S and terminate - INC only
-						IF (subTick === blockDim*blockDim + REnlargeLatency) {
+						IF (subTick === RBlockDim*RBlockDim + REnlargeLatency) {
 							Mode.next <== Modes.INCFINISH_XC2S;
 
 							debug.simPrintf("[%4d] =======> Item[%d] joins S, becomes SMask[%d] (Base=%d, Offset=%d, GroupIndex=%d).\n", Tick, GroupIndexXcCount, SMaskBase.size(), BaseAddrXcCount, OffsetAddrXcCount, GroupIndexXcCount);
@@ -695,10 +698,12 @@ class SVMStateMachine extends KernelStateMachine {
 			// Move item from N to S : Fetch Q
 			CASE(Modes.MOVEFETCHQ) {
                         	// Write Address for Q Buffer
-                        	IF (QBufWriteOffsetAddrCount === (blockDim-1)) {QBufWriteOffsetAddrCount.next <== 0;}
+                        	IF (QBufWriteOffsetAddrCount === (RBlockDim-1)) {QBufWriteOffsetAddrCount.next <== 0;}
                         	ELSE {QBufWriteOffsetAddrCount.next <== QBufWriteOffsetAddrCount + 1;}
                         	// SMask iteration + padding zero
-                        	IF (subTick === WinSize-2)  {Mode.next <== Modes.MOVEBETACALC; subTick.next <== 0;}						
+				IF (subTick === numBlocks * RBlockDim - 2) {
+					Mode.next <== Modes.MOVEBETACALC; subTick.next <== 0;
+				}						
 			}
 			// Move item from N to S : Beta Calc
 			CASE(Modes.MOVEBETACALC) {
@@ -717,7 +722,7 @@ class SVMStateMachine extends KernelStateMachine {
                         }
 			// Waiting for REnlarge to Finish
 			CASE(Modes.RENLARGEWAIT) {
-				IF (subTick === blockDim*blockDim + REnlargeLatency) {
+				IF (subTick === RBlockDim*RBlockDim + REnlargeLatency) {
 					Mode.next <== Modes.MOVEN2S;
 				}
 			}

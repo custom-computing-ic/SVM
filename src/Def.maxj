@@ -15,7 +15,8 @@ class Def {
 	// Kernel Settings
 	public static final int DataDim 			= 16;
 	public static final int numBlocks 			= 5;
-	public static final int blockDim 			= 80;
+	public static final int blockDim 			= 84;
+	public static final int RBlockDim 			= 30;
 
 	// Window Size = numBlocks * blockDim
 	public static final int WinSize 			= numBlocks * blockDim;
@@ -30,6 +31,7 @@ class Def {
 /*	public static final int DataDim 			= 1;
 	public static final int numBlocks 			= 4;
 	public static final int blockDim 			= 4;
+	public static final int RBlockDim 			= 2;
 
 	// Window Size = numBlocks * blockDim
 	public static final int WinSize 			= numBlocks * blockDim;

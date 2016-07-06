@@ -1575,6 +1575,9 @@ int LIBSVMData(Param param){
 	double AbsError = 0;
 	double SqError = 0;
 	double PerError = 0;
+	
+	struct timeval tv1, tv2;
+	gettimeofday(&tv1, NULL);
 
 	for (size_t i=2; i<ActualDataSize; ++i) {
 
@@ -1584,12 +1587,14 @@ int LIBSVMData(Param param){
 		}
 		Yc = Y_IN[i];
 
+#ifdef EN_STAT
 		// Performance Statistics
 		CalcType YcPredict = regSVM(Xc, dataX, theta, &b, WinSize, DataDim, sigma_sq);
 		AbsError += fabs(Yc-YcPredict);
 		SqError += (Yc-YcPredict)*(Yc-YcPredict);
 		PerError += fabs((Yc-YcPredict)/Yc);
 		numItems++;
+#endif
 
 		// Training
 		if (CurSize<WinSize) {
@@ -1655,21 +1660,25 @@ int LIBSVMData(Param param){
 			// Increment DelPos - wrap at WinSize-1
 			DelPos = (DelPos==WinSize-1) ? 0 : DelPos+1;
 		}
-
+		
+#ifdef EN_LOG
 		// Calculate Objective Function Value
 		CalcType init_obj = objCalc(dataY, Group, theta, Q, &b, C, ep, WinSize);
 		printf("[SVM] CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
 		printf("----------------------------------------------------\n");
 		fprintf(param.LogFileHandle, "[SVM] CurSize = %zu, Obj = %f, b = %f\n", CurSize, init_obj, b);
 		fprintf(param.LogFileHandle, "----------------------------------------------------\n");
-
-	}
-
-#ifdef EN_STAT
-	stat_report();
 #endif
 
+	}
+	
+	gettimeofday(&tv2, NULL);
+	double runtimeS = ((tv2.tv_sec-tv1.tv_sec) * (double)1E6 + (tv2.tv_usec-tv1.tv_usec)) / (double)1E6;
+	fprintf(stderr, "[INFO] Elasped Time (CPU) is %f seconds.\n", runtimeS);
+
+#ifdef EN_STAT
 	// Performance Statistics
+	stat_report();
 	double MSE = SqError / (double)numItems;
 	double MAE = AbsError / (double)numItems;
 	double MAPE = PerError / (double)numItems;
@@ -1679,6 +1688,7 @@ int LIBSVMData(Param param){
 	fprintf(param.LogFileHandle,"--------------------Performance Statistics--------------------\n");
 	fprintf(param.LogFileHandle,"MSE = %lf, MAE = %lf\n", MSE, MAE);
 	fprintf(param.LogFileHandle,"--------------------------------------------------------------\n");
+#endif
 
 	/////////////////////////// Clean up ///////////////////////////
 
@@ -1971,16 +1981,16 @@ int main(){
 	///////////// Simple Data Set /////////////
 
 	Param ParamSimple40;
-	ParamSimple40.InFile 	= "SimpleData42.txt";
+	ParamSimple40.InFile 		= "SimpleData42.txt";
 	ParamSimple40.OutFile  	= "SimpleResult42.txt";
-	ParamSimple40.LogFile	= "SimpleLog42.txt";
-	ParamSimple40.DataSize  = 42;
+	ParamSimple40.LogFile		= "SimpleLog42.txt";
+	ParamSimple40.DataSize  	= 42;
 	ParamSimple40.DataDim  	= 1;
 	ParamSimple40.WinSize  	= 16;
-	ParamSimple40.RSize 	= 10;
+	ParamSimple40.RSize 		= 10;
 	ParamSimple40.ep 		= 0.01;
-	ParamSimple40.C 		= 1000;
-	ParamSimple40.sigma_sq  = 50;
+	ParamSimple40.C 			= 1000;
+	ParamSimple40.sigma_sq  	= 50;
 	ParamSimple40.eps  		= 1e-6;
 
 //	LIBSVMData(ParamSimple40);
@@ -1993,7 +2003,7 @@ int main(){
 	ParamOrderBook.LogFile	= "data9970log.txt";
 	ParamOrderBook.DataSize  	= 2002;
 	ParamOrderBook.DataDim  	= 16;
-	ParamOrderBook.WinSize  	= 400;
+	ParamOrderBook.WinSize  	= 420;
 	ParamOrderBook.RSize 	= ParamOrderBook.WinSize;
 	ParamOrderBook.ep 		= 1500*0.0001;
 	ParamOrderBook.C 		= 5000;
@@ -2058,8 +2068,8 @@ int main(){
 	
 	// NOTE: The settings in Def.maxj should also be changed
 	// NOTE: Cycles must be a multiple of 40000
-//	runDFE(ParamSimple40, 360000, 4);
-	runDFE(ParamOrderBook, 20*1E6, 80);
+//	runDFE(ParamSimple40, 320000, 4);
+	runDFE(ParamOrderBook, 20*1E6, 84);
 
 	printf("[INFO] Job Finished.\n");
 

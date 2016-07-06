@@ -17,10 +17,10 @@ import com.maxeler.maxcompiler.v2.utils.MathUtils;
  * @author Patrick Shao
  *
  * @param <numBlocks> number of blocks
- * @param <blockDim> 1D Dimension of the block
+ * @param <RBlockDim> 1D Dimension of the block
  * @param <dataIn> Incoming data , i.e. a row of Q
  * @param <beginFetch> Trigger for Q Fetching - resets Write Base Address Generator
- * @param <WriteOffsetAddr> Offset Address of Buffer Write: 1, 2, ... , blockDim-1, 0, 1, 2, ... , blockDim-1, 0, 1, ... 
+ * @param <WriteOffsetAddr> Offset Address of Buffer Write: 1, 2, ... , RBlockDim-1, 0, 1, 2, ... , RBlockDim-1, 0, 1, ... 
  * @param <EnWrite> Control Variable for Buffer Write - true during Fetching
  * @param <beginRead> Trigger for Q Buffer Read - resets Read Address Generator
  */
@@ -31,16 +31,16 @@ class QBuffer extends KernelLib{
 		
 	public DFEVector<DFEVar> getData() 	{return dataOUT;}
 	
-	QBuffer (KernelLib owner, int numBlocks, int blockDim, DFEVar SSize, DFEVar dataIn, DFEVar BeginFetch, DFEVar WriteOffsetAddr, DFEVar EnWrite, DFEVar beginRead) {
+	QBuffer (KernelLib owner, int numBlocks, int RBlockDim, DFEVar SSize, DFEVar dataIn, DFEVar BeginFetch, DFEVar WriteOffsetAddr, DFEVar EnWrite, DFEVar beginRead) {
 		
 		super(owner);
 		
 		/////////////////////// Address for Data Read ///////////////////////
 
-		Count.Params ReadAddrParam = control.count.makeParams(MathUtils.bitsToAddress(blockDim))
+		Count.Params ReadAddrParam = control.count.makeParams(MathUtils.bitsToAddress(RBlockDim))
                 							.withInitValue(0)
                 							.withReset(beginRead)
-                							.withMax(blockDim)
+                							.withMax(RBlockDim)
                 							.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP);
 		Counter ReadAddrCounter = control.count.makeCounter(ReadAddrParam);
                 DFEVar AddrRead = ReadAddrCounter.getCount();
@@ -48,7 +48,7 @@ class QBuffer extends KernelLib{
                 
 		/////////////////////// Address for Data Write ///////////////////////                
                 
-                // OffsetAddr - [0, blockDim-1]
+                // OffsetAddr - [0, RBlockDim-1]
                 DFEVar OffsetAddr = WriteOffsetAddr;
 
 		// BaseAddr - [0, numBlocks-1]
@@ -56,7 +56,7 @@ class QBuffer extends KernelLib{
                 							.withInitValue(0)
                 							.withReset(BeginFetch)
                 							.withMax(numBlocks)
-                							.withEnable(OffsetAddr === (blockDim-1))
+                							.withEnable(OffsetAddr === (RBlockDim-1))
                 							.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP);
                 Counter BaseAddrCounter = control.count.makeCounter(BaseAddrParam);
                 DFEVar BaseAddr = BaseAddrCounter.getCount();
@@ -66,11 +66,11 @@ class QBuffer extends KernelLib{
  		
 		dataOUT = new DFEVectorType<DFEVar>(Def.betaType, numBlocks).newInstance(this);
 		for(int i=0; i<numBlocks; ++i) {
-			DFEVar isPadZero = (i*blockDim+OffsetAddr.cast(dfeUInt(16))) > SSize.cast(dfeUInt(16));
+			DFEVar isPadZero = (i*RBlockDim+OffsetAddr.cast(dfeUInt(16))) > SSize.cast(dfeUInt(16));
 			DFEVar PortWrData = isPadZero ? 0 : dataIn;
 			DFEVar PortWrEn = EnWrite & (BaseAddr === i);
 			DFEVar PortAddr = PortWrEn ? OffsetAddr : AddrRead;
-			Memory<DFEVar> block = mem.alloc(Def.QType, blockDim);
+			Memory<DFEVar> block = mem.alloc(Def.QType, RBlockDim);
 			DFEVar portData = block.port(PortAddr, PortWrData, PortWrEn, RamWriteMode.WRITE_FIRST).cast(Def.betaType);
 			// Special first block: beta[0]=1
 			if (i==0) dataOUT[i] <== (PortAddr === 0) ? 1 : portData;

@@ -47,7 +47,7 @@ public class SVMManager extends CustomManager{
 		///////////////////////// Kernel Configuration /////////////////////////
 		
 		getCurrentKernelConfig().simulation.setRAMAddressCollisionBehaviour(KernelConfiguration.SimulationOptions.SimulationBehaviour.IGNORE);
-		KernelBlock k = addKernel(new SVMKernel(makeKernelParameters(Name), Def.numBlocks, Def.blockDim, Def.DataDim));
+		KernelBlock k = addKernel(new SVMKernel(makeKernelParameters(Name), Def.numBlocks, Def.blockDim, Def.RBlockDim, Def.DataDim));
 		k.getInput("Xc") <== addStreamFromCPU("Xc");
 		k.getInput("Yc") <== addStreamFromCPU("Yc");
 		addStreamToCPU("output") <== k.getOutput("output");

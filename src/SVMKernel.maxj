@@ -23,10 +23,11 @@ class SVMKernel extends Kernel {
 	// Parameters
 	private final int numBlocks;
 	private final int blockDim;
+	private final int RBlockDim;
 	private final int WinSize;
 	private final int dataDim;
 
-	SVMKernel(KernelParameters parameters, int numBlocks_IN, int blockDim_IN, int dataDim_IN) {
+	SVMKernel(KernelParameters parameters, int numBlocks_IN, int blockDim_IN, int RBlockDim_IN, int dataDim_IN) {
 	
 		////////////////////////// Parameters /////////////////////////
 		
@@ -35,6 +36,7 @@ class SVMKernel extends Kernel {
 		// Parameters
 		numBlocks 	= numBlocks_IN;
 		blockDim 	= blockDim_IN;
+		RBlockDim 	= RBlockDim_IN;
 		WinSize 		= numBlocks_IN * blockDim_IN;
 		dataDim 	= dataDim_IN;
 		
@@ -50,7 +52,7 @@ class SVMKernel extends Kernel {
 		
 		////////////////////////// From State Machine /////////////////////////
 		
-		SMIO SM = addStateMachine("SVMControl", new SVMStateMachine(this, numBlocks, blockDim, WinSize));
+		SMIO SM = addStateMachine("SVMControl", new SVMStateMachine(this, numBlocks, blockDim, RBlockDim, WinSize));
 		
 		// Control Signal for Input Stream Xc
 		DFEVar EnInput 				= SM.getOutput("EnInput");
@@ -250,7 +252,7 @@ class SVMKernel extends Kernel {
 		DFEVar beginQBufRead 	= beginBetaCalc;
 		DFEVar QBufBeginFetch 	= (beginFetchQ | beginMoveFetchQ);
 		DFEVar QBufEnWrite 		= (isFetchingQ | isMoveFetchingQ);
-		QBuffer QBuf = new QBuffer (this, numBlocks, blockDim, SSize, QVal, QBufBeginFetch, QBufWriteOffsetAddr, QBufEnWrite, beginQBufRead);
+		QBuffer QBuf = new QBuffer (this, numBlocks, RBlockDim, SSize, QVal, QBufBeginFetch, QBufWriteOffsetAddr, QBufEnWrite, beginQBufRead);
 		DFEVector<DFEVar> QBufVec = QBuf.getData();
 
 		// beta Vector
@@ -262,7 +264,7 @@ class SVMKernel extends Kernel {
 		DFEVar gammaInv 		= Def.RType.newInstance(this);
 		DFEVar beginREnlarge 		= BoolType.newInstance(this);
 		DFEVar bgRShrink 		= beginRShrink | beginRShrinkForXcRemove;
-		RMem MatrixR = new RMem (this, numBlocks, blockDim, SSize, SMaskIDToRemove, betaX, betaY, gammaInv, beginRInit, beginBetaCalc, beginREnlarge, bgRShrink); 			DFEVector<DFEVector<DFEVar>> betaCalcVec = MatrixR.getBetaCalcVec();
+		RMem MatrixR = new RMem (this, numBlocks, RBlockDim, SSize, SMaskIDToRemove, betaX, betaY, gammaInv, beginRInit, beginBetaCalc, beginREnlarge, bgRShrink); 		DFEVector<DFEVector<DFEVar>> betaCalcVec = MatrixR.getBetaCalcVec();
 		DFEVar XAddr = MatrixR.getXAddr();
 		DFEVar YAddr = MatrixR.getYAddr();
 
@@ -270,7 +272,7 @@ class SVMKernel extends Kernel {
 		DFEVar betaReadAddr = XAddr;
 		DFEVar betaPortAddr = YAddr;
 		DFEVar beginBetaSeqRead = beginGammaCCalc | beginGammaVCalc | beginGammaKCalc | stream.offset(beginBookKeeping_S, 1) | beginUpdate;
-		betaCalc betaCalcModule = new betaCalc (this, numBlocks, blockDim, SSize, QBufVec, betaCalcVec, beginBetaCalc, betaReadAddr, betaPortAddr, beginBetaSeqRead); 
+		betaCalc betaCalcModule = new betaCalc (this, numBlocks, RBlockDim, SSize, QBufVec, betaCalcVec, beginBetaCalc, betaReadAddr, betaPortAddr, beginBetaSeqRead); 
 		betaX <== betaCalcModule.getReadVec();
 		betaY <== betaCalcModule.getPortVec();
 		DFEVar betaSeq = betaCalcModule.getSeqReadData();

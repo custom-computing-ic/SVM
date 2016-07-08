@@ -2,9 +2,13 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
 import com.maxeler.maxcompiler.v2.utils.MathUtils;
 
 
@@ -12,7 +16,7 @@ import maxpower.FanoutLimiter;
 
 /**
  * This class maintains Matrix Q 
- *	- Store Q in small blockDim-by-blockDim blocks for parallelised access
+ *	- Store Q in small blockDim-by-blockDim blocks for parallel access
  *	- Provide an interface for traversing through a certain row: Q[Row][Col]
  * 		- Row = BaseAddrRow*blockDim+OffsetAddrRow
  * 		During a traverse, BaseAddrRow and OffsetAddrRow should be fixed
@@ -20,7 +24,7 @@ import maxpower.FanoutLimiter;
  * 		- QValVec is the vector read interface using built-in counter as Col address
  * 		- QVal is the individual read interface using external input as Col address
  *	- EnWrite should be true only when updating Q
- * 	- When updating, output are new values
+ * 	- When updating, output are new values (write before read)
  *
  *
  * @author Patrick Shao
@@ -41,10 +45,12 @@ import maxpower.FanoutLimiter;
 class QMem extends KernelLib{
 
 	private DFEVector<DFEVar> QValVec;
+	private DFEVector<DFEVar> QVecForGammaVCalc;
 	private DFEVar QVal;
 	private DFEVar hasQUpdateFinished;
 	
 	public DFEVector<DFEVar> getQValVec() 	{return QValVec;}
+	public DFEVector<DFEVar> getQVecForGammaVCalc() 	{return QVecForGammaVCalc;}
 	public DFEVar getQVal() 	{return QVal;}
 	public DFEVar hasFinished()		{return hasQUpdateFinished;}
 
@@ -52,13 +58,16 @@ class QMem extends KernelLib{
 	QMem ( 	KernelLib owner,
 			int numBlocks,
 			int blockDim,
-			DFEVector<DFEVar> Q_IN,	// Kernel Vector of Xc and dataX
-			DFEVar BaseAddrRow_IN,	// BaseAddr of Row
-			DFEVar OffsetAddrRow_IN,	// OffsetAddr of Row
-			DFEVar EnWrite_IN,		// Write Enable - true during Q update
-			DFEVar EnIterate,			// Start Iteration (reset built-in counter) - true on the starting cycle of Q update and hCalc
-			DFEVar BaseAddrCol, 		// BaseAddr of Col
-			DFEVar OffsetAddrCol) 		// OffsetAddr of Col
+			DFEVar SSize,
+			DFEVector<DFEVar> Q_IN,		// Kernel Vector of Xc and dataX
+			DFEVar BaseAddrRow_IN,		// BaseAddr of Row
+			DFEVar OffsetAddrRow_IN,		// OffsetAddr of Row
+			DFEVar EnWrite_IN,			// Write Enable - true during Q update
+			DFEVar EnIterate,				// Start Iteration (reset built-in counter) - true on the starting cycle of Q update and hCalc
+			DFEVar BaseAddrCol, 			// BaseAddr of Col
+			DFEVar OffsetAddrCol, 			// OffsetAddr of Col
+			DFEVar beginGammaVCalc,		// begin Gamma V Calculating
+			DFEVar isGammaVCalculating)	// is Gamma V Calculating
 	{
 
 		super(owner);
@@ -72,9 +81,11 @@ class QMem extends KernelLib{
 		FanoutLimiter<DFEVar> BaseAddrRow = new FanoutLimiter<DFEVar>(BaseAddrRow_IN, Def.MaxFanout);
 		FanoutLimiter<DFEVar> OffsetAddrRow = new FanoutLimiter<DFEVar>(OffsetAddrRow_IN, Def.MaxFanout);
 		FanoutLimiter<DFEVar> EnWrite = new FanoutLimiter<DFEVar>(EnWrite_IN, Def.MaxFanout);
+		FanoutLimiter<DFEVar> isGammaVCalculatingFanout = new FanoutLimiter<DFEVar>(isGammaVCalculating, Def.MaxFanout);
 		
 		
-		/////////////////////// Address Generator for Xc Update and hCalc ///////////////////////
+		
+		/////////////////////// Address Generator for Xc Update ///////////////////////
 		
 		// Type Cast
 		DFEVar OffsetAddrRow_CAST = OffsetAddrRow.get().cast(dfeUInt(MathUtils.bitsToAddress(blockDim*blockDim)));
@@ -92,6 +103,35 @@ class QMem extends KernelLib{
 
                 // hasQUpdateFinished - true on the last cycle of Q Update
                 hasQUpdateFinished = (HAddrGen.getAddr() === blockDim-1) & EnWrite.get();
+                
+                
+		/////////////////////// Address Generator for Gamma V Calculation ///////////////////////
+		
+                // Inner Loop
+		DFEVar SSizeForGammaCalc = Reductions.streamHold(SSize, beginGammaVCalc).cast(dfeUInt(16));
+		DFEVar Max = SSizeForGammaCalc + 1;
+                Count.Params GammaInnerCounterParam = control.count.makeParams(16)
+                							.withInitValue(0)
+                							.withMax(Max)
+                							.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP)
+                							.withReset(beginGammaVCalc);
+                Counter GammaInnerCounter = control.count.makeCounter(GammaInnerCounterParam);
+
+		// Outer Loop
+                Count.Params GammaOuterCounterParam = control.count.makeParams(MathUtils.bitsToAddress(blockDim*blockDim))
+                							.withInitValue(0)
+                							.withMax(blockDim)
+                							.withEnable(GammaInnerCounter.getWrap())
+                							.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP)
+                							.withReset(beginGammaVCalc);
+		Counter GammaOuterCounter = control.count.makeCounter(GammaOuterCounterParam);
+		DFEVar OffsetAddrRowGammaVCalc = GammaOuterCounter.getCount();
+		
+		// Block Address for Gamma V Calculation
+		DFEVar VAddrGammaV = OffsetAddrCol_CAST * blockDim + OffsetAddrRowGammaVCalc;
+		DFEVar HAddrGammaV = OffsetAddrRowGammaVCalc * blockDim + OffsetAddrCol_CAST;
+		FanoutLimiter<DFEVar> VAddrGammaVFanout = new FanoutLimiter<DFEVar>(VAddrGammaV, Def.MaxFanout);
+		FanoutLimiter<DFEVar> HAddrGammaVFanout = new FanoutLimiter<DFEVar>(HAddrGammaV, Def.MaxFanout);
 
 
     		/////////////////////// External Column Address ///////////////////////
@@ -109,7 +149,7 @@ class QMem extends KernelLib{
                 DFEVar [][] QElemFromBlock = new DFEVar[numBlocks][numBlocks];
                 for (int X=0; X<numBlocks; ++X) {
                 	for (int Y=0; Y<=X; ++Y) {
-                		QBlock block = new QBlock (owner, X, Y, blockDim, Q_IN[X], Q_IN[Y], BaseAddrRow.get(), OffsetAddrRow.get(), VAddrFanout.get(), HAddrFanout.get(), VAddrExtFanout.get(), HAddrExtFanout.get(), EnWrite.get());
+                		QBlock block = new QBlock (owner, X, Y, blockDim, Q_IN[X], Q_IN[Y], BaseAddrRow.get(), OffsetAddrRow.get(), VAddrFanout.get(), HAddrFanout.get(), VAddrExtFanout.get(), HAddrExtFanout.get(), EnWrite.get(), VAddrGammaVFanout.get(), HAddrGammaVFanout.get(), isGammaVCalculatingFanout.get());
                 		QVecElemFromBlock[X][Y] = block.getQVecElem();
                 		QElemFromBlock[X][Y] = block.getQElem();
                 	}
@@ -147,7 +187,24 @@ class QMem extends KernelLib{
                 	QValTemp[pos] <== control.mux(BaseAddrCol, toMux.getElementsAsList());
                 }
                 QVal = control.mux(BaseAddrRow.get(), QValTemp.getElementsAsList());
-	
+
+		// Wiring Outputs for QVecForGammaVCalc
+		QVecForGammaVCalc = VecType.newInstance(this);
+                for (int pos=0; pos<numBlocks; ++pos) {
+                	DFEVector<DFEVar> toMux = VecType.newInstance(this);
+                	// X=pos, Y=0:pos-1 - Vertical Blocks
+                	for (int Y=0; Y<pos;++Y) {
+                		toMux[Y] <== QVecElemFromBlock[pos][Y];
+                	}
+                	// Y=pos, X=pos:numBlocks-1 - DBlock and Horizontal Blocks
+                	for (int X=pos; X<numBlocks; ++X) {
+                		toMux[X] <== QElemFromBlock[X][pos];
+                	}
+                	// Multiplexer
+                	QVecForGammaVCalc[pos] <== control.mux(BaseAddrCol, toMux.getElementsAsList());
+                }		
+
+
 	}
 
 	private class QBlock extends KernelLib {
@@ -170,7 +227,10 @@ class QMem extends KernelLib{
 					DFEVar HAddr, 
 					DFEVar VAddrExt, 
 					DFEVar HAddrExt,
-					DFEVar EnWrite) 
+					DFEVar EnWrite,
+					DFEVar VAddrGammaV,
+					DFEVar HAddrGammaV,
+					DFEVar isGammaVCalculating) 
 		{
 			
 			super(owner);
@@ -190,9 +250,11 @@ class QMem extends KernelLib{
 				DFEVar AddrExt = isVBlock ? VAddrExt : HAddrExt;
 			
 				// Memory
+				DFEVar PortAddr = isGammaVCalculating ? VAddrGammaV : Addr;
+				DFEVar ReadAddr = isGammaVCalculating ? HAddrGammaV : AddrExt;
 				Memory<DFEVar> Q = mem.alloc(Def.QType, blockDim*blockDim);
-				QVecElem = Q.port(Addr, Q_IN, En, RamWriteMode.WRITE_FIRST);
-				QElem = Q.read(AddrExt);
+				QVecElem = Q.port(PortAddr, Q_IN, En, RamWriteMode.WRITE_FIRST);
+				QElem = Q.read(ReadAddr);
 			}
 			else if (X==Y){ 
 				// DBlock or unrelated		
@@ -207,11 +269,12 @@ class QMem extends KernelLib{
 				// Column Address from external input
 				DFEVar AddrExt = KernelMath.min(VAddrExt, HAddrExt);
 
-				// Memory			
+				// Memory
+				DFEVar ReadAddr = isGammaVCalculating ? KernelMath.min(VAddrGammaV, HAddrGammaV) : AddrExt;
 				Memory<DFEVar> Q = mem.alloc(Def.QType, blockDim*blockDim);
 				if ((X==0)&&(Y==0))Q.mapToCPU("QBlockX"+X+"Y"+Y);
 				QVecElem = Q.port(Addr, Q_IN, En, RamWriteMode.WRITE_FIRST);
-				QElem = Q.read(AddrExt);
+				QElem = Q.read(ReadAddr);
 			}
 			else {
 				throw new IllegalArgumentException("[ERROR] There must be X>=Y, as we store only upper triangle matrix.");

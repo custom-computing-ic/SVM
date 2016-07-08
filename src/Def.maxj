@@ -54,7 +54,7 @@ class Def {
 	
 	// Latency
 	public static final int QUpdateLatency 	= 130; 	// hXcOffset + fromhXcValidtoXcJoinR
-	public static final int BookKeepingLatency	= 220; 	// BookKeepingOffset
+	public static final int BookKeepingLatency	= 230; 	// BookKeepingOffset
 	public static final int REnlargeLatency 	= 240; 	// REnlargeLatency
 	public static final int FetchLatency 		= 80; 	// KElemInvLatency
 	public static final int RShrinkLatency 		= 240; 	// RShrinkLatency
@@ -65,7 +65,7 @@ class Def {
 	public static final int hXiInitCycles 		= 200; 	// (hXiOffset, hXiOffset+QUpdateLatency+blockDim)
 	public static final int thetaInitCycles 		= 200; 	// (thetaOffset, thetaOffset+QUpdateLatency+blockDim)
 	public static final int REnlargeInitCycles 	= 200; 	// >=QUpdateLatency
-	public static final int hXcInitCycles 		= 88; 	// ~(hXcOffset+blockDim)
+	public static final int hXcInitCycles 		= 120; 	// ~(hXcOffset+blockDim)
 	public static final int RInternalCycles 		= 300; 	// (ROffset, QUpdateLatency+BookKeepingLatency)
 
 

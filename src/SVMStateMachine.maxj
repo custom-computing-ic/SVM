@@ -23,7 +23,6 @@ class SVMStateMachine extends KernelStateMachine {
                 BETACALC,			// Calculating Beta
                 GAMMACCALC, 		// Calculating Gamma_c
                 GAMMAVCALC, 		// Calculating Gamma Vector
-                GAMMAVCALCWAIT, 	// Waiting for Gamma Vector calculation to finish
                 BOOKKEEPING_PRE, 	// Starting Point of BookKeeping 
                 BOOKKEEPING_C,		// BookKeeping - C
                 BOOKKEEPING_S,		// BookKeeping - S
@@ -78,7 +77,6 @@ class SVMStateMachine extends KernelStateMachine {
 
 	// Size
 	private final DFEsmOutput SSize;
-	private final DFEsmOutput NSize;
 	
 	// For Q Fetch
 	private final DFEsmOutput beginFetchQ;
@@ -111,7 +109,6 @@ class SVMStateMachine extends KernelStateMachine {
 	// GammaCalc
 	private final DFEsmOutput beginGammaCCalc;
 	private final DFEsmOutput isGammaCCalculating;
-	private final DFEsmOutput beginGammaVCalc;
 	private final DFEsmOutput isGammaVCalculating;
 
 	// Updating	
@@ -268,7 +265,6 @@ class SVMStateMachine extends KernelStateMachine {
                 
 		// Size
                 SSize 					= io.output("SSize", CurSizeType);
-                NSize 					= io.output("NSize", CurSizeType);
                 
 		// Control for Q fetch
 		beginFetchQ 				= io.output("beginFetchQ", BoolType);
@@ -301,7 +297,6 @@ class SVMStateMachine extends KernelStateMachine {
 		// GammaCalc
 		beginGammaCCalc 		= io.output("beginGammaCCalc", BoolType);
 		isGammaCCalculating 		= io.output("isGammaCCalculating", BoolType);
-		beginGammaVCalc 		= io.output("beginGammaVCalc", BoolType);
 		isGammaVCalculating 		= io.output("isGammaVCalculating", BoolType);
 		
 		// Updating
@@ -569,15 +564,8 @@ class SVMStateMachine extends KernelStateMachine {
 			CASE(Modes.GAMMAVCALC) {
 				IF (subTick === 0) {SMaskMode.next <== maskModes.ITERATE; SMaskPos.next <== 0;}
 				IF (subTick === SMaskBase.size().cast(dfeUInt(20))) {
-					IF ((NMaskPos.cast(dfeUInt(MathUtils.bitsToRepresent(WinSize))) === NMaskBase.size()-1)) {
-						Mode.next <== Modes.GAMMAVCALCWAIT;
-					}
-					ELSE {NMaskPos.next <== NMaskPos+1;}
 					subTick.next <== 0; 
 				}
-			}
-			// Waiting for gamma vector calculation to finish
-			CASE(Modes.GAMMAVCALCWAIT) {
 				IF (hasGammaVCalcFinished === true) gotoBookKeeping_C();
 			}
 			// Bookkeeping: Xc - only last for one cycle
@@ -635,17 +623,6 @@ class SVMStateMachine extends KernelStateMachine {
 						// N[index] moves from N to S
 						// beginRInit and return to BOOKKEEPING after Finish
 						IF (subTick === RBlockDim*RBlockDim) {Mode.next <== Modes.MOVEN2S;}
-/*						
-						// S must be empty as we are not handling ties
-						IF (SMaskBase.isEmpty()) {
-							// beginRInit and return to BOOKKEEPING after Finish
-							IF (subTick === blockDim*2) {Mode.next <== Modes.MOVEN2S;}
-						}
-						ELSE {
-							NMaskPos.next <== BookKeepingIndex;  // should keep that value through moving process
-							gotoMoveFetchQ();
-						}
-*/
 					}
 					CASE(2) {
 						// Xc joins S and terminate - INC only
@@ -863,7 +840,6 @@ class SVMStateMachine extends KernelStateMachine {
         	
         	// Size
         	SSize <== SMaskBase.size();
-        	NSize <== NMaskBase.size();
         	
   		// FetchQ
 		beginFetchQ 			<== (Mode === Modes.FETCHQ) & (subTick === 0);
@@ -938,7 +914,6 @@ class SVMStateMachine extends KernelStateMachine {
 		// GammaCalc
 		beginGammaCCalc 		<== (Mode === Modes.GAMMACCALC) & (subTick === 0);
 		isGammaCCalculating 		<== (Mode === Modes.GAMMACCALC);
-		beginGammaVCalc 		<== (Mode === Modes.GAMMAVCALC) & (subTick === 0);
 		isGammaVCalculating 		<== (Mode === Modes.GAMMAVCALC);
 		
 		// Updating

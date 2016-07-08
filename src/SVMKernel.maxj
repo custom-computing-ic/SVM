@@ -62,7 +62,6 @@ class SVMKernel extends Kernel {
 		
 		// Size
 		DFEVar SSize 				= SM.getOutput("SSize");
-		DFEVar NSize 				= SM.getOutput("NSize");
 		DFEVar isEmptyS 				= (SSize === 0);
 
 		// QFetch: Trigger, Status and Write Address
@@ -96,8 +95,8 @@ class SVMKernel extends Kernel {
 		// GammaCalc
 		DFEVar beginGammaCCalc 		= SM.getOutput("beginGammaCCalc");
 		DFEVar isGammaCCalculating 	= SM.getOutput("isGammaCCalculating");
-		DFEVar beginGammaVCalc 		= SM.getOutput("beginGammaVCalc");
 		DFEVar isGammaVCalculating 	= SM.getOutput("isGammaVCalculating");
+		DFEVar beginGammaVCalc 		= isGammaVCalculating & (stream.offset(isGammaVCalculating, -1)===0);
 		
 		// Updating
 		DFEVar beginUpdate 			= SM.getOutput("beginUpdate");		
@@ -191,16 +190,18 @@ class SVMKernel extends Kernel {
 		}
 		
 		// Matrix Q
-		DFEVar BaseAddrColG 		= beginGammaKCalc ? BaseAddrNMask : ((beginGammaVCalc | beginGammaCCalc) ? BaseAddrXc : BaseAddrSMask);
-		DFEVar OffsetAddrColG 	= beginGammaKCalc ? OffsetAddrNMask : ((beginGammaVCalc | beginGammaCCalc) ? OffsetAddrXc : OffsetAddrSMask);
+		DFEVar beginGammaVInnerLoop = dfeBool().newInstance(this);
+		DFEVar BaseAddrColG 		= beginGammaKCalc ? BaseAddrNMask : ((beginGammaVInnerLoop | beginGammaCCalc) ? BaseAddrXc : BaseAddrSMask);
+		DFEVar OffsetAddrColG 	= beginGammaKCalc ? OffsetAddrNMask : ((beginGammaVInnerLoop | beginGammaCCalc) ? OffsetAddrXc : OffsetAddrSMask);
 		DFEVar BaseAddrCol 		= (isFetchingQ | isMoveFetchingQ) ? BaseAddrSMask 	: BaseAddrColG;
 		DFEVar OffsetAddrCol 		= (isFetchingQ | isMoveFetchingQ) ? OffsetAddrSMask 	: OffsetAddrColG;
 		DFEVar BaseAddrRow 		= (isGammaVCalculating | isGammaKCalculating | isMoveFetchingQ) ? BaseAddrNMask : BaseAddrXc;
 		DFEVar OffsetAddrRow 		= (isGammaVCalculating | isGammaKCalculating | isMoveFetchingQ) ? OffsetAddrNMask : OffsetAddrXc;
 		DFEVar MatQEnWrite 		= isProcessingNewXc;
 		DFEVar MatQEnIterate 		= EnInput;
-		QMem MatrixQ = new QMem(this, numBlocks, blockDim, KernelVec, BaseAddrRow, OffsetAddrRow, MatQEnWrite, MatQEnIterate, BaseAddrCol, OffsetAddrCol);
+		QMem MatrixQ = new QMem(this, numBlocks, blockDim, SSize, KernelVec, BaseAddrRow, OffsetAddrRow, MatQEnWrite, MatQEnIterate, BaseAddrCol, OffsetAddrCol, beginGammaVCalc, isGammaVCalculating);
 		DFEVector<DFEVar> QVector = MatrixQ.getQValVec();
+		DFEVector<DFEVar> QVecForGammaVCalc = MatrixQ.getQVecForGammaVCalc();
 		DFEVar QVal = MatrixQ.getQVal();
 		
 		
@@ -271,7 +272,7 @@ class SVMKernel extends Kernel {
 		// beta Calculation
 		DFEVar betaReadAddr = XAddr;
 		DFEVar betaPortAddr = YAddr;
-		DFEVar beginBetaSeqRead = beginGammaCCalc | beginGammaVCalc | beginGammaKCalc | stream.offset(beginBookKeeping_S, 1) | beginUpdate;
+		DFEVar beginBetaSeqRead = beginGammaCCalc | beginGammaVInnerLoop | beginGammaKCalc | stream.offset(beginBookKeeping_S, 1) | beginUpdate;
 		betaCalc betaCalcModule = new betaCalc (this, numBlocks, RBlockDim, SSize, QBufVec, betaCalcVec, beginBetaCalc, betaReadAddr, betaPortAddr, beginBetaSeqRead); 
 		betaX <== betaCalcModule.getReadVec();
 		betaY <== betaCalcModule.getPortVec();
@@ -279,18 +280,18 @@ class SVMKernel extends Kernel {
 		DFEVar hasBetaCalcFinishedFromBetaCalc = betaCalcModule.hasBetaCalcFinished();
 
 		// gamma Calculation
-		DFEVar GReadAddr 	= IndexNMask;
-		DFEVar GWriteAddr 	= IndexNMask;
-		DFEVar GWriteEn 		= isGammaVCalculating;
-		DFEVar GBeginCalc 	= (beginGammaVCalc | beginGammaCCalc | beginGammaKCalc);
-		DFEVar GCalculating 	= isGammaCCalculating | isGammaVCalculating | isGammaKCalculating;
-		gammaCalc gammaCalcModule = new gammaCalc (this, WinSize, SSize, QVal, betaSeq, GReadAddr, GWriteAddr, GWriteEn, GBeginCalc, GCalculating);
+		DFEVar GReadBaseAddr 	= BaseAddrNMask;
+		DFEVar GReadOffsetAddr 	= OffsetAddrNMask;
+		DFEVar GBeginCKCalc 		= beginGammaCCalc | beginGammaKCalc;
+		DFEVar GCalculating 		= isGammaCCalculating | isGammaKCalculating;
+		gammaCalc gammaCalcModule = new gammaCalc (this, numBlocks, blockDim, SSize, QVal, QVecForGammaVCalc, betaSeq, GReadBaseAddr, GReadOffsetAddr, GBeginCKCalc, GCalculating, beginGammaVCalc);
 		DFEVar GammaResult 		= gammaCalcModule.getCalcResult();
 		DFEVar GammaResultValid 	= gammaCalcModule.hasFinished();
 		DFEVar gamma_c 			= Reductions.streamHold(GammaResult, isGammaCCalculating & GammaResultValid);
 		DFEVar gamma_k 			= Reductions.streamHold(GammaResult, isGammaKCalculating & GammaResultValid);
 		DFEVar gammaSeq 		= gammaCalcModule.getData();
-		DFEVar hasGammaVCalcFinishedFromGammaCalc = (IndexNMask.cast(NSize.getType()) === (NSize-1)) & isGammaVCalculating & GammaResultValid;
+		beginGammaVInnerLoop 	<== gammaCalcModule.beginGammaVCalcInnerLoop();
+		DFEVar hasGammaVCalcFinishedFromGammaCalc = gammaCalcModule.hasGammaVCalcFinished();
 
 		
 		////////////////////////// Bookkeeping /////////////////////////

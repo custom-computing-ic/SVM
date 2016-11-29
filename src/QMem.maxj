@@ -253,6 +253,7 @@ class QMem extends KernelLib{
 				DFEVar PortAddr = isGammaVCalculating ? VAddrGammaV : Addr;
 				DFEVar ReadAddr = isGammaVCalculating ? HAddrGammaV : AddrExt;
 				Memory<DFEVar> Q = mem.alloc(Def.QType, blockDim*blockDim);
+				Q.mapToCPU("QBlockX"+X+"Y"+Y);
 				QVecElem = Q.port(PortAddr, Q_IN, En, RamWriteMode.WRITE_FIRST);
 				QElem = Q.read(ReadAddr);
 			}
@@ -272,7 +273,7 @@ class QMem extends KernelLib{
 				// Memory
 				DFEVar ReadAddr = isGammaVCalculating ? KernelMath.min(VAddrGammaV, HAddrGammaV) : AddrExt;
 				Memory<DFEVar> Q = mem.alloc(Def.QType, blockDim*blockDim);
-				if ((X==0)&&(Y==0))Q.mapToCPU("QBlockX"+X+"Y"+Y);
+				Q.mapToCPU("QBlockX"+X+"Y"+Y);
 				QVecElem = Q.port(Addr, Q_IN, En, RamWriteMode.WRITE_FIRST);
 				QElem = Q.read(ReadAddr);
 			}

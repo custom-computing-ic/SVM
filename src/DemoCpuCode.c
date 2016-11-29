@@ -1726,6 +1726,9 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 	CalcType *Y_IN = calloc(DataSize, sizeof(CalcType));
 	DataType *dataX = calloc(WinSize * DataDim, sizeof(DataType));
 	CalcType *dataY = calloc(WinSize, sizeof(CalcType));
+	double *Xc = malloc((DataSize-2)*DataDim*sizeof(double));
+	double *Yc = malloc((DataSize-2)*sizeof(double));
+	int32_t *outValue = malloc(Ticks*sizeof(int32_t));
 	char *Group = malloc(sizeof(char) * WinSize);
 	size_t *SMask = calloc(WinSize, sizeof(size_t));
 	size_t *NMask = calloc(WinSize, sizeof(size_t));
@@ -1765,6 +1768,14 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 #endif
 	fclose(infp);
 	fprintf(stderr, " Done. %zu samples read.\n", ActualDataSize);
+	
+	// Copy data to Xc and Yc
+	for (size_t i=0; i<DataSize-2; ++i) {
+		for (size_t j=0; j<DataDim; ++j) {
+			Xc[i*DataDim+j] = (double)X_IN[(i+2)*DataDim+j];
+		}
+		Yc[i] = (double)Y_IN[i+2];
+	}
 
 	// initialise SVM using 2 data points
 	fprintf(stderr, "[INFO] Calculating Initial SVM with first 2 Samples...");
@@ -1774,120 +1785,49 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 	
 	/////////////////////////// Initialise FPGA ///////////////////////////
 	
-	// lnit system
-	fprintf(stderr, "[INFO] Loading MaxFile and FPGA...");
+	// Load Maxfile, Engine, Action
+	fprintf(stderr, "[INFO] Initialising FPGA...");
 	max_file_t* maxfile = SVM_init();
 	max_engine_t* engine = max_load(maxfile, "*");
-	max_actions_t* init_action = max_actions_init(maxfile, NULL);
-	max_enable_partial_memory(init_action);
-	fprintf(stderr, " Done.\n");
+	SVM_InitSVM_actions_t init_action;
 	
-	// Set Number of Samples
-	max_set_uint64t (init_action, "SVMKernel", "numSamples", DataSize);
-	max_set_double (init_action, "SVMKernel", "Eps", param.eps);
-	max_set_uint64t (init_action, "SVMKernel", "Xc_ZLI_inputLength", DataSize-2);
-	max_set_uint64t (init_action, "SVMKernel", "Yc_ZLI_inputLength", DataSize-2);
+	// TODO [Optional] - initialise SMask and NMask here
+	// Currently they are initialised in the Statemachine, assuming X0, X1 belong to N (true in most cases)
+	
 	// Set dataX
-	// NOTE: currently we set dataXBlock0 only, but this should be enough
-	for (size_t id=0; id<1; ++id) {
-		int idWidth = (id<2) ? 2 : (int)((ceil(log10((float)id))+1));
-		char *name0 = malloc(sizeof(char) * (idWidth+strlen("dataXBlock")));
-		char *name1 = malloc(sizeof(char) * (idWidth+strlen("dataXBlock")+strlen("Dim")));
-		char *buffer1 = malloc(sizeof(char) * idWidth);
-		strcpy(name0, "dataXBlock");
-		sprintf(buffer1, "%d", (int)id);
-		strcat(name0, buffer1);
-		strcpy(name1, name0);
-		strcat(name1, "Dim");
-		for (size_t i=0; i<DataDim; ++i) {
-			int numWidth = (i<2) ? 2 : (int)((ceil(log10((float)i))+1));
-			char *name2 = malloc(sizeof(char) * (numWidth+strlen(name1)));
-			char *buffer2 = malloc(sizeof(char) * numWidth);
-			strcpy(name2, name1);
-			sprintf(buffer2, "%d", (int)i);
-			strcat(name2, buffer2);
-			// Setting Data Items
-			max_set_mem_double(init_action, "SVMKernel", name2, 0, (double)dataX[0*DataDim+i]);
-			max_set_mem_double(init_action, "SVMKernel", name2, 1, (double)dataX[1*DataDim+i]);
-			for (size_t j=2; j<blockDim; ++j) {
-				max_set_mem_double(init_action, "SVMKernel", name2, j, 0.0);
-			}
-			free(name2);
-			free(buffer2);
-		}
-		free(name0);
-		free(name1);
-		free(buffer1);
+	double *X0 = calloc(DataDim, sizeof(double));
+	double *X1 = calloc(DataDim, sizeof(double));
+	for (size_t i=0; i<DataDim; ++i) {
+		X0[i] = (double)dataX[0*DataDim+i];
+		X1[i] = (double)dataX[1*DataDim+i];
 	}
+	init_action.param_X0 = X0;
+	init_action.param_X1 = X1;
+	
 	// Set dataY
-	max_set_mem_double(init_action, "SVMKernel", "dataY", 0, (double)dataY[0]);
-	max_set_mem_double(init_action, "SVMKernel", "dataY", 1, (double)dataY[1]);
-	for (size_t j=2; j<WinSize; ++j) {
-		max_set_mem_double(init_action, "SVMKernel", "dataY", j, 0.0);
-	}	
+	init_action.param_Y0 = (double)dataY[0];
+	init_action.param_Y1 = (double)dataY[1];	
+
 	// Set theta
-	for (size_t i=0; i<numBlocks; ++i) {
-		int numWidth = (i<2) ? 2 : (int)((ceil(log10((float)i))+1));
-		char *name = malloc(sizeof(char) * (numWidth+strlen("theta")));
-		char *buffer = malloc(sizeof(char) * numWidth);
-		strcpy(name, "theta");
-		sprintf(buffer, "%d", (int)i);
-		strcat(name, buffer);
-		for (size_t j=0; j<blockDim; ++j) {
-			if ((i==0)&&(j==0)) max_set_mem_double(init_action, "SVMKernel", name, 0, (double)theta[0]);
-			if ((i==0)&&(j==1)) max_set_mem_double(init_action, "SVMKernel", name, 1, (double)theta[1]);		
-		}
-		free(name);
-		free(buffer);
-	}
+	init_action.param_theta0 = (double)theta[0];
+	init_action.param_theta1 = (double)theta[1];
+
 	// Set b
-	max_set_mem_double(init_action, "SVMKernel", "b", 0, (double)b);
+	init_action.param_b = (double)b;
+
 	// Set Q
-	// NOTE: currently we set QBlockX0Y0 only, but this should be enough
-	for (size_t X=0; X<1; ++X) {
-		int idWidth = (X<2) ? 2 : (int)((ceil(log10((float)X))+1));
-		char *name0 = malloc(sizeof(char) * (idWidth+strlen("QBlockX")));
-		char *name1 = malloc(sizeof(char) * (idWidth+strlen("QBlockX")+strlen("Y")));
-		char *buffer1 = malloc(sizeof(char) * idWidth);
-		strcpy(name0, "QBlockX");
-		sprintf(buffer1, "%d", (int)X);
-		strcat(name0, buffer1);
-		strcpy(name1, name0);
-		strcat(name1, "Y");
-		for (size_t Y=0; Y<=X; ++Y) {
-			int numWidth = (Y<2) ? 2 : (int)((ceil(log10((float)Y))+1));
-			char *name2 = malloc(sizeof(char) * (numWidth+strlen(name1)));
-			char *buffer2 = malloc(sizeof(char) * numWidth);
-			strcpy(name2, name1);
-			sprintf(buffer2, "%d", (int)Y);
-			strcat(name2, buffer2);
-			// Setting Data Items
-			for (size_t j=0; j<blockDim*blockDim; ++j) {
-				if ((X==0)&&(Y==0)) {
-					if (j==(0*blockDim+0)) max_set_mem_double(init_action, "SVMKernel", name2, 0*blockDim+0, (double)Q[0*WinSize+0]);
-					else if (j==(0*blockDim+1)) max_set_mem_double(init_action, "SVMKernel", name2, 0*blockDim+1, (double)Q[0*WinSize+1]);
-					else if (j==(1*blockDim+0)) max_set_mem_double(init_action, "SVMKernel", name2, 1*blockDim+0, (double)Q[1*WinSize+0]);
-					else if (j==(1*blockDim+1)) max_set_mem_double(init_action, "SVMKernel", name2, 1*blockDim+1, (double)Q[1*WinSize+1]);
-					else max_set_mem_double(init_action, "SVMKernel", name2, j, 0.0);
-				}
-				else max_set_mem_double(init_action, "SVMKernel", name2, j, 0.0);
-			}
-			free(name2);
-			free(buffer2);
-		}
-		free(name0);
-		free(name1);
-		free(buffer1);
-	}
+	init_action.param_Q00 = (double)Q[0*WinSize+0];
+	init_action.param_Q01 = (double)Q[0*WinSize+1];
+	init_action.param_Q10 = (double)Q[1*WinSize+0];
+	init_action.param_Q11 = (double)Q[1*WinSize+1];
+
 	// Set hXi
-	max_set_mem_double(init_action, "SVMKernel", "hXi", 0, (double)hXi[0]);
-	max_set_mem_double(init_action, "SVMKernel", "hXi", 1, (double)hXi[1]);
-	for (size_t j=2; j<WinSize; ++j) {
-		max_set_mem_double(init_action, "SVMKernel", "hXi", j, 0.0);
-	}	
+	init_action.param_hX0 = (double)hXi[0];
+	init_action.param_hX1 = (double)hXi[1];
+
 	// Set Group
 	for (int i=0; i<2; ++i) {
-		uint64_t wrData;
+		int64_t wrData;
 		switch (Group[i]) {
 			case 'S': wrData = 1; break;
 			case 'E': wrData = 2; break;
@@ -1895,66 +1835,45 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 			case 'C': wrData = 4; break;
 			default: wrData = 0; break;
 		}
-		max_set_mem_uint64t(init_action, "SVMKernel", "SVMControl.Group", i, wrData);
+		if (i==0) init_action.param_Group0 = wrData;
+		if (i==1) init_action.param_Group1 = wrData;
 	}
-	for (size_t j=2; j<WinSize; ++j) {
-		max_set_mem_uint64t(init_action, "SVMKernel", "SVMControl.Group", j, 0);
-	}	
-	// TODO - initialise SMask and NMask in the StateMachine
-	// Currently it's hardwired - assuming first two samples belong to N (true in most cases)
 	
-	// Initialise FPGA
-	fprintf(stderr, "[INFO] Initialisating Mapped Memories...");
-	max_run(engine, init_action);
+	// Set Eps
+	init_action.param_Eps = (double) param.eps;
+	
+	// Init FPGA
+	SVM_InitSVM_run(engine, &init_action);
 	fprintf(stderr, " Done.\n");
-	
+
 	// Clean Up
-	max_actions_free(init_action);
-	free(dataX); free(dataY);
+	free(X_IN); free(Y_IN); free(dataX); free(dataY);
 	free(Q); free(R); free(theta); free(hXi);
 	free(Group); free(SMask); free(NMask);
 
+
 	/////////////////////////// Run FPGA ///////////////////////////
 	
-	// Prepare data
-	fprintf(stderr, "[INFO] Allocating Memory for FPGA...");
-	double *Xc = malloc((DataSize-2)*DataDim*sizeof(double));
-	double *Yc = malloc((DataSize-2)*sizeof(double));
-	int *outValue = malloc(Ticks*sizeof(int));
-	for (size_t i=0; i<DataSize-2; ++i) {
-		for (size_t j=0; j<DataDim; ++j) {
-			Xc[i*DataDim+j] = (double)X_IN[(i+2)*DataDim+j];
-		}
-		Yc[i] = (double)Y_IN[i+2];
-	}
-	fprintf(stderr, " Done.\n");
+	// Init Action
+	SVM_RunSVM_actions_t run_action;
 	
-	// Settings
-	max_actions_t* run_action = max_actions_init(maxfile, NULL);
-	max_enable_partial_memory(run_action);
-	max_set_ticks(run_action, "SVMKernel", Ticks);
-	max_queue_input(run_action, "Xc", Xc, (DataSize-2)*DataDim*sizeof(double));
-	max_queue_input(run_action, "Yc", Yc, (DataSize-2)*sizeof(double));
-	max_queue_output(run_action, "output", outValue, Ticks*sizeof(int));
+	// Set Parameters
+	run_action.param_numSamples = (uint32_t) DataSize;
+	run_action.param_numTicks = (uint32_t) Ticks;
+	run_action.instream_Xc = Xc;
+	run_action.instream_Yc = Yc;
+	run_action.outstream_output = outValue;
 	
 	// Run
 	fprintf(stderr, "[INFO] Running on FPGA...");
 	struct timeval tv1, tv2;
 	gettimeofday(&tv1, NULL);
-	
-//	max_set_debug(run_action, "SVM", MAX_DEBUG_ALWAYS);
-	max_run(engine, run_action);
-	
+	SVM_RunSVM_run(engine, &run_action);
 	gettimeofday(&tv2, NULL);
 	double runtimeS = ((tv2.tv_sec-tv1.tv_sec) * (double)1E6 + (tv2.tv_usec-tv1.tv_usec)) / (double)1E6;
 	fprintf(stderr, " Done.\n");
 	fprintf(stderr, "[INFO] Elasped Time (FPGA) is %f seconds.\n", runtimeS);
-	
-	// Clean Up
-	max_actions_free(run_action);
-	max_unload(engine);
-	SVM_free();
-	
+
 	// Find how many cycles to run
 	for (size_t i=0; i<Ticks; ++i) {
 		if (outValue[i]==-1) {
@@ -1968,13 +1887,13 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 	/////////////////////////// Clean up ///////////////////////////
 	
 	fprintf(stderr, "[INFO] Cleaning up...");
-	free(X_IN); free(Y_IN);
+	max_unload(engine);
+	SVM_free();
 	free(Xc); free(Yc); free(outValue);
 	fprintf(stderr, " Done.\n");
 	
 	return 0;
 }
-
 
 int main(){
 
@@ -2001,7 +1920,7 @@ int main(){
 	ParamOrderBook.InFile 	= "data9970.txt";
 	ParamOrderBook.OutFile  	= "data9970result.txt";
 	ParamOrderBook.LogFile	= "data9970log.txt";
-	ParamOrderBook.DataSize  	= 2002;
+	ParamOrderBook.DataSize  	= 1902;
 	ParamOrderBook.DataDim  	= 16;
 	ParamOrderBook.WinSize  	= 420;
 	ParamOrderBook.RSize 	= ParamOrderBook.WinSize;
@@ -2047,29 +1966,12 @@ int main(){
 
 //	LIBSVMData(ParamMG);
 
-	///////////// Stress Encoding DATASET /////////////
-
-	Param ParamStress;
-	ParamStress.InFile 	= "stress.txt";
-	ParamStress.OutFile = "stress_result.txt";
-	ParamStress.LogFile	= "stress_log.txt";
-	ParamStress.DataSize = 1187;
-	ParamStress.DataDim  = 2;
-	ParamStress.WinSize  = 480;
-	ParamStress.RSize 	= 480;
-	ParamStress.ep 		= 2;
-	ParamStress.C 		= 64;
-	ParamStress.sigma_sq = 0.025;
-	ParamStress.eps  	= 1e-10;
-
-//	LIBSVMData(ParamStress);
-
 	///////////// DFE /////////////
 	
 	// NOTE: The settings in Def.maxj should also be changed
 	// NOTE: Cycles must be a multiple of 40000
 //	runDFE(ParamSimple40, 320000, 4);
-	runDFE(ParamOrderBook, 20*1E6, 84);
+	runDFE(ParamOrderBook, 4880000, 70);
 
 	printf("[INFO] Job Finished.\n");
 

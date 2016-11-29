@@ -1,6 +1,8 @@
 import com.maxeler.maxcompiler.v2.managers.engine_interfaces.CPUTypes;
 import com.maxeler.maxcompiler.v2.managers.engine_interfaces.EngineInterface;
+import com.maxeler.maxcompiler.v2.managers.engine_interfaces.EngineInterface.Direction;
 import com.maxeler.maxcompiler.v2.managers.engine_interfaces.InterfaceParam;
+import com.maxeler.maxcompiler.v2.managers.engine_interfaces.InterfaceParamArray;
 import com.maxeler.maxcompiler.v2.managers.custom.CustomManager;
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelConfiguration;
 import com.maxeler.maxcompiler.v2.managers.BuildConfig;
@@ -54,39 +56,151 @@ public class SVMManager extends CustomManager{
 
 	}
 
-	private static EngineInterface runSVM() {
+	private static EngineInterface InitSVM () {
 	
-		EngineInterface engine_interface = new EngineInterface("runSVM");
+		EngineInterface ei = new EngineInterface("InitSVM");
+			
+		// dataXBlock: Init block0 with the first 2 samples X0 and X1
+		// Here we assume blockDim >=2
+		InterfaceParamArray X0 = ei.addParamArray("X0", CPUTypes.DOUBLE);
+		InterfaceParamArray X1 = ei.addParamArray("X1", CPUTypes.DOUBLE);
+		for (int dim=0; dim<Def.DataDim; ++dim) {
+			ei.setMem(Name, "dataXBlock0"+"Dim"+dim, 0, X0[dim]);
+			ei.setMem(Name, "dataXBlock0"+"Dim"+dim, 1, X1[dim]);
+			for (int addr=2; addr<Def.blockDim; ++addr) {
+				ei.setMem(Name, "dataXBlock0"+"Dim"+dim, addr, 0.0);
+			}
+		}
+		// dataXBlock: Init the rest of the blocks to 0
+		for (int block=1; block<Def.numBlocks; ++block) {
+			for (int dim=0; dim<Def.DataDim; ++dim) {
+				for (int addr=0; addr<Def.blockDim; ++addr) {
+					ei.setMem(Name, "dataXBlock"+block+"Dim"+dim, addr, 0.0);
+				}
+			}
+		}
+		
+		// dataY
+		InterfaceParam Y0 = ei.addParam("Y0", CPUTypes.DOUBLE);
+		InterfaceParam Y1 = ei.addParam("Y1", CPUTypes.DOUBLE);
+		ei.setMem(Name, "dataY", 0, Y0);
+		ei.setMem(Name, "dataY", 1, Y1);
+		for (int addr=2; addr<Def.WinSize; ++addr) {
+			ei.setMem(Name, "dataY", addr, 0.0);
+		}
+		
+		// theta
+		InterfaceParam theta0 = ei.addParam("theta0", CPUTypes.DOUBLE);
+		InterfaceParam theta1 = ei.addParam("theta1", CPUTypes.DOUBLE);
+		ei.setMem(Name, "theta0", 0, theta0);
+		ei.setMem(Name, "theta0", 1, theta1);
+		for (int addr=2; addr<Def.blockDim; ++addr) {
+			ei.setMem(Name, "theta0", addr, 0.0);
+		}
+		for (int block=1; block<Def.numBlocks; ++block) {
+			for (int addr=0; addr<Def.blockDim; ++addr) {
+				ei.setMem(Name, "theta"+block, addr, 0.0);
+			}
+		}
+		
+		// b
+		InterfaceParam b = ei.addParam("b", CPUTypes.DOUBLE);
+		ei.setMem(Name, "b", 0, b);
+		ei.setMem(Name, "b", 1, 0.0);
+		
+		// Q
+		InterfaceParam Q00 = ei.addParam("Q00", CPUTypes.DOUBLE);
+		InterfaceParam Q01 = ei.addParam("Q01", CPUTypes.DOUBLE);
+		InterfaceParam Q10 = ei.addParam("Q10", CPUTypes.DOUBLE);
+		InterfaceParam Q11 = ei.addParam("Q11", CPUTypes.DOUBLE);
+		for (int X=0; X<Def.numBlocks; ++X) {
+			for (int Y=0; Y<=X; ++Y) {
+				// QBlockX0Y0
+				if ((X==0)&&(Y==0)) {
+					for (int addr=0; addr<Def.blockDim*Def.blockDim; ++addr) {
+						if (addr==(0*Def.blockDim+0)) ei.setMem(Name, "QBlockX0Y0", addr, Q00);
+						else if (addr==(0*Def.blockDim+1)) ei.setMem(Name, "QBlockX0Y0", addr, Q01);
+						else if (addr==(1*Def.blockDim+0)) ei.setMem(Name, "QBlockX0Y0", addr, Q10);
+						else if (addr==(1*Def.blockDim+1)) ei.setMem(Name, "QBlockX0Y0", addr, Q11);
+						else ei.setMem(Name, "QBlockX"+X+"Y"+Y, addr, 0.0);
+					}
+				}
+				// other QBlock
+				else {
+					for (int addr=0; addr<Def.blockDim*Def.blockDim; ++addr) {
+						ei.setMem(Name, "QBlockX"+X+"Y"+Y, addr, 0.0);
+					}
+				}
+			}
+		}
+		
+		// hXi
+		InterfaceParam hX0 = ei.addParam("hX0", CPUTypes.DOUBLE);
+		InterfaceParam hX1 = ei.addParam("hX1", CPUTypes.DOUBLE);
+		ei.setMem(Name, "hXi", 0, hX0);
+		ei.setMem(Name, "hXi", 1, hX1);
+		for (int addr=2; addr<Def.WinSize; ++addr) {
+			ei.setMem(Name, "hXi", addr, 0.0);
+		}
+		
+		// Group
+		InterfaceParam Group0 = ei.addParam("Group0", CPUTypes.UINT64);
+		InterfaceParam Group1 = ei.addParam("Group1", CPUTypes.UINT64);
+		ei.setMem(Name, "SVMControl.Group", 0, Group0);
+		ei.setMem(Name, "SVMControl.Group", 1, Group1);
+		for (int addr=2; addr<Def.WinSize; ++addr) {
+			ei.setMem(Name, "SVMControl.Group", addr, 0);
+		}
+
+		// Set Eps
+		InterfaceParam Eps = ei.addParam("Eps", CPUTypes.DOUBLE);
+		ei.setScalar(Name, "Eps", Eps);
+
+		// set Ticks to 0 and ignore scalars and streams
+		ei.setTicks(Name, 0);
+		ei.ignoreScalar(Name, "numSamples");
+		ei.ignoreScalar(Name, "Xc_ZLI_inputLength");
+		ei.ignoreScalar(Name, "Yc_ZLI_inputLength");
+		ei.ignoreStream("Xc");
+		ei.ignoreStream("Yc");
+		ei.ignoreStream("output");
+		ei.ignoreAll(Direction.OUT);
+
+        	return ei;
+	}
+
+	private static EngineInterface RunSVM() {
+	
+		EngineInterface ei = new EngineInterface("RunSVM");
 
 		// Ticks
-		InterfaceParam numTicks = engine_interface.addParam("numTicks", CPUTypes.UINT32);
-		engine_interface.setTicks(Name, numTicks);
+		InterfaceParam numTicks = ei.addParam("numTicks", CPUTypes.UINT32);
+		ei.setTicks(Name, numTicks);
 		
 		// Scalar
-		InterfaceParam numSamples 	= engine_interface.addParam("numSamples", CPUTypes.UINT32);
-		InterfaceParam Eps 			= engine_interface.addParam("Eps", CPUTypes.DOUBLE);
-		InterfaceParam inputLength 	= numSamples - 2;
-		engine_interface.setScalar(Name, "numSamples", numSamples);
-		engine_interface.setScalar(Name, "Eps", Eps);
-		engine_interface.setScalar(Name, "Xc_ZLI_inputLength", inputLength);
-		engine_interface.setScalar(Name, "Yc_ZLI_inputLength", inputLength);
+		InterfaceParam numSamples = ei.addParam("numSamples", CPUTypes.UINT32);
+		InterfaceParam inputLength = numSamples - 2;
+		ei.setScalar(Name, "numSamples", numSamples);
+		ei.setScalar(Name, "Xc_ZLI_inputLength", inputLength);
+		ei.setScalar(Name, "Yc_ZLI_inputLength", inputLength);
 		
 		// Stream
-		InterfaceParam dataDim = engine_interface.addConstant(Def.DataDim);
-		engine_interface.setStream("Xc", CPUTypes.DOUBLE, inputLength * dataDim * CPUTypes.DOUBLE.sizeInBytes());
-		engine_interface.setStream("Yc", CPUTypes.DOUBLE, inputLength * CPUTypes.DOUBLE.sizeInBytes());
-		engine_interface.setStream("output", CPUTypes.INT32, numTicks * CPUTypes.INT32.sizeInBytes());
+		InterfaceParam dataDim = ei.addConstant(Def.DataDim);
+		ei.setStream("Xc", CPUTypes.DOUBLE, inputLength * dataDim * CPUTypes.DOUBLE.sizeInBytes());
+		ei.setStream("Yc", CPUTypes.DOUBLE, inputLength * CPUTypes.DOUBLE.sizeInBytes());
+		ei.setStream("output", CPUTypes.INT32, numTicks * CPUTypes.INT32.sizeInBytes());
 		
-		// Ignore Mem
-		engine_interface.ignoreAll(EngineInterface.Direction.IN_OUT);
+		// Ignore Memories and Other scalar inputs
+		ei.ignoreAll(Direction.IN_OUT);
 		
-		return engine_interface;
+		return ei;
 	}
 
 	public static void main(String[] args) {
 	
 		SVMManager manager = new SVMManager(new EngineParameters(args));
-		manager.createSLiCinterface(runSVM());
+		manager.createSLiCinterface(InitSVM());
+		manager.createSLiCinterface(RunSVM());
 		manager.build();
 		
 	}

@@ -21,7 +21,7 @@
 
 # ---- Project settings ----
 
-WHEREISROOT=/homes/ss13412
+WHEREISROOT=./
 
 
 # Assuming Kernel and Manager class names follow the pattern below:

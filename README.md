@@ -53,8 +53,6 @@ Stock Mid-Price prediction (`build/data9970.txt`) using ε-SVR with 16 features.
   - `src/SVMManager.maxj`
   
      Set the argument in Config.setMPPRCostTableSearchRange(,) to the start number and end number of cost table to try.
-     * For MaxCompiler 2014.2: Cost table 1 seems to be good: Config.setMPPRCostTableSearchRange(1,20)
-     * For MaxCompiler 2015.2: Cost table 11 seems to be good: Config.setMPPRCostTableSearchRange(11,20)
 
 3. Build the System
 

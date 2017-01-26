@@ -1,23 +1,23 @@
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.utils.MathUtils;
 
 class AddrGenerator extends KernelLib {
 
-	private DFEVar Addr;
-	private DFEVar Valid;
-		
+	private final DFEVar Addr;
+	private final DFEVar Valid;
+
 	public DFEVar getAddr() 		{return Addr;}
 	public DFEVar isValid() 		{return Valid;}
-	
-	
+
+
 	AddrGenerator(KernelLib owner, int Inc, int Max, DFEVar Reset) {
-		
+
 		super(owner);
-		
+
 		/////////////////////// Counter ///////////////////////
 
 		// Reset: 0, 0, 1, 0, 0, 0, ... ,     0, 0, 0, 0, ...
@@ -34,18 +34,18 @@ class AddrGenerator extends KernelLib {
                 Counter AddrCounter = control.count.makeCounter(CounterParam);
                 DFEVar AddrCount = AddrCounter.getCount();
 
-		// Address is valid when it's smaller than Max                
+		// Address is valid when it's smaller than Max
                 Valid = Reset | (AddrCount>0) & (AddrCount<Max);
-                
+
                 // Cast in case that Max-1 and Max have different bit-width
                 Addr = Valid ? AddrCount.cast(dfeUInt(MathUtils.bitsToAddress(Max))) : constant.var(dfeUInt(MathUtils.bitsToAddress(Max)), 0);
-	
+
 	}
-	
+
 	AddrGenerator(KernelLib owner, int Inc, int Max, DFEVar Reset, DFEVar Enable) {
-		
+
 		super(owner);
-		
+
 		/////////////////////// Counter ///////////////////////
 
 		// Reset: 0, 0, 1, 0, 0, 0, ... ,     0, 0, 0, 0, ...
@@ -63,18 +63,18 @@ class AddrGenerator extends KernelLib {
                 Counter AddrCounter = control.count.makeCounter(CounterParam);
                 DFEVar AddrCount = AddrCounter.getCount();
 
-		// Address is valid when it's smaller than Max                
+		// Address is valid when it's smaller than Max
                 Valid = Reset | (AddrCount>0) & (AddrCount<Max);
-                
+
                 // Cast in case that Max-1 and Max have different bit-width
                 Addr = Valid ? AddrCount.cast(dfeUInt(MathUtils.bitsToAddress(Max))) : constant.var(dfeUInt(MathUtils.bitsToAddress(Max)), 0);
-	
+
 	}
-	
+
 	AddrGenerator(KernelLib owner, int Inc, int Max, DFEVar Reset, boolean Enable) {
-		
+
 		super(owner);
-		
+
 		/////////////////////// Counter ///////////////////////
 
 		// Reset: 0, 0, 1, 0, 0, 0, ... ,     0, 0, 0, 0, ...
@@ -92,12 +92,12 @@ class AddrGenerator extends KernelLib {
                 Counter AddrCounter = control.count.makeCounter(CounterParam);
                 DFEVar AddrCount = AddrCounter.getCount();
 
-		// Address is valid when it's smaller than Max                
+		// Address is valid when it's smaller than Max
                 Valid = Reset | (AddrCount>0) & (AddrCount<Max);
-                
+
                 // Cast in case that Max-1 and Max have different bit-width
                 Addr = Valid ? AddrCount.cast(dfeUInt(MathUtils.bitsToAddress(Max))) : constant.var(dfeUInt(MathUtils.bitsToAddress(Max)), 0);
-	
-	}	
+
+	}
 
 }

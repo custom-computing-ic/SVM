@@ -1,16 +1,16 @@
+import maxpower.SMArrayList;
+
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.statemachine.DFEsmDualPortMappedRAM;
 import com.maxeler.maxcompiler.v2.statemachine.DFEsmInput;
 import com.maxeler.maxcompiler.v2.statemachine.DFEsmOutput;
 import com.maxeler.maxcompiler.v2.statemachine.DFEsmStateEnum;
 import com.maxeler.maxcompiler.v2.statemachine.DFEsmStateValue;
-import com.maxeler.maxcompiler.v2.statemachine.kernel.KernelStateMachine;
-import com.maxeler.maxcompiler.v2.statemachine.types.DFEsmValueType;
-import com.maxeler.maxcompiler.v2.statemachine.DFEsmDualPortMappedRAM;
 import com.maxeler.maxcompiler.v2.statemachine.Latency;
+import com.maxeler.maxcompiler.v2.statemachine.kernel.KernelStateMachine;
 import com.maxeler.maxcompiler.v2.statemachine.stdlib.Mem.DualPortRAMMode;
+import com.maxeler.maxcompiler.v2.statemachine.types.DFEsmValueType;
 import com.maxeler.maxcompiler.v2.utils.MathUtils;
-
-import maxpower.SMArrayList;
 
 class SVMStateMachine extends KernelStateMachine {
 
@@ -23,7 +23,7 @@ class SVMStateMachine extends KernelStateMachine {
                 BETACALC,			// Calculating Beta
                 GAMMACCALC, 		// Calculating Gamma_c
                 GAMMAVCALC, 		// Calculating Gamma Vector
-                BOOKKEEPING_PRE, 	// Starting Point of BookKeeping 
+                BOOKKEEPING_PRE, 	// Starting Point of BookKeeping
                 BOOKKEEPING_C,		// BookKeeping - C
                 BOOKKEEPING_S,		// BookKeeping - S
                 BOOKKEEPING_N, 		// BookKeeping - N
@@ -47,7 +47,7 @@ class SVMStateMachine extends KernelStateMachine {
                 XCREMOVEWAIT, 		// Waiting for Xc Removal Finish
                 DECFINISH 			// Decremental Training has Finished
 	}
-	
+
 	enum maskModes {
 		MASKIDLE, 			// Idle state of maskMode
 		ITERATE,				// Iterating over Mask
@@ -61,23 +61,23 @@ class SVMStateMachine extends KernelStateMachine {
 	private final DFEsmInput hasFinished;
 	private final DFEsmInput hasBetaCalcFinished;
 	private final DFEsmInput hasGammaVCalcFinished;
-	
+
 	// BookKeeping
 	private final DFEsmInput BKFlag;
 	private final DFEsmInput BookKeepingIndex;
-	
+
 
         ////////////////////////// Outputs /////////////////////////
 
 	// For controlled input Xc
 	private final DFEsmOutput EnInput;
-	
+
 	// INC or DEC
 	private final DFEsmOutput isInc;
 
 	// Size
 	private final DFEsmOutput SSize;
-	
+
 	// For Q Fetch
 	private final DFEsmOutput beginFetchQ;
 	private final DFEsmOutput isFetchingQ;
@@ -105,13 +105,13 @@ class SVMStateMachine extends KernelStateMachine {
 	private final DFEsmOutput beginBetaCalc;
 	private final DFEsmOutput beginBookKeeping_S;
 	private final DFEsmOutput isBookKeeping_N;
-	
+
 	// GammaCalc
 	private final DFEsmOutput beginGammaCCalc;
 	private final DFEsmOutput isGammaCCalculating;
 	private final DFEsmOutput isGammaVCalculating;
 
-	// Updating	
+	// Updating
 	private final DFEsmOutput beginUpdate;
 	private final DFEsmOutput isUpdating;
 
@@ -124,16 +124,16 @@ class SVMStateMachine extends KernelStateMachine {
 	private final DFEsmOutput beginGammaCREnlarge;
 	private final DFEsmOutput beginRShrink;
 	private final DFEsmOutput isRShrinking;
-	
+
 	// Decremental Training
 	private final DFEsmOutput beginRShrinkForXcRemove;
-	
+
 
         ////////////////////////// State Variables /////////////////////////
 
         // Counting internal ticks
         private final DFEsmStateValue subTick;
-        
+
         // Mode
         private final DFEsmStateEnum<Modes> Mode;
 
@@ -144,31 +144,31 @@ class SVMStateMachine extends KernelStateMachine {
         private final DFEsmStateValue BaseAddrXcCount;
         private final DFEsmStateValue OffsetAddrXcCount;
         private final DFEsmStateValue GroupIndexXcCount;
-        
+
         // SMask
         private final SMArrayList SMaskBase;
         private final SMArrayList SMaskOffset;
         private final SMArrayList SMaskGroupIndex;
         private final DFEsmStateValue SMaskPos;
         private final DFEsmStateEnum<maskModes> SMaskMode;
-        
+
         // NMask
         private final SMArrayList NMaskBase;
         private final SMArrayList NMaskOffset;
         private final SMArrayList NMaskGroupIndex;
         private final DFEsmStateValue NMaskPos;
         private final DFEsmStateEnum<maskModes> NMaskMode;
-        
+
         // Write Address for QBuffer
         private final DFEsmStateValue QBufWriteOffsetAddrCount;
-        
+
         // Group
 	private final DFEsmDualPortMappedRAM Group;
-	
+
 	// For Debug
 	private final DFEsmStateValue Tick;
-	
-	
+
+
 	////////////////////////// Pipeline Variables /////////////////////////
 
 	// Pipelining Bookkeeping Flag and Index
@@ -180,7 +180,7 @@ class SVMStateMachine extends KernelStateMachine {
 	private final DFEsmStateValue BKIndex_N1;
 	private final DFEsmStateValue BKIndex_N2;
 	private final DFEsmStateValue BKIndex_N3;
-	
+
 	// Pipelining SMask and NMask
 	private final DFEsmStateValue SMaskPos_1;
 	private final DFEsmStateValue SMaskPos_2;
@@ -196,7 +196,7 @@ class SVMStateMachine extends KernelStateMachine {
 	private final DFEsmStateValue NMaskGroupIndexBKIndex;
 
 
-	 ////////////////////////// Parameters /////////////////////////    
+	 ////////////////////////// Parameters /////////////////////////
 
 	// Dimension Parameters
 	private final int numBlocks;
@@ -213,16 +213,16 @@ class SVMStateMachine extends KernelStateMachine {
 
 	public SVMStateMachine(KernelLib owner, int numBlocks_IN, int blockDim_IN, int RBlockDim_IN, int WinSize_IN) {
 
-	 	////////////////////////// Parameters /////////////////////////  
+	 	////////////////////////// Parameters /////////////////////////
 
 		super(owner);
-		
+
 		// Dimension Parameters
 		numBlocks 	= numBlocks_IN;
 		blockDim 	= blockDim_IN;
 		RBlockDim 	= RBlockDim_IN;
 		WinSize 		= WinSize_IN;
-		
+
 		// Scheduling Parameters
 		QUpdateCycles 		= blockDim + Def.QUpdateLatency;
 		BookKeepingLatency 	= Def.BookKeepingLatency;
@@ -249,23 +249,23 @@ class SVMStateMachine extends KernelStateMachine {
 		hasFinished 				= io.input("hasFinished", BoolType);
 		hasBetaCalcFinished 		= io.input("hasBetaCalcFinished", BoolType);
 		hasGammaVCalcFinished 	= io.input("hasGammaVCalcFinished", BoolType);
-	
+
 		// BookKeeping
 		BKFlag 					= io.input("BookKeepingFlag", dfeUInt(3));
 		BookKeepingIndex 		= io.input("BookKeepingIndex", PosType);
-		
+
 
                 ////////////////////////// Outputs /////////////////////////
 
                 // Control for input stream Xc
                 EnInput 					= io.output("EnInput", BoolType);
-                
+
                 // INC or DEC
                 isInc 					= io.output("isInc", BoolType);
-                
+
 		// Size
                 SSize 					= io.output("SSize", CurSizeType);
-                
+
 		// Control for Q fetch
 		beginFetchQ 				= io.output("beginFetchQ", BoolType);
                 isFetchingQ 				= io.output("isFetchingQ", BoolType);
@@ -285,7 +285,7 @@ class SVMStateMachine extends KernelStateMachine {
                 IndexNMask 				= io.output("IndexNMask", PosType);
                 GroupIndexNMask 		= io.output("GroupIndexNMask", PosType);
                 NMaskValid 				= io.output("NMaskValid", BoolType);
-		
+
 		// Bookkeeping
 		beginBookKeeping 		= io.output("beginBookKeeping", BoolType);
 		BookKeepingSel 			= io.output("BookKeepingSel", SelType);
@@ -293,46 +293,46 @@ class SVMStateMachine extends KernelStateMachine {
 		beginBetaCalc 			= io.output("beginBetaCalc", BoolType);
 		beginBookKeeping_S 		= io.output("beginBookKeeping_S", BoolType);
 		isBookKeeping_N 			= io.output("isBookKeeping_N", BoolType);
-		
+
 		// GammaCalc
 		beginGammaCCalc 		= io.output("beginGammaCCalc", BoolType);
 		isGammaCCalculating 		= io.output("isGammaCCalculating", BoolType);
 		isGammaVCalculating 		= io.output("isGammaVCalculating", BoolType);
-		
+
 		// Updating
 		beginUpdate 				= io.output("beginUpdate", BoolType);
 		isUpdating 				= io.output("isUpdating", BoolType);
-		
+
 		// Moving Items
 		beginMoveFetchQ 		= io.output("beginMoveFetchQ", BoolType);
 		isMoveFetchingQ 			= io.output("isMoveFetchingQ", BoolType);
 		beginGammaKCalc 		= io.output("beginGammaKCalc", BoolType);
 		isGammaKCalculating 		= io.output("isGammaKCalculating", BoolType);
 		beginRInit 				= io.output("beginRInit", BoolType);
-		beginGammaCREnlarge 	= io.output("beginGammaCREnlarge", BoolType); 
+		beginGammaCREnlarge 	= io.output("beginGammaCREnlarge", BoolType);
 		beginRShrink 			= io.output("beginRShrink", BoolType);
 		isRShrinking 				= io.output("isRShrinking", BoolType);
 
 		// Decremental Training
 		beginRShrinkForXcRemove 	= io.output("beginRShrinkForXcRemove", BoolType);
-		
+
 
                 ////////////////////////// Init State Variables /////////////////////////
-                
+
 		// Tick
 		subTick 				= state.value(TickType, 0);
-		
+
 		// Mode
 		Mode 				= state.enumerated(Modes.class, Modes.SUBIDLE);
-		
+
 		// CurSize
 		CurSize 				= state.value(CurSizeType, 2);
-		
+
 		// Xc Address
 		BaseAddrXcCount 	= state.value(BaseAddrType, 0);
 		OffsetAddrXcCount 	= state.value(OffsetAddrType, 2);
 		GroupIndexXcCount	= state.value(PosType, 2);
-		
+
 		// SMask
 		SMaskBase 			= new SMArrayList(this, BaseAddrType, WinSize);
 		SMaskOffset 			= new SMArrayList(this, OffsetAddrType, WinSize);
@@ -349,11 +349,11 @@ class SVMStateMachine extends KernelStateMachine {
 
 		// Write Address for QBuffer
 		QBufWriteOffsetAddrCount 	= state.value(QBufAddrType, 0);
-		
+
 		// Group
 		Group = mem.ramMappedDualPort("Group", GroupType, WinSize, DualPortRAMMode.READ_ONLY, DualPortRAMMode.WRITE_ONLY, Latency.ONE_CYCLE);
-		
-		
+
+
 		////////////////////////// Pipeline Variables /////////////////////////
 
 		// Pipelining Bookkeeping Flag and Index
@@ -364,7 +364,7 @@ class SVMStateMachine extends KernelStateMachine {
 		BKIndex_S3 			= state.value(PosType);
 		BKIndex_N1 			= state.value(PosType);
 		BKIndex_N2 			= state.value(PosType);
-		BKIndex_N3 			= state.value(PosType);		
+		BKIndex_N3 			= state.value(PosType);
 
 		// Pipelining SMask and NMask
 		SMaskPos_1 				= state.value(PosType);
@@ -379,32 +379,32 @@ class SVMStateMachine extends KernelStateMachine {
 		NMaskBaseBKIndex 		= state.value(BaseAddrType);
 		NMaskOffsetBKIndex 		= state.value(OffsetAddrType);
 		NMaskGroupIndexBKIndex 	= state.value(PosType);
-		
-		
+
+
 		////////////////////////// Debug /////////////////////////
-		
+
 		Tick 				= state.value(dfeUInt(32), 0);
 
         }
-        
+
 	@Override
 	protected void nextState() {
-	
+
 		////////////////////////// Debug /////////////////////////
-		
+
 		Tick.next <== Tick + 1;
 //		IF (subTick===0) debug.simPrintf("[%4d] Mode[%d] = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d \n", Tick, subTick, Mode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos);
 //		IF (Mode === Modes.BOOKKEEPING_PRE | Mode === Modes.BOOKKEEPING_C | Mode === Modes.BOOKKEEPING_N | Mode === Modes.BOOKKEEPING_S) debug.simPrintf("[%4d] Mode[%4d] = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d | Group[prev]=%d \n", Tick, subTick, Mode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos, Group.dataOutA);
-		
+
 
 		////////////////////////// Default /////////////////////////
 
 		Group.writeEnableB <== false;
 		subTick.next <== subTick + 1;
-		
-		
+
+
 		////////////////////////// Pipelining /////////////////////////
-		
+
 		// Pipelining Bookkeeping Flag and Index
 		BKFlag_1.next 				<== BKFlag;
 		BKFlag_2.next 				<== BKFlag;
@@ -414,7 +414,7 @@ class SVMStateMachine extends KernelStateMachine {
 		BKIndex_N1.next 				<== BookKeepingIndex;
 		BKIndex_N2.next 				<== BookKeepingIndex;
 		BKIndex_N3.next 				<== BookKeepingIndex;
-		
+
 		// Pipelining SMask and NMask
 		SMaskPos_1.next 				<== SMaskPos;
 		SMaskPos_2.next 				<== SMaskPos;
@@ -428,10 +428,10 @@ class SVMStateMachine extends KernelStateMachine {
 		NMaskBaseBKIndex.next 		<== NMaskBase.get(BKIndex_N1);
 		NMaskOffsetBKIndex.next 		<== NMaskOffset.get(BKIndex_N2);
 		NMaskGroupIndexBKIndex.next 	<== NMaskGroupIndex.get(BKIndex_N3);
-		
+
 
 		////////////////////////// Mode Control /////////////////////////
-		
+
 		SWITCH(Mode) {
 			// IDLE
 			CASE(Modes.SUBIDLE) {
@@ -446,7 +446,7 @@ class SVMStateMachine extends KernelStateMachine {
 					// Search Xc in SMask and NMask - may also set MaskMode to IDLE for extra safety
 					SMaskPos.next <== 0;
 					NMaskPos.next <== 0;
-					
+
 					debug.simPrintf("\n[%4d]----------[Decremental Training]-----------------Remove Item[%d][%d]-------------------- \n", Tick, BaseAddrXcCount, OffsetAddrXcCount);
 				}
 				subTick.next <== 0;
@@ -474,7 +474,7 @@ class SVMStateMachine extends KernelStateMachine {
 					}
 				}
 				ELSE {
-					// Remove Xc from E,R - Search for Xc location in NMask 
+					// Remove Xc from E,R - Search for Xc location in NMask
 					IF (NMaskGroupIndex.get(NMaskPos) === GroupIndexXcCount) {
 						Mode.next <== Modes.REMOVEXCFROMN;
 					}
@@ -511,7 +511,7 @@ class SVMStateMachine extends KernelStateMachine {
 			CASE(Modes.XCREMOVEWAIT) {
 				IF (subTick === RShrinkCycles) {
 					Mode.next <== Modes.BOOKKEEPING_PRE;
-				}				
+				}
 			}
 			// Starting Point of BookKeeping
 			CASE(Modes.BOOKKEEPING_PRE) {
@@ -536,7 +536,7 @@ class SVMStateMachine extends KernelStateMachine {
 				ELSE {QBufWriteOffsetAddrCount.next <== QBufWriteOffsetAddrCount + 1;}
 				// SMask iteration + padding zero
 				IF (subTick === numBlocks * RBlockDim - 2)  {
-					Mode.next <== Modes.BETACALC; 
+					Mode.next <== Modes.BETACALC;
 					subTick.next <== 0;
 				}
 			}
@@ -555,7 +555,7 @@ class SVMStateMachine extends KernelStateMachine {
 						Mode.next <== Modes.GAMMAVCALC;
 						SMaskPos.next <== 0;
 						NMaskPos.next <== 0;
-						subTick.next <== 0;               						
+						subTick.next <== 0;
 					}
 					ELSE gotoBookKeeping_C();
 				}
@@ -564,7 +564,7 @@ class SVMStateMachine extends KernelStateMachine {
 			CASE(Modes.GAMMAVCALC) {
 				IF (subTick === 0) {SMaskMode.next <== maskModes.ITERATE; SMaskPos.next <== 0;}
 				IF (subTick === SMaskBase.size().cast(dfeUInt(20))) {
-					subTick.next <== 0; 
+					subTick.next <== 0;
 				}
 				IF (hasGammaVCalcFinished === true) gotoBookKeeping_C();
 			}
@@ -581,7 +581,7 @@ class SVMStateMachine extends KernelStateMachine {
 				Group.addressA <== NMaskGroupIndex.get(NMaskPos);
 				IF (NMaskMode === maskModes.MASKIDLE) {
 					IF (~SMaskBase.isEmpty()) gotoBookKeeping_S();
-					ELSE {Mode.next <== Modes.UPDATE; subTick.next <== 0;}							
+					ELSE {Mode.next <== Modes.UPDATE; subTick.next <== 0;}
 				}
 			}
 			// Bookkeeping: SMask
@@ -593,7 +593,7 @@ class SVMStateMachine extends KernelStateMachine {
 			CASE(Modes.UPDATE) {
 				IF (subTick === 0) {
 					SMaskMode.next <== maskModes.ITERATE;
-					NMaskMode.next <== maskModes.ITERATE;							
+					NMaskMode.next <== maskModes.ITERATE;
 				}
 				ELSE {
 					IF ((SMaskMode === maskModes.MASKIDLE) & (NMaskMode === maskModes.MASKIDLE)) {
@@ -608,7 +608,7 @@ class SVMStateMachine extends KernelStateMachine {
 					Mode.next <== Modes.INCFLAG;
 					subTick.next <== 0;
 				}
-			}				
+			}
 			// Checking the flag
 			CASE(Modes.INCFLAG) {
 				SWITCH(BKFlag_1) {
@@ -616,7 +616,7 @@ class SVMStateMachine extends KernelStateMachine {
 						// Xc Joins R and terminate - INC only
 						groupWrite(GroupIndexXcCount, 'R');
 						Mode.next <== Modes.INCFINISH_XC2N;
-									
+
 						debug.simPrintf("[%4d] =======> Item[%d] joins R, becomes NMask[%d] (Base=%d, Offset=%d, GroupIndex=%d).\n", Tick, GroupIndexXcCount, NMaskBase.size(), BaseAddrXcCount, OffsetAddrXcCount, GroupIndexXcCount);
 					}
 					CASE(1) {
@@ -640,7 +640,7 @@ class SVMStateMachine extends KernelStateMachine {
 						debug.simPrintf("[%4d] =======> Item[%d] joins E, becomes NMask[%d] (Base=%d, Offset=%d, GroupIndex=%d).\n", Tick, GroupIndexXcCount, NMaskBase.size(), BaseAddrXcCount, OffsetAddrXcCount, GroupIndexXcCount);
 					}
 					CASE(4) {
-						// S[index] moves from S to E				
+						// S[index] moves from S to E
 						// begin RShrink and hXi update when subTick===1
 						SMaskPos.next <== BookKeepingIndex;
 						IF (subTick === RShrinkCycles) {
@@ -665,7 +665,7 @@ class SVMStateMachine extends KernelStateMachine {
 						IF (subTick === RShrinkCycles) {
 							Mode.next <== Modes.MOVES2R;
 						}
-					}							
+					}
 					OTHERWISE {
 						debug.simPrintf("[%4d] [ERROR] Invalid Bookkeeping Flag (BKFlag=%d).\n", Tick, BKFlag_1);
 						Mode.next <== Modes.SUBIDLE;
@@ -680,20 +680,20 @@ class SVMStateMachine extends KernelStateMachine {
                         	// SMask iteration + padding zero
 				IF (subTick === numBlocks * RBlockDim - 2) {
 					Mode.next <== Modes.MOVEBETACALC; subTick.next <== 0;
-				}						
+				}
 			}
 			// Move item from N to S : Beta Calc
 			CASE(Modes.MOVEBETACALC) {
 				IF (hasBetaCalcFinished === true) {
 					Mode.next <== Modes.GAMMAKCALC;
 					subTick.next <== 0;
-				}						
+				}
 			}
 			// Calculating gamma_k
 			CASE(Modes.GAMMAKCALC) {
 				IF (subTick === 0) {SMaskMode.next <== maskModes.ITERATE; SMaskPos.next <== 0;}
                         	IF (subTick === SMaskBase.size().cast(dfeUInt(20))) {
-                        		subTick.next <== 0; 
+                        		subTick.next <== 0;
                         		Mode.next <== Modes.RENLARGEWAIT;
                         	}
                         }
@@ -746,7 +746,7 @@ class SVMStateMachine extends KernelStateMachine {
 				SMaskOffset.remove(BKIndex_S2);
 				SMaskGroupIndex.remove(BKIndex_S3);
  				// Continue BookKeeping
-				Mode.next <== Modes.BOOKKEEPING_PRE;                       
+				Mode.next <== Modes.BOOKKEEPING_PRE;
                         }
                         // Xc joins S, hence incremental training finished
                         CASE(Modes.INCFINISH_XC2S) {
@@ -789,12 +789,12 @@ class SVMStateMachine extends KernelStateMachine {
 				debug.simPrintf("[%4d] [ERROR] Invalid Mode (Mode=%s).\n", Tick, Mode);
 				Mode.next <== Modes.SUBIDLE;
 			}
-		} // end of switch(Mode) 
+		} // end of switch(Mode)
 
 
 
 		////////////////////////// SMask /////////////////////////
-		
+
 		// Iterating
 		SWITCH(SMaskMode) {
 			CASE (maskModes.ITERATE) {
@@ -806,12 +806,12 @@ class SVMStateMachine extends KernelStateMachine {
 			}
 			CASE (maskModes.LASTITEM) {
 				SMaskMode.next <== maskModes.MASKIDLE;
-				SMaskPos.next <== 0;				
+				SMaskPos.next <== 0;
 			}
 		}
 
 		////////////////////////// NMask /////////////////////////
-		
+
 		// Iterating
 		SWITCH(NMaskMode) {
 			CASE (maskModes.ITERATE) {
@@ -823,29 +823,29 @@ class SVMStateMachine extends KernelStateMachine {
 			}
 			CASE (maskModes.LASTITEM) {
 				NMaskMode.next <== maskModes.MASKIDLE;
-				NMaskPos.next <== 0;				
+				NMaskPos.next <== 0;
 			}
-		}	
-                
+		}
+
         }
 
         @Override
         protected void outputFunction() {
-		
+
         	// Control Signal for Input Stream Xc
         	EnInput <== (Mode === Modes.QUPDATE) & (subTick === 0);
-        	
+
 		// INC or DEC
 		isInc <== (CurSize<WinSize);
-        	
+
         	// Size
         	SSize <== SMaskBase.size();
-        	
+
   		// FetchQ
 		beginFetchQ 			<== (Mode === Modes.FETCHQ) & (subTick === 0);
 		isFetchingQ 			<== (Mode === Modes.FETCHQ);
 		QBufWriteOffsetAddr 	<== QBufWriteOffsetAddrCount;
-        	
+
         	// Base and Offset Addresses of Xc, SMask, NMask. Index of SMask and NMask
 		BaseAddrXc 		<== BaseAddrXcCount;
 		OffsetAddrXc 	<== OffsetAddrXcCount;
@@ -860,15 +860,15 @@ class SVMStateMachine extends KernelStateMachine {
 		IndexNMask 		<== NMaskPos;
 		GroupIndexNMask	<== NMaskGroupIndex.get(NMaskPos);
 		NMaskValid 		<== (NMaskMode !== maskModes.MASKIDLE);
-		
-		
+
+
 		////////////////////////// BookKeeping /////////////////////////
-		
+
 		// beginBookKeeping
 		beginBookKeeping 	<== (Mode === Modes.BOOKKEEPING_C);
 		beginBookKeeping_S 	<== (Mode === Modes.BOOKKEEPING_S) & (subTick === 0);
 		isBookKeeping_N 		<== (Mode === Modes.BOOKKEEPING_N);
-		
+
 		// BookKeepingSel
 		SWITCH (Mode) {
 			CASE (Modes.BOOKKEEPING_C) {
@@ -888,9 +888,9 @@ class SVMStateMachine extends KernelStateMachine {
 						CASE(2) {BookKeepingSel <== 5;} // bE
 						CASE(3) {BookKeepingSel <== 6;} // bR
 						OTHERWISE {BookKeepingSel <== 0;}
-					}			
+					}
 				}
-//			debug.simPrintf("[%4d] [%s] NMask[%d] = Item[%d], Group.dataOutA[prevNMask] = %d \n", Tick, Mode, NMaskPos, NMaskGroupIndex.get(NMaskPos), Group.dataOutA);		
+//			debug.simPrintf("[%4d] [%s] NMask[%d] = Item[%d], Group.dataOutA[prevNMask] = %d \n", Tick, Mode, NMaskPos, NMaskGroupIndex.get(NMaskPos), Group.dataOutA);
 			}
 			CASE (Modes.BOOKKEEPING_S) {
 				BookKeepingSel <== 4; // LS
@@ -898,7 +898,7 @@ class SVMStateMachine extends KernelStateMachine {
 			}
 			OTHERWISE {BookKeepingSel <== 0;}
 		}
-		
+
 		// BookKeepingValid
 		SWITCH (Mode) {
 			CASE (Modes.BOOKKEEPING_C) {BookKeepingValid <== 1;}
@@ -909,17 +909,17 @@ class SVMStateMachine extends KernelStateMachine {
 
 
 		// BetaCalc
-		beginBetaCalc 			<== ((Mode === Modes.BETACALC) | (Mode === Modes.MOVEBETACALC)) & (subTick === 0);		
-		
+		beginBetaCalc 			<== ((Mode === Modes.BETACALC) | (Mode === Modes.MOVEBETACALC)) & (subTick === 0);
+
 		// GammaCalc
 		beginGammaCCalc 		<== (Mode === Modes.GAMMACCALC) & (subTick === 0);
 		isGammaCCalculating 		<== (Mode === Modes.GAMMACCALC);
 		isGammaVCalculating 		<== (Mode === Modes.GAMMAVCALC);
-		
+
 		// Updating
 		beginUpdate 				<== (Mode === Modes.UPDATE) & (subTick === 0);
 		isUpdating 				<== (Mode === Modes.UPDATE);
-		
+
 		// Moving Items
 		beginMoveFetchQ 		<== (Mode === Modes.MOVEFETCHQ) & (subTick === 0);
 		isMoveFetchingQ 			<== (Mode === Modes.MOVEFETCHQ);
@@ -930,11 +930,11 @@ class SVMStateMachine extends KernelStateMachine {
 		beginRShrink 			<== (Mode === Modes.INCFLAG) & ((BKFlag_2 === 4) | (BKFlag_2 === 7)) & (subTick === 1);
 		isRShrinking 				<== (Mode === Modes.INCFLAG) & ((BKFlag_2 === 4) | (BKFlag_2 === 7)) & (subTick > 0);
 		beginRShrinkForXcRemove 	<== (Mode === Modes.REMOVEXCFROMS);
-		
+
         }
-        
+
 	////////////////////////// Utility Functions /////////////////////////
-	
+
 	// goto BookKeeping_C
 	private void gotoBookKeeping_C() {
 		Mode.next 	<== Modes.BOOKKEEPING_C;
@@ -948,7 +948,7 @@ class SVMStateMachine extends KernelStateMachine {
 		Group.addressA 	<== SMaskGroupIndex.get(0);
 		subTick.next <== 0;
 	}
-	
+
 	// goto BookKeeping_N
 	private void gotoBookKeeping_N() {
 		Mode.next 	<== Modes.BOOKKEEPING_N;
@@ -957,7 +957,7 @@ class SVMStateMachine extends KernelStateMachine {
 		Group.addressA 	<== NMaskGroupIndex.get(0);
 		subTick.next <== 0;
 	}
-	
+
 	// goto MoveFetchQ
 	private void gotoMoveFetchQ() {
 		Mode.next <== Modes.MOVEFETCHQ;
@@ -965,8 +965,8 @@ class SVMStateMachine extends KernelStateMachine {
 		SMaskMode.next <== maskModes.ITERATE;
 		QBufWriteOffsetAddrCount.next <== 1;
 		subTick.next <== 0;
-	}	
-	
+	}
+
 	// write to group array
 	private void groupWrite(DFEsmStateValue index, char data) {
 		int wrData;
@@ -981,7 +981,7 @@ class SVMStateMachine extends KernelStateMachine {
 		Group.dataInB <== wrData;
 		Group.writeEnableB <== true;
 	}
-        
+
 }
 
 

@@ -1,10 +1,14 @@
 package maxpower;
 
+import static com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFETypeFactory.dfeFloat;
+import static com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFETypeFactory.dfeUInt;
+
 import java.util.ArrayList;
 import java.util.List;
 
-import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;
-import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelBase;
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelComponent;
+import com.maxeler.maxcompiler.v2.kernelcompiler.Optimization.PipelinedOps;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.FloatingPoint;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
@@ -29,12 +33,12 @@ public class FloatingPointAccumulator {
 	private static int getLatency(DFEVar summand) {
 		int latency;
 		DFEFloat type = (DFEFloat)summand.getType();
-		double pipeliningFactor = summand.getKernel().optimization.getPipeliningFactor();
-		if (summand.getKernel().getManager().getManagerConfiguration().getBoardModel().isAltera()) {
+		double pipeliningFactor = summand.getOwner().optimization.peekPipeliningFactor(PipelinedOps.FLOAT_ADDSUB);
+		if (summand.getOwner().getManager().getManagerConfiguration().getBoardModel().isAltera()) {
 			latency = 7 + (int)(7 * pipeliningFactor);
 		} else {
 			int maxLatency;
-			if (type.equals(Kernel.dfeFloat(8, 24)) || type.equals(Kernel.dfeFloat(11, 53))) maxLatency = 12;
+			if (type.equals(dfeFloat(8, 24)) || type.equals(dfeFloat(11, 53))) maxLatency = 12;
 			else if(type.getMantissaBits() <= 13) maxLatency = 8;
 			else if(type.getMantissaBits() == 14) maxLatency = 9;
 			else if(type.getMantissaBits() == 15) maxLatency = 10;
@@ -54,7 +58,7 @@ public class FloatingPointAccumulator {
 	 * @author stephen
 	 *
 	 */
-	private static class VariableFPA extends KernelLib {
+	private static class VariableFPA extends KernelComponent {
 		private static int count = 0;
 		private final DFEVar sum;
 		private static final int maxCLoop = 15;
@@ -77,7 +81,7 @@ public class FloatingPointAccumulator {
 							                          .withReset(reset))
 							                          .getCount();
 
-					DFEVar latency     = offset.getDFEVar(numVals.getKernel()).cast(dfeUInt(48));
+					DFEVar latency     = offset.getDFEVar(numVals.getOwner()).cast(dfeUInt(48));
 					isInitSum          = counter < latency;
 					isStartOfLastBatch = stream.offset(reset, offset);
 					isAccEnable        = Reductions.streamHold(isStartOfLastBatch, isStartOfLastBatch | reset);
@@ -87,7 +91,7 @@ public class FloatingPointAccumulator {
 					DFEType controlType = dfeUInt(Math.max(numVals.getType().getTotalBits(), MathUtils.bitsToRepresent(maxCLoop)));
 					numVals = numVals.cast(controlType);
 
-					DFEVar latency     = offset.getDFEVar(numVals.getKernel()).cast(controlType);
+					DFEVar latency     = offset.getDFEVar(numVals.getOwner()).cast(controlType);
 					DFEVar counter     = control.count.makeCounterChain(enable).addCounter(numVals, 1);
 					DFEVar numValsMinC = numVals - latency;
 
@@ -118,11 +122,11 @@ public class FloatingPointAccumulator {
 		 * @param hasReset Whether the numValsOrReset input is a number of values or a rest signal.
 		 */
 		private VariableFPA(DFEVar summand, DFEVar enable, DFEVar numValsOrReset, boolean hasReset) {
-			super(summand.getKernel());
+			super(summand.getOwner());
 			FPAControl ctrl = new FPAControl(numValsOrReset, enable, hasReset);
 
 			//Step 1: compute N partial sums using ordinary floating point add, where N is latency of the addition.
-			DFEVar partialSum  = summand.getType().newInstance(this);
+			DFEVar partialSum  = summand.getType().newInstance(getOwner());
 			DFEVar prevPtlSum  = ctrl.isInitSum ? 0 : stream.offset(partialSum, -ctrl.offset);
 			partialSum <== (enable ? summand : 0) + prevPtlSum;
 
@@ -152,7 +156,7 @@ public class FloatingPointAccumulator {
 	 * @author stephen
 	 *
 	 */
-	private static class DynamicFPA extends KernelLib {
+	private static class DynamicFPA extends KernelComponent {
 		public final DFEVar sum;
 
 		/**
@@ -165,31 +169,36 @@ public class FloatingPointAccumulator {
 		 * @param hasReset Whether the numValsOrReset input is a number of values or a rest signal.
 		 */
 		private DynamicFPA(DFEVar summand, DFEVar enable, DFEVar numValsOrReset, boolean hasReset) {
-			super(summand.getKernel());
+			super(summand.getOwner());
 			DFEVar x = enable ? summand : 0.0;
 
 			int latency = getPow2Latency(summand, false);
 			DFEVar cycle;
 			if (hasReset) {
 				cycle = control.count.makeCounter(
-			            control.count.makeParams(48)
-			                         .withReset(numValsOrReset))
-			                         .getCount();
+				        control.count.makeParams(48)
+				                     .withEnable(enable)
+				                     .withReset(numValsOrReset))
+				                     .getCount();
 			} else {
-				cycle = control.count.simpleCounter(numValsOrReset.getType().getTotalBits(), numValsOrReset);
+				cycle = control.count.makeCounter(
+				        control.count.makeParams(numValsOrReset.getType().getTotalBits())
+				                     .withMax(numValsOrReset)
+				                     .withEnable(enable))
+				                     .getCount();
 			}
 
 			//Step 1: create 16 partial sums just as in the variable FPA
-			optimization.pushPipeliningFactor(0.0);
-			DFEVar partialSum = summand.getType().newInstance(this);
+			optimization.pushNoPipelining();
+			DFEVar partialSum = summand.getType().newInstance(getOwner());
 			DFEVar rhs = cycle < latency ? 0.0 : stream.offset(partialSum, -latency);
-			optimization.popPipeliningFactor();
+			optimization.popNoPipelining();
 
 			optimization.pushDSPFactor(0.0); //The latencies calculated assume zero DSP usage, and using DSPs mostly doesn't help latency.
 			partialSum <== x + rhs;
 			optimization.popDSPFactor();
 
-			optimization.popPipeliningFactor();//popping the one pushed in getLatency.
+			optimization.popPipeliningFactor(PipelinedOps.FLOAT_ADDSUB); //popping the one pushed in getLatency.
 
 			//Step 2: Create an adder tree to sum together the 16 partial sums on every cycle.
 			sum = multiCyclePow2AdderTree(partialSum, latency, cycle, 1);
@@ -223,16 +232,16 @@ public class FloatingPointAccumulator {
 		 * in the adder tree, but may cause timing problems, so is off by default.
 		 */
 		private int getPow2Latency(DFEVar summand, boolean useSuperSquash) {
-			double pipeliningFactor = optimization.getPipeliningFactor();
+			double pipeliningFactor = optimization.peekPipeliningFactor(PipelinedOps.FLOAT_ADDSUB);
 			int maxLatency = getLatency(summand);
 			if (useSuperSquash) {
-				if (getManager().getManagerConfiguration().getBoardModel().isAltera()) {
+				if (getOwner().getManager().getManagerConfiguration().getBoardModel().isAltera()) {
 					pipeliningFactor = 0.28;
 				} else {
 					pipeliningFactor = 7.99 / maxLatency;
 				}
 			}
-			optimization.pushPipeliningFactor(pipeliningFactor);
+			optimization.pushPipeliningFactor(pipeliningFactor, PipelinedOps.FLOAT_ADDSUB);
 			return MathUtils.nextPowerOfTwo(getLatency(summand));
 		}
 	}
@@ -246,7 +255,7 @@ public class FloatingPointAccumulator {
 	 * @author stephen
 	 *
 	 */
-	private static class ShortFPA extends KernelLib {
+	private static class ShortFPA extends KernelComponent {
 		public final DFEVar sum;
 
 		/**
@@ -255,7 +264,7 @@ public class FloatingPointAccumulator {
 		 * @param numVals The number of values we wish to accumulate.
 		 */
 		private ShortFPA(DFEVar summand, int numVals) {
-			super(summand.getKernel());
+			super(summand.getOwner());
 
 			int latency = getLatency(summand);
 
@@ -264,10 +273,10 @@ public class FloatingPointAccumulator {
 
 			//Step 2: Sum the interleaved inputs (muxing in zero for the RHS at the start).
 			DFEVar cycle = control.count.makeCounterChain().addCounter(numVals * latency, 1);
-			optimization.pushPipeliningFactor(0.0);
-			DFEVar reorderedSum = reordered.getType().newInstance(this);
+			optimization.pushNoPipelining();
+			DFEVar reorderedSum = reordered.getType().newInstance(getOwner());
 			DFEVar rhs = cycle < latency ? 0.0 : stream.offset(reorderedSum, -latency);
-			optimization.popPipeliningFactor();
+			optimization.popNoPipelining();
 
 			optimization.pushDSPFactor(0.0); //The latencies calculated assume zero DSP usage, and using DSPs mostly doesn't help latency.
 			reorderedSum <== reordered + rhs;
@@ -383,8 +392,8 @@ public class FloatingPointAccumulator {
 	 * @param correctOnEveryCycle Does the output need to be correct on every cycle, or only after numVals cycles.
 	 */
 	public static DFEVar accumulateFixedLength(List<DFEVar> summand, DFEVar enable, int numVals, boolean correctOnEveryCycle) {
-		Kernel k = summand[0].getKernel();
-		return accumulateFixedLength(summand, enable, k.constant.var(Kernel.dfeUInt(MathUtils.bitsToAddress(numVals)), numVals), correctOnEveryCycle);
+		KernelBase<?> k = summand[0].getOwner();
+		return accumulateFixedLength(summand, enable, k.constant.var(dfeUInt(MathUtils.bitsToAddress(numVals)), numVals), correctOnEveryCycle);
 	}
 
 
@@ -424,7 +433,7 @@ public class FloatingPointAccumulator {
 			ShortFPA fpa = new ShortFPA(singleInput, numVals);
 			sum = fpa.sum;
 		} else {
-			Kernel k = summand[0].getKernel();
+			KernelBase<?> k = summand[0].getOwner();
 			sum = accumulateFixedLength(summand, k.constant.var(true), numVals, correctOnEveryCycle);
 		}
 		return sum;

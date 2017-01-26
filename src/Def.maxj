@@ -1,9 +1,10 @@
-import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEFix.SignMode;
-import com.maxeler.maxcompiler.v2.utils.Bits;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.List;
+
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEFix.SignMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
+import com.maxeler.maxcompiler.v2.utils.Bits;
 
 
 class Def {
@@ -47,18 +48,18 @@ class Def {
 	// FPGA Frequency
 	public static final int KernelFrequencyMAX4 = 150;
 	public static final int KernelFrequencyMAX3 = 100;
-	
+
 	// Fanout Limit
 	public static final int MaxFanout 			= 6;
 	public static final double PipeFactor 		= 0.85;
-	
+
 	// Latency
 	public static final int QUpdateLatency 	= 130; 	// hXcOffset + fromhXcValidtoXcJoinR
 	public static final int BookKeepingLatency	= 230; 	// BookKeepingOffset
 	public static final int REnlargeLatency 	= 240; 	// REnlargeLatency
 	public static final int FetchLatency 		= 80; 	// KElemInvLatency
 	public static final int RShrinkLatency 		= 240; 	// RShrinkLatency
-	
+
 	// Initial Cycles
 	// NOTE: Set them to avoid using undefined data from negative stream offset
 	public static final int bInitCycles 			= 200; 	// (bOffset, bOffset+QUpdateLatency+blockDim)
@@ -70,10 +71,10 @@ class Def {
 
 
 	///////////////////////// Types /////////////////////////
-	
+
 	// Precision - Number of Fractional Bits
 	public static final int FractionalBits = 50;
-	
+
 	// Basic Fix-Point Type
 	public static final DFEType BaseFixType 		= KernelLib.dfeFixOffset(FractionalBits+14, -FractionalBits, SignMode.TWOSCOMPLEMENT);
 	public static final DFEType DataYType 		= BaseFixType;
@@ -87,11 +88,11 @@ class Def {
 	public static final DFEType RCalcType 		= HighFixType;
 	public static final DFEType betaType 			= HighFixType;
 	public static final DFEType gammaType 		= HighFixType;
-	
+
 	// Very High Range Fix-Point Type
 	public static final DFEType VeryHighFixType 	= KernelLib.dfeFixOffset(FractionalBits+40, -FractionalBits, SignMode.TWOSCOMPLEMENT);
 	public static final DFEType BookKeepingType 	= VeryHighFixType;
-	
+
 	// Data X Types
 	public static final DFEType InputType 			= KernelLib.dfeFloat(11, 53);
 	// DataType should be able to hold X[i], and X[i] - X[j]; DataMultType should be able to hold (X[i] - X[j])^2

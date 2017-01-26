@@ -4,9 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.maxeler.maxcompiler.v2.errors.MaxCompilerAPIError;
-import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;
-import com.maxeler.maxcompiler.v2.kernelcompiler.KernelFinalizer;
-import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelBase;
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelComponent;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.KernelObject;
 
 /**
@@ -16,7 +15,7 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.types.KernelObject;
  * <p>
  * The construction of the tree is achieved in the KernelFinalizer.
  */
-public class FanoutLimiter<T extends KernelObject<T>> extends KernelLib implements KernelFinalizer {
+public class FanoutLimiter<T extends KernelObject<T>> extends KernelComponent implements KernelComponent.Finalizer {
 
 	private final T source;
 	private final int maxFanout;
@@ -41,23 +40,31 @@ public class FanoutLimiter<T extends KernelObject<T>> extends KernelLib implemen
 	 * @param maxFanout The maximum number of places to fan out to without adding a register.
 	 */
 	public FanoutLimiter(T source, int maxFanout) {
-		super(source.getKernel());
+		super(source.getOwner());
 
 		if (maxFanout < 2)
 			throw new MaxCompilerAPIError("maxFanout must be >= 2, not " + maxFanout);
 
 		this.source    = source;
 		this.maxFanout = maxFanout;
-		getKernel().addKernelFinalizer(this);
+		addKernelFinalizer(this);
 	}
 
 	public T get() {
-		requested.add(source.getType().newInstance(this));
+		requested.add(source.getType().newInstance(getOwner()));
 		return requested[requested.size() - 1];
 	}
 
+	/**
+	 * Getting the source of the FanoutLimiter without creating any new registers.
+	 * @return The source of the FanoutLimiter.
+	 */
+	public T peek() {
+		return source;
+	}
+
 	@Override
-	public void finalizeKernel(Kernel owner) {
+	public void finalizeKernel(KernelBase<?> owner) {
 		List<T> values = requested;
 
 		while (values.size() > maxFanout) {

@@ -1,14 +1,14 @@
-import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Accumulator;
-
 import maxpower.KernelBinaryOp.Add;
 import maxpower.TreeReduce;
+
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Accumulator;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
 
 /**
  * This class calculates hXi
@@ -21,45 +21,45 @@ import maxpower.TreeReduce;
  * @param <b> Offset b
  * @param <Y> Yc
  * @param <beginCalc> valid on the cycle that the first item arrives
- * 
+ *
  */
 
 
 class hCalc extends KernelLib {
 
-	private DFEVar Result;
-	private DFEVar fromMem;
-	private DFEVar Valid;
-		
+	private final DFEVar Result;
+	private final DFEVar fromMem;
+	private final DFEVar Valid;
+
 	public DFEVar getCalcResult() 			{return Result;}
 	public DFEVar getMemData() 			{return fromMem;}
 	public DFEVar isValid() 				{return Valid;}
-	
-	hCalc ( 	KernelLib owner, 
-			int numBlocks, 
-			int blockDim, 
-			DFEVector<DFEVar> Q, 
-			DFEVector<DFEVar> theta, 
-			DFEVar b, 
-			DFEVar Y, 
-			DFEVar beginCalc, 
+
+	hCalc ( 	KernelLib owner,
+			int numBlocks,
+			int blockDim,
+			DFEVector<DFEVar> Q,
+			DFEVector<DFEVar> theta,
+			DFEVar b,
+			DFEVar Y,
+			DFEVar beginCalc,
 			DFEVar RdAddr,
 			DFEVar WrAddr,
 			DFEVar ExtWrData,
-			DFEVar WrEn) 
+			DFEVar WrEn)
 	{
-	
+
 		super(owner);
-		
+
 		/////////////////////// Control ///////////////////////
-		
+
 		AddrGenerator AddrGen = new AddrGenerator(owner, 1, blockDim, beginCalc);
                 DFEVar Addr = AddrGen.getAddr();
                 DFEVar EnAccumulation = AddrGen.isValid();
                 Valid = (Addr === blockDim-1);
-		
+
 		/////////////////////// Calculation ///////////////////////
-		
+
 		DFEVectorType<DFEVar> VecType = new DFEVectorType<DFEVar>(Def.hXiType, numBlocks);
 		DFEVector<DFEVar> mult = VecType.newInstance(this);
 		for (int i=0; i<numBlocks; ++i) mult[i] <== theta[i].cast(Def.hXiType) * Q[i].cast(Def.hXiType);
@@ -70,21 +70,21 @@ class hCalc extends KernelLib {
 		DFEVar toAccumulator = TreeReduce.reduce(new Add<DFEVar>(), mult.getElementsAsList());
 		DFEVar sum = Reductions.accumulator.makeAccumulator(toAccumulator, Param);
 		Result = sum+offset;
-		
+
 		/////////////////////// Memory ///////////////////////
-		
+
 		Memory<DFEVar> hXiMem = mem.alloc(Def.hXiType, numBlocks*blockDim);
 		hXiMem.mapToCPU("hXi");
 		DFEVar WrData 	= EnAccumulation ? Result : ExtWrData;
 		DFEVar EnWrite 	= EnAccumulation ? Valid : WrEn;
 		fromMem = hXiMem.read(RdAddr);
 		hXiMem.port(WrAddr, WrData, EnWrite, RamWriteMode.WRITE_FIRST);
-		
+
 		// Debug
 //		debug.simPrintf(beginCalc, "[%4d] [hCalc] Begin hXi Calculation ---- b = %.12e, Y = %.12e => Offset = b-Y = %.12e  ------- \n", control.count.simpleCounter(32), b.cast(Def.hXiType), Y.cast(Def.hXiType), offset);
 //		debug.simPrintf(EnAccumulation, "[%4d] [hCalc] Addr=%2d | Q[0:3]=(%.12f,%.4f,%.4f,%.4f) theta[0:3]=(%.12f,%.4f,%.4f,%.4f), cur=%.12f | hXi=%.12f, %d\n", control.count.simpleCounter(32), Addr, Q[0], Q[1], Q[2], Q[3], theta[0], theta[1], theta[2], theta[3], toAccumulator, Result, Valid);
 //		debug.simPrintf(EnAccumulation, "[%4d] [hCalc] Addr=%2d | Q[0:3]=(%.12e,%.12e,%.12e,%.12e) \n theta[0:3]=(%.12e,%.12e,%.12e,%.12e), cur=%.12e | hXi=%.12e, %d\n", control.count.simpleCounter(32), Addr, Q[0], Q[1], Q[2], Q[3], theta[0], theta[1], theta[2], theta[3], toAccumulator, Result, Valid);
-		
+
 	}
 
 }

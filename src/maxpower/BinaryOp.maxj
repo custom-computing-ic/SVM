@@ -9,7 +9,7 @@ package maxpower;
  * @param <T1> type of LHS operand
  * @param <T2> type of RHS operand
  */
- 
+
 public interface BinaryOp<R, T1, T2> {
 	R op(T1 a, T2 b);
 };

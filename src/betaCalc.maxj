@@ -1,18 +1,18 @@
+import maxpower.KernelBinaryOp.Add;
+import maxpower.TreeReduce;
+
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Accumulator;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Accumulator;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
 import com.maxeler.maxcompiler.v2.utils.MathUtils;
-
-import maxpower.KernelBinaryOp.Add;
-import maxpower.TreeReduce;
 
 /**
  * Calculating vector beta and provide parallel access
@@ -32,47 +32,47 @@ import maxpower.TreeReduce;
 
 class betaCalc extends KernelLib{
 
-	private DFEVector<DFEVar> portVec;
-	private DFEVector<DFEVar> readVec;
-	private DFEVar seqRead;
-	private DFEVar hasFinished;
-		
+	private final DFEVector<DFEVar> portVec;
+	private final DFEVector<DFEVar> readVec;
+	private final DFEVar seqRead;
+	private final DFEVar hasFinished;
+
 	public DFEVector<DFEVar> getPortVec() 		{return portVec;}
 	public DFEVector<DFEVar> getReadVec() 		{return readVec;}
 	public DFEVar getSeqReadData() 		{return seqRead;}
 	public DFEVar hasBetaCalcFinished() 		{return hasFinished;}
-	
-	betaCalc ( 	KernelLib owner, 
-				int numBlocks, 
+
+	betaCalc ( 	KernelLib owner,
+				int numBlocks,
 				int RBlockDim,
 				DFEVar SSize,
-				DFEVector<DFEVar> QBufVec, 
+				DFEVector<DFEVar> QBufVec,
 				DFEVector<DFEVector<DFEVar>> RVec,
 				DFEVar beginBetaCalc,
 				DFEVar readAddr,
 				DFEVar portAddr,
-				DFEVar beginSeqRead) 
+				DFEVar beginSeqRead)
 	{
-		
+
 		super(owner);
-		
+
 		/////////////////////// Write Address ///////////////////////
-                
+
                 // Control Variable for beta calculation
 		AddrGenerator betaCalcCounter = new AddrGenerator(owner, 1, numBlocks*RBlockDim*RBlockDim, beginBetaCalc);
 		DFEVar betaCalcCount = betaCalcCounter.getAddr();
 		DFEVar betaCalcCyclesToRun = (SSize.cast(betaCalcCount.getType())+1)*RBlockDim;
 		DFEVar isCalculating = betaCalcCounter.isValid() & (betaCalcCount < betaCalcCyclesToRun);
 		hasFinished = ((betaCalcCount+1) === betaCalcCyclesToRun);
-               
+
 		// Control Variable for sequential read
                 AddrGenerator seqReadCounter = new AddrGenerator(owner, 1, numBlocks*RBlockDim, beginSeqRead);
 		DFEVar seqReadCount = seqReadCounter.getAddr();
 		DFEVar isSeqReading = seqReadCounter.isValid() & (seqReadCount <= SSize.cast(seqReadCount.getType()));
-		
+
 		// Counter Reset
 		DFEVar Reset = beginBetaCalc | beginSeqRead;
-                
+
                 // XAddr - inner loop address
 		Count.Params XAddrCounterParam = control.count.makeParams(MathUtils.bitsToAddress(RBlockDim))
                 							.withInitValue(0)
@@ -81,7 +81,7 @@ class betaCalc extends KernelLib{
                 							.withReset(Reset);
                 Counter XAddrCounter = control.count.makeCounter(XAddrCounterParam);
                 DFEVar XAddr = XAddrCounter.getCount();
-                
+
                 // YAddr - outer loop address
                 Count.Params YAddrCounterParam = control.count.makeParams(MathUtils.bitsToAddress(RBlockDim))
                 							.withInitValue(0)
@@ -91,7 +91,7 @@ class betaCalc extends KernelLib{
                 							.withReset(Reset);
                 Counter YAddrCounter = control.count.makeCounter(YAddrCounterParam);
                 DFEVar YAddr = YAddrCounter.getCount();
-                
+
                 // MuxSelect - for sequantial read
 		Count.Params MuxCounterParam = control.count.makeParams(MathUtils.bitsToAddress(numBlocks))
                 							.withInitValue(0)
@@ -102,7 +102,7 @@ class betaCalc extends KernelLib{
                 Counter MuxCounter = control.count.makeCounter(MuxCounterParam);
                 DFEVar muxSelect = MuxCounter.getCount();
 
-                
+
  		/////////////////////// Calculation ///////////////////////
 
 		DFEVector<DFEVar> WrData = (new DFEVectorType<DFEVar>(Def.betaType, numBlocks)).newInstance(this);
@@ -117,9 +117,9 @@ class betaCalc extends KernelLib{
 			WrData[i] <== -sum;
 		}
 
-                
+
  		/////////////////////// Memory ///////////////////////
-                
+
 		portVec = (new DFEVectorType<DFEVar>(Def.RType, numBlocks)).newInstance(this);
 		readVec = (new DFEVectorType<DFEVar>(Def.RType, numBlocks)).newInstance(this);
 		for(int i=0; i<numBlocks; ++i) {
@@ -133,9 +133,9 @@ class betaCalc extends KernelLib{
 		}
 		// For sequential read
 		seqRead = control.mux(muxSelect, readVec.getElementsAsList());
-		
+
 //		debug.simPrintf(isCalculating, "[%4d] [Beta] [%2d] Finish=%d | X=%d Y=%d | QBuf=(%.6e, %.2f, %.2f, %.2f), R=(%.6e, %.2f, %.2f, %.2f) | Wr[0:3][%d] = (%.6e, %.2f, %.2f, %.2f), En=%d \n", control.count.simpleCounter(32), betaCalcCount, hasFinished, XAddr, YAddr, QBufVec[0], QBufVec[1], QBufVec[2], QBufVec[3], RVec[0][0], RVec[0][1], RVec[0][2], RVec[0][3], YAddr, WrData[0], WrData[1], WrData[2], WrData[3], isCalculating & XAddrCounter.getWrap());
-		
+
 	}
 
 }

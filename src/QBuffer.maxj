@@ -1,12 +1,12 @@
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
-import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
 import com.maxeler.maxcompiler.v2.utils.MathUtils;
 
 
@@ -20,21 +20,21 @@ import com.maxeler.maxcompiler.v2.utils.MathUtils;
  * @param <RBlockDim> 1D Dimension of the block
  * @param <dataIn> Incoming data , i.e. a row of Q
  * @param <beginFetch> Trigger for Q Fetching - resets Write Base Address Generator
- * @param <WriteOffsetAddr> Offset Address of Buffer Write: 1, 2, ... , RBlockDim-1, 0, 1, 2, ... , RBlockDim-1, 0, 1, ... 
+ * @param <WriteOffsetAddr> Offset Address of Buffer Write: 1, 2, ... , RBlockDim-1, 0, 1, 2, ... , RBlockDim-1, 0, 1, ...
  * @param <EnWrite> Control Variable for Buffer Write - true during Fetching
  * @param <beginRead> Trigger for Q Buffer Read - resets Read Address Generator
  */
 
 class QBuffer extends KernelLib{
 
-	private DFEVector<DFEVar> dataOUT;
-		
+	private final DFEVector<DFEVar> dataOUT;
+
 	public DFEVector<DFEVar> getData() 	{return dataOUT;}
-	
+
 	QBuffer (KernelLib owner, int numBlocks, int RBlockDim, DFEVar SSize, DFEVar dataIn, DFEVar BeginFetch, DFEVar WriteOffsetAddr, DFEVar EnWrite, DFEVar beginRead) {
-		
+
 		super(owner);
-		
+
 		/////////////////////// Address for Data Read ///////////////////////
 
 		Count.Params ReadAddrParam = control.count.makeParams(MathUtils.bitsToAddress(RBlockDim))
@@ -44,10 +44,10 @@ class QBuffer extends KernelLib{
                 							.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP);
 		Counter ReadAddrCounter = control.count.makeCounter(ReadAddrParam);
                 DFEVar AddrRead = ReadAddrCounter.getCount();
-                
-                
-		/////////////////////// Address for Data Write ///////////////////////                
-                
+
+
+		/////////////////////// Address for Data Write ///////////////////////
+
                 // OffsetAddr - [0, RBlockDim-1]
                 DFEVar OffsetAddr = WriteOffsetAddr;
 
@@ -61,9 +61,9 @@ class QBuffer extends KernelLib{
                 Counter BaseAddrCounter = control.count.makeCounter(BaseAddrParam);
                 DFEVar BaseAddr = BaseAddrCounter.getCount();
 
-                
+
  		/////////////////////// Memory ///////////////////////
- 		
+
 		dataOUT = new DFEVectorType<DFEVar>(Def.betaType, numBlocks).newInstance(this);
 		for(int i=0; i<numBlocks; ++i) {
 			DFEVar isPadZero = (i*RBlockDim+OffsetAddr.cast(dfeUInt(16))) > SSize.cast(dfeUInt(16));

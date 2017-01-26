@@ -1,8 +1,10 @@
 package maxpower;
 
+
+import static com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFETypeFactory.dfeUInt;
+
 import com.maxeler.maxcompiler.v2.errors.MaxCompilerAPIError;
-import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;
-import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelBase;
 import com.maxeler.maxcompiler.v2.kernelcompiler.RoundingMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath.DivModResult;
@@ -114,23 +116,23 @@ public class ConstDenominator {
 	 */
 	private ConstDivModResult divModAsRHS(DFEVar numerator, int resultBits) {
 		checkType(numerator, true);
-		DFEFix outType = Kernel.dfeUInt(resultBits);
+		DFEFix outType = dfeUInt(resultBits);
 		if (m_denom == 1) {
-			return new ConstDivModResult(numerator.cast(outType), numerator.getKernel().constant.var(0));
+			return new ConstDivModResult(numerator.cast(outType), numerator.getOwner().constant.var(0));
 		}
 
 		if (MathUtils.isPowerOf2(m_denom)) {
 			int remBits  = MathUtils.bitsToAddress(m_denom);
 			int quotBits = numerator.getType().getTotalBits() - remBits;
-			DFEVar quot = numerator.slice(remBits, quotBits).cast(Kernel.dfeUInt(quotBits));
-			DFEVar rem  = numerator.slice(0, remBits).cast(Kernel.dfeUInt(remBits));
+			DFEVar quot = numerator.slice(remBits, quotBits).cast(dfeUInt(quotBits));
+			DFEVar rem  = numerator.slice(0, remBits).cast(dfeUInt(remBits));
 			return new ConstDivModResult(quot.cast(outType), rem);
 		}
 
 		// can we reduce resource usage further by performing a shift first
 		if (m_denom % 2 == 0) {
 			int    newSize = numerator.getType().getTotalBits() - 1;
-			DFEFix newType = Kernel.dfeUInt(newSize);
+			DFEFix newType = dfeUInt(newSize);
 			DFEVar newLhs  = numerator.slice(1, newSize).cast(newType);
 
 			int newResultBits = Math.min(resultBits, newSize);
@@ -139,23 +141,23 @@ public class ConstDenominator {
 			ConstDivModResult result = newDenom.divModAsRHS(newLhs, newResultBits);
 			//add the remained bit back on
 			DFEVar remainder = result.getRemainder() # numerator[0];
-			remainder = remainder.cast(Kernel.dfeUInt(remainder.getType().getTotalBits()));
+			remainder = remainder.cast(dfeUInt(remainder.getType().getTotalBits()));
 			//add the zero back on the front of the quotient if result bits changed
-			DFEVar quotient = result.getQuotient().cast(Kernel.dfeUInt(resultBits));
+			DFEVar quotient = result.getQuotient().cast(dfeUInt(resultBits));
 
 			return new ConstDivModResult(quotient, remainder);
 		}
 
 		// if denom too big for this method - revert to standard division
 		if (m_carryBits >= LUTBITS) {
-			DivModResult dmr = KernelMath.divMod(numerator, numerator.getKernel().constant.var(m_denom), outType.getTotalBits());
+			DivModResult dmr = KernelMath.divMod(numerator, numerator.getOwner().constant.var(m_denom), outType.getTotalBits());
 			return new ConstDivModResult(dmr.getQuotient(), dmr.getRemainder());
 		}
 
 		ConstDivModResult result = internalDivide(numerator);
-		DFEVar quotient = result.getQuotient().cast(Kernel.dfeUInt(result.getQuotient().getType().getTotalBits()));//reinterpret as UInt
+		DFEVar quotient = result.getQuotient().cast(dfeUInt(result.getQuotient().getType().getTotalBits()));//reinterpret as UInt
 		quotient = quotient.cast(outType);//cast requested output type
-		DFEVar remainder  = result.getRemainder().cast(Kernel.dfeUInt(result.getRemainder().getType().getTotalBits()));//reinterpret as UInt
+		DFEVar remainder  = result.getRemainder().cast(dfeUInt(result.getRemainder().getType().getTotalBits()));//reinterpret as UInt
 
 		return new ConstDivModResult(quotient, remainder);
 	}
@@ -174,8 +176,7 @@ public class ConstDenominator {
 				throw new MaxCompilerAPIError("Only supports integer division / modulo.");
 			}
 		} else {
-			KernelLib owner = lhs.getKernel();
-			if (owner.optimization.getRoundingMode() != RoundingMode.TRUNCATE) {
+			if (lhs.getOwner().optimization.getRoundingMode() != RoundingMode.TRUNCATE) {
 				throw new MaxCompilerAPIError("Only truncate rounding mode supported.");
 			}
 		}
@@ -183,7 +184,7 @@ public class ConstDenominator {
 
 
 	private ConstDivModResult internalDivide(DFEVar lhs) {
-		KernelLib owner = lhs.getKernel();
+		KernelBase<?> owner = lhs.getOwner();
 		int chunks = MathUtils.ceilDivide(lhs.getType().getTotalBits(), m_chunkBits);
 
 		DFEType carryType = DFETypeFactory.dfeUInt(m_carryBits);
@@ -210,7 +211,7 @@ public class ConstDenominator {
 	}
 
 
-	private DFEVar[] getLutContents(KernelLib owner) {
+	private DFEVar[] getLutContents(KernelBase<?> owner) {
 		DFEType carryType = DFETypeFactory.dfeUInt(m_carryBits);
 		DFEVar[] lutContents = new DFEVar[LUTSIZE];
 		for (int i = 0; i < LUTSIZE; ++i) {

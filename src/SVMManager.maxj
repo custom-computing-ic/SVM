@@ -1,30 +1,30 @@
+import com.maxeler.maxcompiler.v2.build.EngineParameters;
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelConfiguration;
+import com.maxeler.maxcompiler.v2.managers.BuildConfig;
+import com.maxeler.maxcompiler.v2.managers.DFEArchitecture;
+import com.maxeler.maxcompiler.v2.managers.custom.CustomManager;
+import com.maxeler.maxcompiler.v2.managers.custom.blocks.KernelBlock;
 import com.maxeler.maxcompiler.v2.managers.engine_interfaces.CPUTypes;
 import com.maxeler.maxcompiler.v2.managers.engine_interfaces.EngineInterface;
 import com.maxeler.maxcompiler.v2.managers.engine_interfaces.EngineInterface.Direction;
 import com.maxeler.maxcompiler.v2.managers.engine_interfaces.InterfaceParam;
 import com.maxeler.maxcompiler.v2.managers.engine_interfaces.InterfaceParamArray;
-import com.maxeler.maxcompiler.v2.managers.custom.CustomManager;
-import com.maxeler.maxcompiler.v2.kernelcompiler.KernelConfiguration;
-import com.maxeler.maxcompiler.v2.managers.BuildConfig;
-import com.maxeler.maxcompiler.v2.managers.custom.blocks.KernelBlock;
-import com.maxeler.maxcompiler.v2.build.EngineParameters;
-import com.maxeler.maxcompiler.v2.managers.DFEArchitecture;
 
 public class SVMManager extends CustomManager{
 
 	private static final String Name  = "SVMKernel";
 
 	SVMManager(EngineParameters ep) {
-	
+
 		super(ep);
-		
+
 		///////////////////////// FPGA Configuration /////////////////////////
-		
+
 		if (ep.getDFEModel().getDFEArchitecture() == DFEArchitecture.MAX4_Maia) {
 			BuildConfig Config = new BuildConfig(BuildConfig.Level.FULL_BUILD);
                 	Config.setBuildEffort(BuildConfig.Effort.HIGH);
                 	Config.setMPPRCostTableSearchRange(1, 20);
-                	Config.setMPPRParallelism(8);
+                	Config.setMPPRParallelism(3);
                 	Config.setEnableTimingAnalysis(true);
                 	setBuildConfig(Config);
                 	config.setDefaultStreamClockFrequency(Def.KernelFrequencyMAX4);
@@ -34,7 +34,7 @@ public class SVMManager extends CustomManager{
 			BuildConfig Config = new BuildConfig(BuildConfig.Level.FULL_BUILD);
                 	Config.setBuildEffort(BuildConfig.Effort.HIGH);
                 	Config.setMPPRCostTableSearchRange(1, 20);
-                	Config.setMPPRParallelism(10);
+                	Config.setMPPRParallelism(3);
                 	Config.setEnableTimingAnalysis(true);
                 	setBuildConfig(Config);
 			config.setDefaultStreamClockFrequency(Def.KernelFrequencyMAX3);
@@ -44,10 +44,10 @@ public class SVMManager extends CustomManager{
 			config.setAllowNonMultipleTransitions(true);
 			System.out.println("[ERROR] Unknown board model "+ep.getDFEModel().toString()+", using default FPGA settings.");
 		}
-		
+
 
 		///////////////////////// Kernel Configuration /////////////////////////
-		
+
 		getCurrentKernelConfig().simulation.setRAMAddressCollisionBehaviour(KernelConfiguration.SimulationOptions.SimulationBehaviour.IGNORE);
 		KernelBlock k = addKernel(new SVMKernel(makeKernelParameters(Name), Def.numBlocks, Def.blockDim, Def.RBlockDim, Def.DataDim));
 		k.getInput("Xc") <== addStreamFromCPU("Xc");
@@ -57,9 +57,9 @@ public class SVMManager extends CustomManager{
 	}
 
 	private static EngineInterface InitSVM () {
-	
+
 		EngineInterface ei = new EngineInterface("InitSVM");
-			
+
 		// dataXBlock: Init block0 with the first 2 samples X0 and X1
 		// Here we assume blockDim >=2
 		InterfaceParamArray X0 = ei.addParamArray("X0", CPUTypes.DOUBLE);
@@ -79,7 +79,7 @@ public class SVMManager extends CustomManager{
 				}
 			}
 		}
-		
+
 		// dataY
 		InterfaceParam Y0 = ei.addParam("Y0", CPUTypes.DOUBLE);
 		InterfaceParam Y1 = ei.addParam("Y1", CPUTypes.DOUBLE);
@@ -88,7 +88,7 @@ public class SVMManager extends CustomManager{
 		for (int addr=2; addr<Def.WinSize; ++addr) {
 			ei.setMem(Name, "dataY", addr, 0.0);
 		}
-		
+
 		// theta
 		InterfaceParam theta0 = ei.addParam("theta0", CPUTypes.DOUBLE);
 		InterfaceParam theta1 = ei.addParam("theta1", CPUTypes.DOUBLE);
@@ -102,12 +102,12 @@ public class SVMManager extends CustomManager{
 				ei.setMem(Name, "theta"+block, addr, 0.0);
 			}
 		}
-		
+
 		// b
 		InterfaceParam b = ei.addParam("b", CPUTypes.DOUBLE);
 		ei.setMem(Name, "b", 0, b);
 		ei.setMem(Name, "b", 1, 0.0);
-		
+
 		// Q
 		InterfaceParam Q00 = ei.addParam("Q00", CPUTypes.DOUBLE);
 		InterfaceParam Q01 = ei.addParam("Q01", CPUTypes.DOUBLE);
@@ -133,7 +133,7 @@ public class SVMManager extends CustomManager{
 				}
 			}
 		}
-		
+
 		// hXi
 		InterfaceParam hX0 = ei.addParam("hX0", CPUTypes.DOUBLE);
 		InterfaceParam hX1 = ei.addParam("hX1", CPUTypes.DOUBLE);
@@ -142,7 +142,7 @@ public class SVMManager extends CustomManager{
 		for (int addr=2; addr<Def.WinSize; ++addr) {
 			ei.setMem(Name, "hXi", addr, 0.0);
 		}
-		
+
 		// Group
 		InterfaceParam Group0 = ei.addParam("Group0", CPUTypes.UINT64);
 		InterfaceParam Group1 = ei.addParam("Group1", CPUTypes.UINT64);
@@ -170,39 +170,39 @@ public class SVMManager extends CustomManager{
 	}
 
 	private static EngineInterface RunSVM() {
-	
+
 		EngineInterface ei = new EngineInterface("RunSVM");
 
 		// Ticks
 		InterfaceParam numTicks = ei.addParam("numTicks", CPUTypes.UINT32);
 		ei.setTicks(Name, numTicks);
-		
+
 		// Scalar
 		InterfaceParam numSamples = ei.addParam("numSamples", CPUTypes.UINT32);
 		InterfaceParam inputLength = numSamples - 2;
 		ei.setScalar(Name, "numSamples", numSamples);
 		ei.setScalar(Name, "Xc_ZLI_inputLength", inputLength);
 		ei.setScalar(Name, "Yc_ZLI_inputLength", inputLength);
-		
+
 		// Stream
 		InterfaceParam dataDim = ei.addConstant(Def.DataDim);
 		ei.setStream("Xc", CPUTypes.DOUBLE, inputLength * dataDim * CPUTypes.DOUBLE.sizeInBytes());
 		ei.setStream("Yc", CPUTypes.DOUBLE, inputLength * CPUTypes.DOUBLE.sizeInBytes());
 		ei.setStream("output", CPUTypes.INT32, numTicks * CPUTypes.INT32.sizeInBytes());
-		
+
 		// Ignore Memories and Other scalar inputs
 		ei.ignoreAll(Direction.IN_OUT);
-		
+
 		return ei;
 	}
 
 	public static void main(String[] args) {
-	
+
 		SVMManager manager = new SVMManager(new EngineParameters(args));
 		manager.createSLiCinterface(InitSVM());
 		manager.createSLiCinterface(RunSVM());
 		manager.build();
-		
+
 	}
-	
+
 }

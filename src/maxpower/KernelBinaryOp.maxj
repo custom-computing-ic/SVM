@@ -9,95 +9,94 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
  *
  * @author Chris Jones
  */
- 
 public abstract class KernelBinaryOp {
-	public static class Add<T extends KernelObjectVectorizable<T, T>> implements AssociativeOp<T> {
+	public static class Add<T extends KernelObjectVectorizable<T, ?>> implements AssociativeOp<T> {
 		@Override
 		public T op(T a, T b) {
 			return a + b;
 		}
 	}
 
-	public static class Sub<T extends KernelObjectVectorizable<T, T>> implements BinaryOp<T, T, T> {
+	public static class Sub<T extends KernelObjectVectorizable<T, ?>> implements BinaryOp<T, T, T> {
 		@Override
 		public T op(T a, T b) {
 			return a - b;
 		}
 	}
 
-	public static class Mul<T extends KernelObjectVectorizable<T, T>> implements AssociativeOp<T> {
+	public static class Mul<T extends KernelObjectVectorizable<T, ?>> implements AssociativeOp<T> {
 		@Override
 		public T op(T a, T b) {
 			return a * b;
 		}
 	}
 
-	public static class Div<T extends KernelObjectVectorizable<T, T>> implements BinaryOp<T, T, T> {
+	public static class Div<T extends KernelObjectVectorizable<T, ?>> implements BinaryOp<T, T, T> {
 		@Override
 		public T op(T a, T b) {
 			return a / b;
 		}
 	}
 
-	public static class And<T extends KernelObjectVectorizable<T, T>> implements AssociativeOp<T> {
+	public static class And<T extends KernelObjectVectorizable<T, ?>> implements AssociativeOp<T> {
 		@Override
 		public T op(T a, T b) {
 			return a & b;
 		}
 	}
 
-	public static class Or<T extends KernelObjectVectorizable<T, T>> implements AssociativeOp<T> {
+	public static class Or<T extends KernelObjectVectorizable<T, ?>> implements AssociativeOp<T> {
 		@Override
 		public T op(T a, T b) {
 			return a | b;
 		}
 	}
 
-	public static class Xor<T extends KernelObjectVectorizable<T, T>> implements AssociativeOp<T> {
+	public static class Xor<T extends KernelObjectVectorizable<T, ?>> implements AssociativeOp<T> {
 		@Override
 		public T op(T a, T b) {
 			return a ^ b;
 		}
 	}
 
-	public static class Lt<T extends KernelObjectVectorizable<T, T>> implements BinaryOp<T, T, T> {
+	public static class Lt<T extends KernelObjectVectorizable<T, C>, C> implements BinaryOp<C, T, T> {
 		@Override
-		public T op(T a, T b) {
+		public C op(T a, T b) {
 			return a < b;
 		}
 	}
 
-	public static class Lte<T extends KernelObjectVectorizable<T, T>> implements BinaryOp<T, T, T> {
+	public static class Lte<T extends KernelObjectVectorizable<T, C>, C> implements BinaryOp<C, T, T> {
 		@Override
-		public T op(T a, T b) {
+		public C op(T a, T b) {
 			return a <= b;
 		}
 	}
 
-	public static class Gt<T extends KernelObjectVectorizable<T, T>> implements BinaryOp<T, T, T> {
+	public static class Gt<T extends KernelObjectVectorizable<T, C>, C> implements BinaryOp<C, T, T> {
 		@Override
-		public T op(T a, T b) {
+		public C op(T a, T b) {
 			return a > b;
 		}
 	}
 
-	public static class Gte<T extends KernelObjectVectorizable<T, T>> implements BinaryOp<T, T, T> {
+	public static class Gte<T extends KernelObjectVectorizable<T, C>, C> implements BinaryOp<C, T, T> {
 		@Override
-		public T op(T a, T b) {
+		public C op(T a, T b) {
 			return a >= b;
 		}
 	}
 
-	public static class Eq<T extends KernelObjectVectorizable<T, T>> implements BinaryOp<T, T, T> {
+	public static class Eq<T extends KernelObjectVectorizable<T, C>, C> implements BinaryOp<C, T, T> {
 		@Override
-		public T op(T a, T b) {
+		public C op(T a, T b) {
 			return a.eq(b);
 		}
 	}
 
-	public static class Neq<T extends KernelObjectVectorizable<T, T>> implements BinaryOp<T, T, T> {
+	public static class Neq<T extends KernelObjectVectorizable<T, C>, C> implements BinaryOp<C, T, T> {
 		@Override
-		public T op(T a, T b) {
+		public C op(T a, T b) {
 			return a.neq(b);
 		}
 	}

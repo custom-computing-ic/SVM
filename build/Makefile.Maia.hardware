@@ -1,0 +1,16 @@
+# ---- Available DFE hardware settings ----
+DFEModel=MAIA
+DEVICENUM=MAIA
+
+MPCX=false
+
+# We now get 2 more Max4 nodes, in total 20 Stratix V in our system. 
+# maia0 (CPU host)1: IB0 - 192.168.0.1/25  IB1 - 192.168.0.129/25
+# mpcx01 (8 DFEs): IB0 - 192.168.0.10  IB1 - 192.168.0.138
+# mpcx02 (8 DFEs): IB0 - 192.168.0.11  IB1 - 192.168.0.139
+# mpcx03 (4 DFEs): IB0 - 192.168.0.12  IB1 - 192.168.0.140
+
+# Uncomment to use mpcx01, mpcx02 or mpcx03 respectively
+SLIC_CONF="default_engine_resource=Patrick^192.168.0.1"
+# SLIC_CONF = "default_engine_resource = 192.168.0.11"
+# SLIC_CONF = "default_engine_resource = 192.168.0.12"

@@ -10,19 +10,14 @@
 
 // Output Statistics or not
 #define EN_STAT 1
-// Use double or float
-#define EN_DOUBLE 1
+
 // Generate log or not
 #define EN_LOG 1
 
-// Types
-#ifdef EN_DOUBLE
-	typedef double DataType;
-	typedef double CalcType;
-#else
-	typedef float DataType;
-	typedef float CalcType;
-#endif
+// Use double precision
+typedef double DataType;
+typedef double CalcType;
+
 
 // SVR Parameters
 typedef struct {
@@ -92,7 +87,7 @@ static inline void stat_report() {
 ////////////////////// Utility Functions //////////////////////
 
 // RBF Kernel
-static inline CalcType Kernel(DataType *X1, DataType*X2, const size_t DataDim, const CalcType sigma_sq) {
+CalcType Kernel(DataType *X1, DataType*X2, const size_t DataDim, const CalcType sigma_sq) {
 	CalcType sum = 0;
 #ifdef EN_STAT
 	for (size_t i=0; i<DataDim; ++i) {
@@ -104,11 +99,7 @@ static inline CalcType Kernel(DataType *X1, DataType*X2, const size_t DataDim, c
 #else
 	for (size_t i=0; i<DataDim; ++i) sum += (X1[i]-X2[i])*(X1[i]-X2[i]);
 #endif
-#ifdef EN_DOUBLE
 	return exp(sum*(-0.5/sigma_sq));
-#else
-	return expf(sum*(-0.5/sigma_sq));
-#endif
 }
 
 // Calculating h(Xi)
@@ -1479,21 +1470,14 @@ int LIBSVMData(Param param){
 	// read file into memory
 	// We use LibSVM data format
 	size_t ActualDataSize = 0;
-#ifdef EN_DOUBLE
+
 	while((fscanf(infp, "%lf", &Y_IN[ActualDataSize])==1) && ActualDataSize<DataSize) {
 		for (size_t j=0; j<DataDim; ++j) {
 			fscanf(infp, "%*d:%lf", &X_IN[ActualDataSize*DataDim+j]);
 		}
 		++ActualDataSize;
 	}
-#else
-	while((fscanf(infp, "%f", &Y_IN[ActualDataSize])==1) && ActualDataSize<DataSize) {
-		for (size_t j=0; j<DataDim; ++j) {
-			fscanf(infp, "%*d:%f", &X_IN[ActualDataSize*DataDim+j]);
-		}
-		++ActualDataSize;
-	}
-#endif
+
 	fclose(infp);
 
 
@@ -1749,7 +1733,7 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 
 	// read file into memory - We use LibSVM data format
 	size_t ActualDataSize = 0;
-#ifdef EN_DOUBLE
+
 	while(!feof(infp) && ActualDataSize<DataSize) {
 		fscanf(infp, "%lf", &Y_IN[ActualDataSize]);
 		for (size_t j=0; j<DataDim; ++j) {
@@ -1757,15 +1741,7 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 		}
 		++ActualDataSize;
 	}
-#else
-	while(!feof(infp) && ActualDataSize<DataSize) {
-		fscanf(infp, "%f", &Y_IN[ActualDataSize]);
-		for (size_t j=0; j<DataDim; ++j) {
-			fscanf(infp, "%*d:%f", &X_IN[ActualDataSize*DataDim+j]);
-		}
-		++ActualDataSize;
-	}
-#endif
+
 	fclose(infp);
 	fprintf(stderr, " Done. %zu samples read.\n", ActualDataSize);
 	
@@ -1917,19 +1893,19 @@ int main(){
 	///////////// Order Book Data /////////////
 
 	Param ParamOrderBook;
-	ParamOrderBook.InFile 	= "data9970.txt";
-	ParamOrderBook.OutFile  	= "data9970result.txt";
-	ParamOrderBook.LogFile	= "data9970log.txt";
-	ParamOrderBook.DataSize  	= 1902;
-	ParamOrderBook.DataDim  	= 16;
-	ParamOrderBook.WinSize  	= 420;
+	ParamOrderBook.InFile 	= "AAPL9970.txt";
+	ParamOrderBook.OutFile  = "AAPL9970result.txt";
+	ParamOrderBook.LogFile	= "AAPL9970log.txt";
+	ParamOrderBook.DataSize = 9970;
+	ParamOrderBook.DataDim  = 16;
+	ParamOrderBook.WinSize  = 420;
 	ParamOrderBook.RSize 	= ParamOrderBook.WinSize;
-	ParamOrderBook.ep 		= 1500*0.0001;
-	ParamOrderBook.C 		= 5000;
-	ParamOrderBook.sigma_sq  	= 0.0625;
-	ParamOrderBook.eps  		= 1e-8;
+	ParamOrderBook.ep 	= 0.015;
+	ParamOrderBook.C 	= 32;
+	ParamOrderBook.sigma_sq = 5000;
+	ParamOrderBook.eps  	= 1e-6;
 
-//	LIBSVMData(ParamOrderBook);
+	LIBSVMData(ParamOrderBook);
 
 
 	///////////// CPU_SMALL DATASET /////////////

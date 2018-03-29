@@ -14,16 +14,16 @@ class Def {
 
 	// Settings for OrderBookData
 	// Kernel Settings
-	public static final int DataDim 			= 16;
-	public static final int numBlocks 			= 6;
-	public static final int blockDim 			= 70;
-	public static final int RBlockDim 			= 20;
+	public static final int DataDim 		= 16;
+	public static final int numBlocks 		= 6;
+	public static final int blockDim 		= 70;
+	public static final int RBlockDim 		= 20;
 
 	// Window Size = numBlocks * blockDim
-	public static final int WinSize 			= numBlocks * blockDim;
-	public static final double ep 			= 1500*0.0001;
-	public static final double C 				= 5000;
-	public static final double sigma_sq 		= 0.0625;
+	public static final int WinSize 		= numBlocks * blockDim;
+	public static final double ep 			= 0.015;
+	public static final double C 			= 32;
+	public static final double sigma_sq 		= 5000;
 	public static final double BookKeepingTH 	= 100000000000.0;
 
 

@@ -1,14 +1,14 @@
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Accumulator;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Accumulator;
 import com.maxeler.maxcompiler.v2.utils.MathUtils;
 
 
@@ -20,52 +20,52 @@ import com.maxeler.maxcompiler.v2.utils.MathUtils;
  * @param <blockDim> 1D Dimension of the block - Block Size = blockDim^2
  * @param <Q> Incoming Q values
  * 		- If calculating gamma_k, Q should be Q[k][k] on the first cycle
- * 		- If calculating ith element for gamma vector, Q should be Q[NMask[i]][Xc] on the first cycle
+ * 		- If calculating ith element for gamma vector, Q should be Q[NMask[i]][Xc] on the first cycle 
  * @param <beta> beta Vector
  * @param <isDataValid> is incoming data valid, true during calculation
  * @param <beginGammaVCalc> Trigger of gamma vector calculation, also resets accumulator
  * @param <beginGammaCCalc> Trigger of gamma_c calculation, also resets accumulator
- *
+ * 
  */
 
 
 
 class gammaCalc extends KernelLib {
 
-	private final DFEVar Result;
-	private final DFEVar Data;
-	private final DFEVar hasFinish;
-	private final DFEVar bgGammaVCalcInnerLoop;
-	private final DFEVar hasGammaVCalcFinish;
-
+	private DFEVar Result;
+	private DFEVar Data;
+	private DFEVar hasFinish;
+	private DFEVar bgGammaVCalcInnerLoop;
+	private DFEVar hasGammaVCalcFinish;
+	
 	public DFEVar getCalcResult() 			{return Result;}
 	public DFEVar getData() 		{return Data;}
 	public DFEVar hasFinished() 		{return hasFinish;}
 	public DFEVar beginGammaVCalcInnerLoop() 	{return bgGammaVCalcInnerLoop;}
 	public DFEVar hasGammaVCalcFinished() 	{return hasGammaVCalcFinish;}
-
+	
 	gammaCalc ( 	KernelLib owner,
 				int numBlocks,
 				int blockDim,
-				DFEVar SSize,
+				DFEVar SSize, 
 				DFEVar Q,
 				DFEVector<DFEVar> QVecForGammaVCalc,
-				DFEVar beta,
+				DFEVar beta, 
 				DFEVar GammaReadBaseAddr,
 				DFEVar GammaReadOffsetAddr,
 				DFEVar beginCalc,
 				DFEVar isCalculating,
-				DFEVar beginGammaVCalc)
+				DFEVar beginGammaVCalc) 
 	{
-
+	
 		super(owner);
-
+		
 		/////////////////////// Vector Type ///////////////////////
-
+		
 		DFEVectorType<DFEVar> VecType = new DFEVectorType<DFEVar>(Def.gammaType, numBlocks);
-
+		
 		/////////////////////// Control for Gamma C and Gamma K ///////////////////////
-
+		
 		// Latest SSize is read only at the beginning of Gamma calculation
 		DFEVar SSizeForGammaCalc = Reductions.streamHold(SSize, beginCalc).cast(dfeUInt(16));
 		DFEVar Max = SSizeForGammaCalc + 1;
@@ -78,13 +78,13 @@ class gammaCalc extends KernelLib {
                 Counter GammaCounter = control.count.makeCounter(GammaCounterParam);
                 DFEVar GammaCount = GammaCounter.getCount();
 
-		// Address is valid when it's smaller than Max
+		// Address is valid when it's smaller than Max                
                 DFEVar Valid = beginCalc | (GammaCount>0) & (GammaCount<Max);
                 hasFinish = Valid & (GammaCount === SSizeForGammaCalc);
 
 
 		/////////////////////// Control for Gamma V ///////////////////////
-
+		
 		// Cycle Counter
 		DFEVar SSizeForGammaVCalc = Reductions.streamHold(SSize, beginGammaVCalc).cast(dfeUInt(16));
 		DFEVar GammaVInnerCycles = SSizeForGammaVCalc + 1;
@@ -92,7 +92,7 @@ class gammaCalc extends KernelLib {
 		AddrGenerator CycleCounter = new AddrGenerator(owner, 1, 65535, beginGammaVCalc);
 		DFEVar isGammaVCalculating = CycleCounter.isValid() & (CycleCounter.getAddr()<GammaVCalcTotalCycles);
 		hasGammaVCalcFinish = isGammaVCalculating & (CycleCounter.getAddr()===GammaVCalcTotalCycles-1);
-
+		
                 // Inner Loop
                 Count.Params GammaInnerCounterParam = control.count.makeParams(16)
                 							.withInitValue(0)
@@ -113,11 +113,11 @@ class gammaCalc extends KernelLib {
                 							.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP)
                 							.withReset(beginGammaVCalc);
 		Counter GammaOuterCounter = control.count.makeCounter(GammaOuterCounterParam);
-		DFEVar GammaWriteOffsetAddr = GammaOuterCounter.getCount();
-
-
+		DFEVar GammaWriteOffsetAddr = GammaOuterCounter.getCount();		
+		
+		
 		/////////////////////// Calculation for Gamma C and Gamma K ///////////////////////
-
+		
 		DFEVar Q_CAST = Q.cast(Def.gammaType);
 		DFEVar beta_CAST = beta.cast(Def.gammaType);
 		DFEVar toAccumulator = beginCalc ? (Q_CAST + beta_CAST) : (Q_CAST * beta_CAST);
@@ -137,12 +137,12 @@ class gammaCalc extends KernelLib {
 			Accumulator.Params Param_V = Reductions.accumulator.makeAccumulatorConfig(Def.gammaType)
 									.withEnable(isGammaVCalculating)
 									.withClear(stream.offset(beginInnerLoop, 1));
-			GammaCalcResult[i] <== Reductions.accumulator.makeAccumulator(toAccumulator_V, Param_V);
+			GammaCalcResult[i] <== Reductions.accumulator.makeAccumulator(toAccumulator_V, Param_V);			
 		}
 
-
+		
 		/////////////////////// Memory ///////////////////////
-
+		
 		DFEVector<DFEVar> GammaVec = VecType.newInstance(this);
 		for (int i=0; i<numBlocks; ++i) {
 			Memory<DFEVar> GammaMem = mem.alloc(Def.gammaType, blockDim);
@@ -151,7 +151,7 @@ class gammaCalc extends KernelLib {
 			GammaMem.port(GammaWriteOffsetAddr, GammaCalcResult[i], WrEn, RamWriteMode.WRITE_FIRST);
 		}
 		Data = control.mux(GammaReadBaseAddr, GammaVec.getElementsAsList());
-
+		
 
 //		debug.simPrintf(Valid, "[%4d] [GammaCalc] beginCalc=%d, GammaCount=%d | Q=%.16f, beta=%.16f, Result=%.16f, WrEn=%d | hasFinish=%d \n", control.count.simpleCounter(32), beginCalc, GammaCount, Q, beta, Result, WrEn, hasFinish);
 

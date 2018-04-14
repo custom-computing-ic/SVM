@@ -1,14 +1,14 @@
-import maxpower.FanoutLimiter;
-
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
+
+import maxpower.FanoutLimiter;
 
 /**
- * Iterate Over a dataX block.
+ * Iterate Over a dataX block. 
  * dataX is distributed over several blocks to increase parallelism.
  *
  * @author Patrick Shao
@@ -22,38 +22,30 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
 
 class dataXBlock extends KernelLib{
 
-	private final DFEVector<DFEVar> dataOUT;
-	private final DFEVar Valid;
-
+	private DFEVector<DFEVar> dataOUT;
+	private DFEVar Valid;
+		
 	public DFEVector<DFEVar> getData() 	{return dataOUT;}
-	public DFEVar isValid() 			{return Valid;}
-
-	dataXBlock (	KernelLib owner,
-					int ID,
-					int blockDim,
-					int DataDim,
-					DFEVector<DFEVar> Xc,
-					DFEVar BaseAddrXc,
-					DFEVar OffsetAddrXc,
-					DFEVar EnIterate)
-	{
-
+	public DFEVar isValid() 		{return Valid;}
+	
+	dataXBlock (KernelLib owner, int ID, int blockDim, int DataDim, DFEVector<DFEVar> Xc, DFEVar BaseAddrXc, DFEVar OffsetAddrXc, DFEVar EnIterate) {
+		
 		super(owner);
-
+		
 		/////////////////////// Control ///////////////////////
-
-		// Address
-		AddrGenerator AddrGen = new AddrGenerator(owner, 1, blockDim, EnIterate);
-		DFEVar Addr = AddrGen.getAddr();
-		Valid = AddrGen.isValid();
-		FanoutLimiter<DFEVar> AddrFanout = new FanoutLimiter<DFEVar>(Addr, Def.MaxFanout);
+                
+                // Address
+                AddrGenerator AddrGen = new AddrGenerator(owner, 1, blockDim, EnIterate);
+                DFEVar Addr = AddrGen.getAddr();
+                Valid = AddrGen.isValid();
+                FanoutLimiter<DFEVar> AddrFanout = new FanoutLimiter<DFEVar>(Addr, Def.MaxFanout);
 
 		// Write Control
 		DFEVar EnWrite = (BaseAddrXc === ID) & (Addr === OffsetAddrXc) & Valid;
 		FanoutLimiter<DFEVar> EnWriteFanout = new FanoutLimiter<DFEVar>(EnWrite, Def.MaxFanout);
-
-
-		/////////////////////// Memory ///////////////////////
+		
+		
+		/////////////////////// Memory ///////////////////////		
 
 		dataOUT = (new DFEVectorType<DFEVar>(Def.DataType, DataDim)).newInstance(this);
 		for(int i=0; i<DataDim; ++i) {

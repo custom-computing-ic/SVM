@@ -51,7 +51,7 @@ public class SMArrayList extends StateMachineLib {
 			else if (n==1) data[n] = state.value(type, initData1);
 			else data[n] = state.value(type, 0);
 		}
-
+			
 	}
 
 

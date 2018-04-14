@@ -1,24 +1,23 @@
-import maxpower.ConstDenominator;
-import maxpower.FanoutLimiter;
-
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
-import com.maxeler.maxcompiler.v2.kernelcompiler.Optimization.PipelinedOps;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Stream.OffsetExpr;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.Counter;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Count.WrapMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Stream.OffsetExpr;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
 import com.maxeler.maxcompiler.v2.utils.MathUtils;
+
+import maxpower.ConstDenominator;
+import maxpower.FanoutLimiter;
 
 
 /**
- * This class maintains Matrix R
+ * This class maintains Matrix R 
  *	- Store R in RBlockDim-by-RBlockDim blocks for parallelised access
  *	- Support Beta Calculation, R Initialisation, R Enlarge and R Shrink
  * 	- Assuming the maximum RSize = WinSize (theoretical maximum = WinSize+1)
@@ -37,16 +36,16 @@ import com.maxeler.maxcompiler.v2.utils.MathUtils;
  * @param <beginBetaCalc> Trigger Signal for Beta Calculation
  * @param <beginREnlarge> Trigger Signal for REnlarge
  * @param <beginRShrink>	Trigger Signal for RShrink
- *
+ * 
  */
 
 
 class RMem extends KernelLib{
 
-	private final DFEVector<DFEVector<DFEVar>> BetaCalcVec;
+	private DFEVector<DFEVector<DFEVar>> BetaCalcVec;
 	private DFEVar XAddr;
 	private DFEVar YAddr;
-
+	
 	public DFEVector<DFEVector<DFEVar>> getBetaCalcVec() 	{return BetaCalcVec;}
 	public DFEVar getXAddr() 		{return XAddr;}
 	public DFEVar getYAddr() 		{return YAddr;}
@@ -68,9 +67,9 @@ class RMem extends KernelLib{
 	{
 
 		super(owner);
-
+		
 		/////////////////////// Parameters ///////////////////////
-
+				
 		int FetchCycles 	= RBlockDim*2;
 		int FetchWait 	= Def.FetchLatency;
 		int ShrinkCycles 	= RBlockDim*RBlockDim;
@@ -78,8 +77,8 @@ class RMem extends KernelLib{
 		int LeftShiftCycles	= RBlockDim*RBlockDim + 1;
 		int RShrinkWait 	= Def.RShrinkLatency;
 		int RShrinkCycles 	= FetchCycles + FetchWait + ShrinkCycles + UpShiftCycles + LeftShiftCycles + RShrinkWait*3;
-
-
+		
+		
 		/////////////////////// Vectors ///////////////////////
 
 		DFEVectorType<DFEVar> numBlocksVec = new DFEVectorType<DFEVar>(Def.RType, numBlocks);
@@ -87,7 +86,7 @@ class RMem extends KernelLib{
 		DFEVectorType<DFEVector<DFEVar>> GridVec = new DFEVectorType<DFEVector<DFEVar>>(numBlocksVec, numBlocks);
 		DFEVectorType<DFEVector<DFEVar>> betaGrid = new DFEVectorType<DFEVector<DFEVar>>(new DFEVectorType<DFEVar>(Def.betaType, numBlocks), numBlocks);
 		BetaCalcVec = betaGrid.newInstance(this);
-
+		
 		XAddr = dfeUInt(MathUtils.bitsToAddress(RBlockDim)).newInstance(this);
 		YAddr = dfeUInt(MathUtils.bitsToAddress(RBlockDim)).newInstance(this);
 
@@ -98,18 +97,18 @@ class RMem extends KernelLib{
 		AddrGenerator RInitCounter = new AddrGenerator(owner, 1, RBlockDim*RBlockDim, beginRInit);
 		DFEVar isInit = RInitCounter.isValid();
 
-
+		
  		/////////////////////// REnlarge ///////////////////////
-
+ 		
  		// Base and Offset Address of Edge
  		ConstDenominator.ConstDivModResult EdgeDivModResult = ConstDenominator.divMod(SSize+1, RBlockDim);
  		DFEVar REnlargeEdgeBaseAddr = EdgeDivModResult.getQuotient().cast(dfeUInt(MathUtils.bitsToAddress(numBlocks)));
  		DFEVar REnlargeEdgeOffsetAddr = EdgeDivModResult.getRemainder().cast(dfeUInt(MathUtils.bitsToAddress(RBlockDim)));
-
+		
 		// Control Signal for REnlarge - RBlockDim^2 cycles
 		AddrGenerator REnlargeCounter = new AddrGenerator(owner, 1, RBlockDim*RBlockDim, beginREnlarge);
 		DFEVar isEnlarging = REnlargeCounter.isValid();
-
+		
 		// betaX * gammaInv, betaY * gammaInv
 		FanoutLimiter<DFEVar> gammaInvFanout = new FanoutLimiter<DFEVar>(gammaInv, Def.MaxFanout);
 		DFEVector<DFEVar> betaXgammaInv = numBlocksVec.newInstance(this);
@@ -121,7 +120,7 @@ class RMem extends KernelLib{
 
 
 		/////////////////////// RShrink ///////////////////////
-
+		
 		// Control Signal for RShrink -  cycles
                 AddrGenerator RShrinkCounter = new AddrGenerator(owner, 1, RShrinkCycles, beginRShrink);
                 DFEVar RShrinkCount = RShrinkCounter.getAddr();
@@ -130,13 +129,13 @@ class RMem extends KernelLib{
  		ConstDenominator.ConstDivModResult PosDivModResult = ConstDenominator.divMod(SMaskIDToRemove+1, RBlockDim);
  		DFEVar RShrinkPosBaseAddr = PosDivModResult.getQuotient().cast(dfeUInt(MathUtils.bitsToAddress(numBlocks)));
  		DFEVar RShrinkPosOffsetAddr = PosDivModResult.getRemainder().cast(dfeUInt(MathUtils.bitsToAddress(RBlockDim)));
-
+ 		
  		// Zeroise RMem if shrink for 1 to zero
  		DFEVar RShrinkWriteZero = (SSize===1);
-
+		
 
 		/////////////////////// RShrink - Fetching ///////////////////////
-
+				
 		// Control Signal for Fetching
 		DFEVar beginFetch = beginRShrink;
 		AddrGenerator FetchingCounter = new AddrGenerator(owner, 1, FetchCycles, beginFetch);
@@ -144,7 +143,7 @@ class RMem extends KernelLib{
 		DFEVar isFetching = FetchingCounter.isValid();
 		DFEVar isFetchingX = isFetching & (FetchingCount<RBlockDim);
 		DFEVar isFetchingY = isFetching & (FetchingCount>=RBlockDim);
-
+		
 		// XElem - prefetched R[k][:] for RShrink
 		DFEVector<DFEVar> XElem = numBlocksVec.newInstance(this);
 		DFEVector<DFEVar> toXBuffer = numBlocksVec.newInstance(this);
@@ -162,26 +161,25 @@ class RMem extends KernelLib{
 			YBuffer.port(XAddr, toYBuffer[i], isFetchingY, RamWriteMode.WRITE_FIRST);
 			YElem[i] <== YBuffer.read(YAddr);
 		}
-
+		
 		// 1/R[k][k] for RShrink
 		DFEVar toKElemInvStreamHold = 1.0 / control.mux(RShrinkPosBaseAddr, toXBuffer.getElementsAsList());
 		DFEVar enKElemInvStreamHold = (XAddr === RShrinkPosOffsetAddr) & isFetchingX;
 		DFEVar KElemInv = Reductions.streamHold(toKElemInvStreamHold, enKElemInvStreamHold).cast(Def.RCalcType);
-		@SuppressWarnings("unused")
 		OffsetExpr KElemInvLatency = stream.measureDistance("KElemInvLatency", toXBuffer[0], toKElemInvStreamHold);
-
-
+		
+		
 		// YElem / R[K][K]
 		DFEVector<DFEVar> YElemKElemInv = RCalcVec.newInstance(this);
-		optimization.pushPipeliningFactor(Def.PipeFactor,PipelinedOps.ALL);
+		optimization.pushPipeliningFactor(Def.PipeFactor);
 		for (int i=0; i<numBlocks; ++i) {
 			YElemKElemInv[i] <== YElem[i].cast(Def.RCalcType) * KElemInv;
 		}
-		optimization.popPipeliningFactor(PipelinedOps.ALL);
-
-
+		optimization.popPipeliningFactor();
+		
+		
 		/////////////////////// RShrink - Shrinking, UpShifting, LeftShifting ///////////////////////
-
+		
 		// Control Signal for Shrinking
 		DFEVar beginShrink = (RShrinkCount === FetchCycles + FetchWait);
 		AddrGenerator ShrinkCounter = new AddrGenerator(owner, 1, ShrinkCycles, beginShrink);
@@ -191,7 +189,7 @@ class RMem extends KernelLib{
 		DFEVar beginUpShift = (RShrinkCount === FetchCycles + FetchWait + ShrinkCycles + RShrinkWait);
 		AddrGenerator UpShiftCounter = new AddrGenerator(owner, 1, UpShiftCycles, beginUpShift);
 		DFEVar isUpShifting = UpShiftCounter.isValid();
-
+		
 		// Control Signal for LeftShifting
 		DFEVar beginLeftShift = (RShrinkCount === FetchCycles + FetchWait + ShrinkCycles + UpShiftCycles + RShrinkWait*2);
 		AddrGenerator LeftShiftCounter = new AddrGenerator(owner, 1, LeftShiftCycles, beginLeftShift);
@@ -199,13 +197,13 @@ class RMem extends KernelLib{
 
 
 		/////////////////////// Address ///////////////////////
-
+			
 		// Counter Reset Trigger
 		DFEVar counterReset = beginBetaCalc | beginRInit | beginREnlarge | beginFetch | beginShrink | beginUpShift | beginLeftShift;
 //		debug.simPrintf(counterReset, "[%4d] ****** RMem: counter Reseted ****** beginBetaCalc=%d | beginRInit=%d | beginREnlarge=%d | beginFetch=%d | beginShrink=%d | beginUpShift=%d | beginLeftShift=%d \n", control.count.simpleCounter(32), beginBetaCalc, beginRInit, beginREnlarge, beginFetch, beginShrink, beginUpShift, beginLeftShift);
 //		debug.simPrintf(beginREnlarge, "[%4d] ==== REnlarge ==== REnlargeEdgeBaseAddr = %d, REnlargeEdgeOffsetAddr = %d\n", control.count.simpleCounter(32), REnlargeEdgeBaseAddr, REnlargeEdgeOffsetAddr);
 
-    		// XAddr - inner loop
+    		// XAddr - inner loop		
                 Count.Params XAddrCounterParam = control.count.makeParams(MathUtils.bitsToAddress(RBlockDim))
                 							.withInitValue(0)
                 							.withMax(RBlockDim)
@@ -213,7 +211,7 @@ class RMem extends KernelLib{
                 							.withReset(counterReset);
                 Counter XAddrCounter = control.count.makeCounter(XAddrCounterParam);
                 XAddr <== XAddrCounter.getCount();
-
+                
                 // YAddr - outer loop
                 Count.Params YAddrCounterParam = control.count.makeParams(MathUtils.bitsToAddress(RBlockDim))
                 							.withInitValue(0)
@@ -223,14 +221,14 @@ class RMem extends KernelLib{
                 							.withReset(counterReset);
                 Counter YAddrCounter = control.count.makeCounter(YAddrCounterParam);
                 YAddr <== YAddrCounter.getCount();
-
+		
 
 		/////////////////////// R Blocks ///////////////////////
-
+		
 		// Internal Connections
 		DFEVector<DFEVector<DFEVar>> fromDownBlock = GridVec.newInstance(this);
 		DFEVector<DFEVector<DFEVar>> fromRightBlock = GridVec.newInstance(this);
-
+		
 		// RBlocks
 		RBlock [][] RGrid = new RBlock[numBlocks][numBlocks];
 		for (int X=0; X<numBlocks; ++X) {
@@ -240,25 +238,25 @@ class RMem extends KernelLib{
 				betaXgammaInv[X], betaYgammaInv[Y], betaX[X], gammaInvFanout.get(),
 				XElem[X], YElemKElemInv[Y], RShrinkWriteZero, fromDownBlock[X][Y], fromRightBlock[X][Y],
 				counterReset, isInit, isEnlarging, isFetching, isShrinking, isUpShifting, isLeftShifting);
-
+				
 				BetaCalcVec[Y][X] <== RGrid[X][Y].getData().cast(Def.betaType);
 			}
 		}
-
+		
 		// XElem
 		for (int X=0; X<numBlocks; ++X) {
 			DFEVector<DFEVar> toMux = numBlocksVec.newInstance(this);
 			for (int Y=0; Y<numBlocks; ++Y) toMux[Y] <== RGrid[X][Y].getData();
 			toXBuffer[X] <== control.mux(RShrinkPosBaseAddr, toMux.getElementsAsList());
 		}
-
+		
 		// YElem
 		for (int Y=0; Y<numBlocks; ++Y) {
 			DFEVector<DFEVar> toMux = numBlocksVec.newInstance(this);
 			for (int X=0; X<numBlocks; ++X) toMux[X] <== RGrid[X][Y].getData();
 			toYBuffer[Y] <== control.mux(RShrinkPosBaseAddr, toMux.getElementsAsList());
 		}
-
+		
 		// Internal Connections
 		for (int X=0; X<numBlocks-1; ++X) {
 			for (int Y=0; Y<numBlocks-1; ++Y) {
@@ -275,22 +273,22 @@ class RMem extends KernelLib{
 		fromDownBlock[numBlocks-1][numBlocks-1] <== constant.var(Def.RType, 0);
 		fromRightBlock[numBlocks-1][numBlocks-1] <== constant.var(Def.RType, 0);
 
-
+	
 	}
 
 
 	private class RBlock extends KernelLib {
-
+	
 		private final DFEVar readItem;
 		private final DFEVar toLeftBlock;
 
 		public DFEVar getData() 		{return readItem;}
 		public DFEVar forLeftBlock() 		{return toLeftBlock;}
 
-		RBlock ( 	KernelLib owner,
-				int X,
+		RBlock ( 	KernelLib owner, 
+				int X, 
 				int Y,
-				int RBlockDim,
+				int RBlockDim, 
 				DFEVar REnlargeEdgeBaseAddr, 					// REnlarge: Base Address of the Edge
 				DFEVar REnlargeEdgeOffsetAddr, 				// REnlarge: Offset Address of the Edge
 				DFEVar RShrinkPosBaseAddr, 					// RShrink: Base Address of Remove Position
@@ -313,20 +311,20 @@ class RMem extends KernelLib{
 				DFEVar isLeftShifting) 							// Control Variable for RShrink - LeftShifting
 
 		{
-
+			
 			super(owner);
 
-
+			
 			/////////////////////// Address ///////////////////////
-
+			
 			// blockAddress Type
 			DFEType blockAddrType = dfeUInt(MathUtils.bitsToAddress(RBlockDim*RBlockDim));
-
+			
 			// blockAddr - for control
 			AddrGenerator BlockAddrCounter = new AddrGenerator(owner, 1, RBlockDim*RBlockDim, counterReset);
 			DFEVar blockAddr = BlockAddrCounter.getAddr();
 			DFEVar blockAddrValid = BlockAddrCounter.isValid();
-
+			
 			// blockReadAddr - actual read address
 			Count.Params blockReadAddrParam = control.count.makeParams(MathUtils.bitsToAddress(RBlockDim*RBlockDim))
                 							.withInitValue(0)
@@ -335,7 +333,7 @@ class RMem extends KernelLib{
                 							.withWrapMode(WrapMode.COUNT_LT_MAX_THEN_WRAP);
 			Counter blockReadAddrCounter = control.count.makeCounter(blockReadAddrParam);
 			DFEVar blockReadAddr = blockReadAddrCounter.getCount();
-
+			
     			// XAddr - inner loop
     			DFEVar XAddrCounterReset = counterReset | (isUpShifting & (blockAddr===RBlockDim));
 			Count.Params XAddrCounterParam = control.count.makeParams(MathUtils.bitsToAddress(RBlockDim))
@@ -345,7 +343,7 @@ class RMem extends KernelLib{
                 									.withReset(XAddrCounterReset);
 			Counter XAddrCounter = control.count.makeCounter(XAddrCounterParam);
 			DFEVar XAddr = XAddrCounter.getCount();
-
+                
 			// YAddr - outer loop
 			DFEVar YAddrCounterReset = counterReset | (isUpShifting & (blockAddr===RBlockDim));
                 	Count.Params YAddrCounterParam = control.count.makeParams(MathUtils.bitsToAddress(RBlockDim))
@@ -356,21 +354,21 @@ class RMem extends KernelLib{
                 									.withReset(YAddrCounterReset);
 			Counter YAddrCounter = control.count.makeCounter(YAddrCounterParam);
 			DFEVar YAddr = YAddrCounter.getCount();
-
-
+		
+			
 			/////////////////////// Memory - Read ///////////////////////
-
+			
 			Memory<DFEVar> block = mem.alloc(Def.RType, RBlockDim*RBlockDim);
 			DFEVar readAddr = dfeUInt(MathUtils.bitsToAddress(RBlockDim*RBlockDim)).newInstance(this);
 			readItem = block.read(readAddr);
-
+			
 			Memory<DFEVar> buffer = mem.alloc(Def.RType, RBlockDim);
 			DFEVar bufferItem = buffer.read(XAddr);
 			buffer.port(XAddr, fromDownBlock, isUpShifting & blockAddrValid & (blockAddr<RBlockDim), RamWriteMode.WRITE_FIRST);
 
 
 			/////////////////////// RInit ///////////////////////
-
+			
 			// Write - RBlockDim*2 cycles
 			// Write Data - PortAddr = blockAddr
 			DFEVar RInitPortData = Def.RType.newInstance(this);
@@ -380,24 +378,23 @@ class RMem extends KernelLib{
 
 
 			/////////////////////// REnlarge ///////////////////////
-
+			
 			// Write - RBlockDim^2 cycles
 			// Judge the location
 			DFEVar isREnlargeXEdge 	= (X === REnlargeEdgeBaseAddr) & (XAddr === REnlargeEdgeOffsetAddr);
 			DFEVar isREnlargeYEdge 	= (Y === REnlargeEdgeBaseAddr) & (YAddr === REnlargeEdgeOffsetAddr);
 			DFEVar isREnlargeCorner 	= isREnlargeXEdge & isREnlargeYEdge;
-
+			
 			// Write Data - PortAddr = blockAddr
-			optimization.pushPipeliningFactor(Def.PipeFactor,PipelinedOps.ALL);
+			optimization.pushPipeliningFactor(Def.PipeFactor);
 			DFEVar toREnlargeInnerData 	= readItem.cast(Def.RCalcType) + betaX.cast(Def.RCalcType) * betaYgammaInv.cast(Def.RCalcType);
 			DFEVar REnlargeInnerData 		= toREnlargeInnerData.cast(Def.RType);
 			DFEVar REnlargeXEdgeData 	= betaYgammaInv;
 			DFEVar REnlargeYEdgeData 	= betaXgammaInv;
 			DFEVar REnlargeCornerData 	= gammaInv;
-			optimization.popPipeliningFactor(PipelinedOps.ALL);
+			optimization.popPipeliningFactor();
 			DFEVar REnlargePortData = isREnlargeCorner ? REnlargeCornerData : (isREnlargeXEdge ? REnlargeXEdgeData : (isREnlargeYEdge ? REnlargeYEdgeData : REnlargeInnerData));
 			DFEVar REnlargePortEn = isEnlarging & blockAddrValid;
-			@SuppressWarnings("unused")
 			OffsetExpr REnlargeCalcLatency = stream.measureDistance("REnlargeCalcLatency"+X+Y, readItem, REnlargeInnerData);
 
 
@@ -411,15 +408,14 @@ class RMem extends KernelLib{
 
 			// Sequential Write - RBlockDim^2 cycles
 			// Shrinking - PortAddr = blockAddr
-			optimization.pushPipeliningFactor(Def.PipeFactor,PipelinedOps.ALL);
+			optimization.pushPipeliningFactor(Def.PipeFactor);
 			DFEVar toShrinkPortData = RShrinkWriteZero ? 0 : readItem.cast(Def.RCalcType) - XElem.cast(Def.RCalcType) * YElemKElemInv;
-			optimization.popPipeliningFactor(PipelinedOps.ALL);
+			optimization.popPipeliningFactor();
 			DFEVar ShrinkPortData = toShrinkPortData.cast(Def.RType);
 			DFEVar ShrinkPortEn = isShrinking & blockAddrValid;
-
+			
 			// There is a latency of calculating ShrinkPortData - must ensure the result is written to the memory before shifting.
 			// Therefore, RBlockDim should be greater than that latency, or we need to wait for a number of cycles.
-			@SuppressWarnings("unused")
 			OffsetExpr RShrinkCalcLatency = stream.measureDistance("RShrinkCalcLatency"+X+Y, readItem, ShrinkPortData);
 
 			// RBlockDim^2 + RBlockDim cycles
@@ -429,7 +425,7 @@ class RMem extends KernelLib{
 			DFEVar UpShiftWriteAddr = UpShiftWriteAddrCounter.getAddr();
 			DFEVar UpShiftWriteAddrValid = UpShiftWriteAddrCounter.isValid();
 			DFEVar UpShiftPortData = (YAddr===RBlockDim-1) ? bufferItem : readItem;
-			DFEVar UpShiftPortEn = ((Y>RShrinkPosBaseAddr) | (  (Y===RShrinkPosBaseAddr) & (YAddr>=RShrinkPosOffsetAddr) )) & UpShiftWriteAddrValid;
+			DFEVar UpShiftPortEn = ((Y>RShrinkPosBaseAddr) | (  (Y===RShrinkPosBaseAddr) & (YAddr>=RShrinkPosOffsetAddr) )) & UpShiftWriteAddrValid;		
 
 			// RBlockDim^2+1 cycles
 			// Left Shifting - readAddr = blockAddr
@@ -441,19 +437,19 @@ class RMem extends KernelLib{
 			DFEVar LeftShiftPortData = (XAddr===0)	? stream.offset(fromRightBlock, -1) : readItem;
 			DFEVar LeftShiftPortEn = isLeftShifting & LeftShiftWriteAddrValid & ((X>RShrinkPosBaseAddr) | ((X===RShrinkPosBaseAddr) & ((XAddr > RShrinkPosOffsetAddr) | (XAddr===0))) );
 
-			// Write Data - RShrink Overall
+			// Write Data - RShrink Overall 
 			DFEVar ShiftPortAddr = isUpShifting ? UpShiftWriteAddr : LeftShiftWriteAddr;
 			DFEVar RShrinkPortData = isShrinking ? ShrinkPortData : (isUpShifting ? UpShiftPortData : LeftShiftPortData);
 			DFEVar RShrinkPortEn = ShrinkPortEn | UpShiftPortEn | LeftShiftPortEn;
 
 
 			/////////////////////// Memory ///////////////////////
-
+			
 			// ReadAddr
-			optimization.pushNoPipelining();
+			optimization.pushPipeliningFactor(0);
 			readAddr <== isFetching ? FetchReadAddr : blockReadAddr;
-			optimization.popNoPipelining();
-
+			optimization.popPipeliningFactor();
+			
 			// Stream Offset
 			OffsetExpr RBlockOffset = stream.makeOffsetAutoLoop("OffsetRBlock"+X+Y);
 			DFEVar RNotReady = this.control.count.pulse(Def.RInternalCycles);
@@ -474,11 +470,11 @@ class RMem extends KernelLib{
 //			if ((X==0) && (Y==0)) debug.simPrintf((isInit | isEnlarging) & (PortWrEnUnOffseted | PortWrEn), "[%4d] R00[%3d]=>%f, beta[%d]=%f, beta[%d]=%f, gammaInv=%f, R00[%3d]<=%f, En=%d (R+=%d, R-=%d) | XYC=%d%d%d | Offseted[%3d]<=%f, En=%d \n", control.count.simpleCounter(32), readAddr, readItem, XAddr, betaX, YAddr, betaYgammaInv/gammaInv, gammaInv, PortAddrUnOffseted, PortDataUnOffseted, PortWrEnUnOffseted, REnlargePortEn, RShrinkPortEn, isREnlargeXEdge, isREnlargeYEdge, isREnlargeCorner, PortAddr, PortData, PortWrEn);
 
 //			if ((X==0) && (Y==0)) debug.simPrintf((PortWrEnUnOffseted | PortWrEn), "[%4d] [RBlock00] Block[%3d]=>%f, XElem[%d]=%f, YElemKElemInv[%d]=%f, Block[%3d]<=%f, En=%d | Offseted: Block[%3d]<=%f, En=%d \n", control.count.simpleCounter(32), readAddr, readItem, XAddr, XElem, YAddr, YElemKElemInv, PortAddrUnOffseted, PortDataUnOffseted, PortWrEnUnOffseted, PortAddr, PortData, PortWrEn);
-
+			
 //			if ((X==1) && (Y==0)) debug.simPrintf((PortWrEnUnOffseted | PortWrEn), "[%4d] [RBlock10] Block[%3d]=>%f, XElem[%d]=%f, YElemKElemInv[%d]=%f, Block[%3d]<=%f, En=%d | Offseted: Block[%3d]<=%f, En=%d | toLeftBlock=%f \n", control.count.simpleCounter(32), readAddr, readItem, XAddr, XElem, YAddr, YElemKElemInv, PortAddrUnOffseted, PortDataUnOffseted, PortWrEnUnOffseted, PortAddr, PortData, PortWrEn, toLeftBlock);
 
 		}
-
+	
 	}
 
 }

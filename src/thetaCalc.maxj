@@ -1,9 +1,9 @@
 import com.maxeler.maxcompiler.v2.kernelcompiler.KernelLib;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
-import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
 import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
 
 
 /**
@@ -24,43 +24,43 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
 
 class thetaCalc extends KernelLib{
 
-	private final DFEVector<DFEVar> VecOUT;
-	private final DFEVar ValOUT;
-
+	private DFEVector<DFEVar> VecOUT;
+	private DFEVar ValOUT;
+		
 	public DFEVector<DFEVar> getDataVec() 		{return VecOUT;}
 	public DFEVar getDataVal() 			{return ValOUT;}
-
-
-	thetaCalc ( 	KernelLib owner,
-					String name,
-					int numBlocks,
-					int blockDim,
-					DFEVar dataIn,
-					DFEVar BaseAddrWrite,
+	
+	
+	thetaCalc ( 	KernelLib owner, 
+					String name, 
+					int numBlocks, 
+					int blockDim, 
+					DFEVar dataIn, 
+					DFEVar BaseAddrWrite, 
 					DFEVar OffsetAddrWrite,
-					DFEVar BaseAddrRead,
-					DFEVar OffsetAddrRead,
+					DFEVar BaseAddrRead, 
+					DFEVar OffsetAddrRead, 
 					DFEVar immediateWrite,
-					DFEVar EnIterateWrite,
-					DFEVar beginIterate)
+					DFEVar EnIterateWrite, 
+					DFEVar beginIterate) 
 	{
-
+		
 		super(owner);
-
-		/////////////////////// Type ///////////////////////
-
+		
+		/////////////////////// Type ///////////////////////		
+		
 		DFEVectorType<DFEVar> VecType = new DFEVectorType<DFEVar>(Def.thetaType, numBlocks);
-
+		
 		/////////////////////// Memory ///////////////////////
-
+                
                 // Address
                 AddrGenerator XAddrGen = new AddrGenerator(owner, 1, blockDim, beginIterate);
                 DFEVar XAddr = XAddrGen.getAddr();
-
+		
 		// Data
 		VecOUT 						= VecType.newInstance(this);
 		DFEVector<DFEVar> toMux 	= VecType.newInstance(this);
-
+		
 		// Memory
 		for(int i=0; i<numBlocks; ++i) {
 			Memory<DFEVar> block = mem.alloc(Def.thetaType, blockDim);

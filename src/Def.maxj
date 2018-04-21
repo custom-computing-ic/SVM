@@ -10,7 +10,7 @@ class Def {
 
 
 	///////////////////////// SVM Parameters /////////////////////////
-
+/*
 	// Settings for OrderBookData
 	// Kernel Settings
 	public static final int DataDim 			= 16;
@@ -24,22 +24,22 @@ class Def {
 	public static final double C 				= 5000;
 	public static final double sigma_sq 		= 0.0625;
 	public static final double BookKeepingTH 	= 100000000000.0;
-
+*/
 
 	// Settings for SimpleDataSet
 	// Kernel Settings
-/*	public static final int DataDim 			= 1;
+	public static final int DataDim 			= 1;
 	public static final int numBlocks 			= 4;
 	public static final int blockDim 			= 4;
-	public static final int RBlockDim 			= 2;
+	public static final int RBlockDim 			= 4;
 
 	// Window Size = numBlocks * blockDim
 	public static final int WinSize 			= numBlocks * blockDim;
 	public static final double ep 			= 0.01;
 	public static final double C 				= 1000;
 	public static final double sigma_sq 		= 50;
-	public static final double BookKeepingTH 	= 100000000000.0;
-*/
+	public static final double BookKeepingTH 	= 999999.0;
+
 
 
 	///////////////////////// FPGA Configuration /////////////////////////
@@ -60,6 +60,7 @@ class Def {
 	public static final int RShrinkLatency 		= 240; 	// RShrinkLatency
 	
 	// Initial Cycles
+	public static final int initCycles 		= 512;
 	// NOTE: Set them to avoid using undefined data from negative stream offset
 	public static final int bInitCycles 			= 200; 	// (bOffset, bOffset+QUpdateLatency+blockDim)
 	public static final int hXiInitCycles 		= 200; 	// (hXiOffset, hXiOffset+QUpdateLatency+blockDim)
@@ -72,7 +73,7 @@ class Def {
 	///////////////////////// Types /////////////////////////
 	
 	// Precision - Number of Fractional Bits
-	public static final int FractionalBits = 50;
+	public static final int FractionalBits = 40;  // FPT:50
 	
 	// Basic Fix-Point Type
 	public static final DFEType BaseFixType 		= KernelLib.dfeFixOffset(FractionalBits+14, -FractionalBits, SignMode.TWOSCOMPLEMENT);
@@ -89,7 +90,7 @@ class Def {
 	public static final DFEType gammaType 		= HighFixType;
 	
 	// Very High Range Fix-Point Type
-	public static final DFEType VeryHighFixType 	= KernelLib.dfeFixOffset(FractionalBits+40, -FractionalBits, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType VeryHighFixType 	= KernelLib.dfeFixOffset(FractionalBits+24, -FractionalBits, SignMode.TWOSCOMPLEMENT);  // FPT 40
 	public static final DFEType BookKeepingType 	= VeryHighFixType;
 	
 	// Data X Types

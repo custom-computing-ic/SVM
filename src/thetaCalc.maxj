@@ -54,12 +54,12 @@ class thetaCalc extends KernelLib{
 		/////////////////////// Memory ///////////////////////
                 
                 // Address
-                AddrGenerator XAddrGen = new AddrGenerator(owner, 1, blockDim, beginIterate);
-                DFEVar XAddr = XAddrGen.getAddr();
+                AddrGenerator XAddrGen  = new AddrGenerator(owner, 1, blockDim, beginIterate);
+                DFEVar XAddr 		= XAddrGen.getAddr();
 		
 		// Data
-		VecOUT 						= VecType.newInstance(this);
-		DFEVector<DFEVar> toMux 	= VecType.newInstance(this);
+		VecOUT 			= VecType.newInstance(this);
+		DFEVector<DFEVar> toMux = VecType.newInstance(this);
 		
 		// Memory
 		for(int i=0; i<numBlocks; ++i) {
@@ -67,9 +67,9 @@ class thetaCalc extends KernelLib{
 			block.mapToCPU(name+i);
 			DFEVar WrAddr 	= immediateWrite ? OffsetAddrWrite : XAddr;
 			DFEVar WrData 	= dataIn;
-			DFEVar WrEn 		= (BaseAddrWrite === i) & (immediateWrite | (EnIterateWrite & (OffsetAddrWrite === XAddr)));
-			VecOUT[i] 		<== block.port(WrAddr, WrData, WrEn, RamWriteMode.WRITE_FIRST);
-			toMux[i] 			<== block.read(OffsetAddrRead);
+			DFEVar WrEn 	= (BaseAddrWrite === i) & (immediateWrite | (EnIterateWrite & (OffsetAddrWrite === XAddr)));
+			VecOUT[i] 	<== block.port(WrAddr, WrData, WrEn, RamWriteMode.WRITE_FIRST);
+			toMux[i] 	<== block.read(OffsetAddrRead);
 		}
 		ValOUT = control.mux(BaseAddrRead, toMux.getElementsAsList());
 

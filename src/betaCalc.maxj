@@ -27,6 +27,7 @@ import maxpower.TreeReduce;
  * @param <readAddr> external address for read port - used when not calculating and not sequential reading
  * @param <portAddr> external address for read-write port - used when not calculating and not sequential reading
  * @param <beginSeqRead> Trigger signal for sequential read - ignores readAddr and portAddr
+ * @param <beginInit> Write 0 to the memory, need RBlockDim cycles
  *
  */
 
@@ -37,10 +38,10 @@ class betaCalc extends KernelLib{
 	private DFEVar seqRead;
 	private DFEVar hasFinished;
 		
-	public DFEVector<DFEVar> getPortVec() 		{return portVec;}
-	public DFEVector<DFEVar> getReadVec() 		{return readVec;}
+	public DFEVector<DFEVar> getPortVec() 	{return portVec;}
+	public DFEVector<DFEVar> getReadVec() 	{return readVec;}
 	public DFEVar getSeqReadData() 		{return seqRead;}
-	public DFEVar hasBetaCalcFinished() 		{return hasFinished;}
+	public DFEVar hasBetaCalcFinished() 	{return hasFinished;}
 	
 	betaCalc ( 	KernelLib owner, 
 				int numBlocks, 
@@ -51,7 +52,8 @@ class betaCalc extends KernelLib{
 				DFEVar beginBetaCalc,
 				DFEVar readAddr,
 				DFEVar portAddr,
-				DFEVar beginSeqRead) 
+				DFEVar beginSeqRead,
+				DFEVar beginInit) 
 	{
 		
 		super(owner);
@@ -102,6 +104,14 @@ class betaCalc extends KernelLib{
                 Counter MuxCounter = control.count.makeCounter(MuxCounterParam);
                 DFEVar muxSelect = MuxCounter.getCount();
 
+
+		/////////////////////// Control for Initialisation ///////////////////////
+
+		AddrGenerator initAddrGen = new AddrGenerator(this, 1, RBlockDim, beginInit);
+		DFEVar initData  	  = constant.var(Def.betaType, 0);
+		DFEVar initAddr 	  = initAddrGen.getAddr();
+		DFEVar isInit             = initAddrGen.isValid();
+
                 
  		/////////////////////// Calculation ///////////////////////
 
@@ -114,7 +124,7 @@ class betaCalc extends KernelLib{
 									.withClear(stream.offset(XAddr, 1)===0);
 			DFEVar toAccumulator = TreeReduce.reduce(new Add<DFEVar>(), mult.getElementsAsList());
 			DFEVar sum = Reductions.accumulator.makeAccumulator(toAccumulator, Param);
-			WrData[i] <== -sum;
+			WrData[i] <== isInit ? initData : -sum;
 		}
 
                 
@@ -124,8 +134,8 @@ class betaCalc extends KernelLib{
 		readVec = (new DFEVectorType<DFEVar>(Def.RType, numBlocks)).newInstance(this);
 		for(int i=0; i<numBlocks; ++i) {
 			// Write on the last cycle of processing a row
-			DFEVar WrEn = isCalculating & XAddrCounter.getWrap();
-			DFEVar WrAddr = isCalculating ? YAddr : portAddr;
+			DFEVar WrEn   = isInit | isCalculating & XAddrCounter.getWrap();
+			DFEVar WrAddr = isInit ? initAddr : (isCalculating ? YAddr : portAddr);
 			DFEVar RdAddr = isSeqReading ? XAddr : readAddr;
 			Memory<DFEVar> block = mem.alloc(Def.betaType, RBlockDim);
 			portVec[i] <== block.port(WrAddr, WrData[i], WrEn, RamWriteMode.WRITE_FIRST).cast(Def.RType);

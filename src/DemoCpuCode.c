@@ -1970,8 +1970,8 @@ int main(){
 	
 	// NOTE: The settings in Def.maxj should also be changed
 	// NOTE: Cycles must be a multiple of 40000
-//	runDFE(ParamSimple40, 320000, 4);
-	runDFE(ParamOrderBook, 4880000, 70);
+	runDFE(ParamSimple40, 360000, 4);
+//	runDFE(ParamOrderBook, 4880000, 70);
 
 	printf("[INFO] Job Finished.\n");
 

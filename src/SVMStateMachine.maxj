@@ -17,19 +17,20 @@ class SVMStateMachine extends KernelStateMachine {
 	////////////////////////// Operating Modes /////////////////////////
 
 	enum Modes {
-		SUBIDLE, 			// Idle state of Mode
-                QUPDATE,			// Updating Q
-                FETCHQ,				// Fetch Q[s1, s2, s3, ...]
-                BETACALC,			// Calculating Beta
+		INIT,			// Initialisation
+		SUBIDLE, 		// Idle state of Mode
+                QUPDATE,		// Updating Q
+                FETCHQ,			// Fetch Q[s1, s2, s3, ...]
+                BETACALC,		// Calculating Beta
                 GAMMACCALC, 		// Calculating Gamma_c
                 GAMMAVCALC, 		// Calculating Gamma Vector
                 BOOKKEEPING_PRE, 	// Starting Point of BookKeeping 
                 BOOKKEEPING_C,		// BookKeeping - C
                 BOOKKEEPING_S,		// BookKeeping - S
                 BOOKKEEPING_N, 		// BookKeeping - N
-                UPDATE, 			// Update Coefficients
-                UPDATEWAIT,			// Waiting for Update to finish
-                INCFLAG,			// Incremental Training : Checking the Flag
+                UPDATE, 		// Update Coefficients
+                UPDATEWAIT,		// Waiting for Update to finish
+                INCFLAG,		// Incremental Training : Checking the Flag
                 MOVEFETCHQ, 		// Moving Items : Fetching Q
                 MOVEBETACALC, 		// Moving Items : Calculating Beta
                 GAMMAKCALC, 		// Moving Items : Calculating Gamma[k]
@@ -38,20 +39,20 @@ class SVMStateMachine extends KernelStateMachine {
                 MOVES2E,
                 MOVES2R,
                 MOVES2N,
-                INCFINISH_XC2S, 		// Xc joins S, hence incremental training finished
-                INCFINISH_XC2N, 		// Xc joins N, hence incremental training finished
-                INCFINISH, 			// Incremental Training Finished - main function
-                XCSEARCH, 			// Search for Xc in SMask and NMask
-		REMOVEXCFROMS, 	// Remove Xc from SMask
-		REMOVEXCFROMN, 	// Remove Xc from NMask
+                INCFINISH_XC2S, 	// Xc joins S, hence incremental training finished
+                INCFINISH_XC2N, 	// Xc joins N, hence incremental training finished
+                INCFINISH, 		// Incremental Training Finished - main function
+                XCSEARCH, 		// Search for Xc in SMask and NMask
+		REMOVEXCFROMS, 		// Remove Xc from SMask
+		REMOVEXCFROMN, 		// Remove Xc from NMask
                 XCREMOVEWAIT, 		// Waiting for Xc Removal Finish
-                DECFINISH 			// Decremental Training has Finished
+                DECFINISH 		// Decremental Training has Finished
 	}
 	
 	enum maskModes {
-		MASKIDLE, 			// Idle state of maskMode
-		ITERATE,				// Iterating over Mask
-		LASTITEM 			// indicate that current cycle is the last cycle of iteration
+		MASKIDLE, 		// Idle state of maskMode
+		ITERATE,		// Iterating over Mask
+		LASTITEM 		// indicate that current cycle is the last cycle of iteration
 	}
 
 
@@ -221,24 +222,23 @@ class SVMStateMachine extends KernelStateMachine {
 		numBlocks 	= numBlocks_IN;
 		blockDim 	= blockDim_IN;
 		RBlockDim 	= RBlockDim_IN;
-		WinSize 		= WinSize_IN;
+		WinSize 	= WinSize_IN;
 		
 		// Scheduling Parameters
 		QUpdateCycles 		= blockDim + Def.QUpdateLatency;
 		BookKeepingLatency 	= Def.BookKeepingLatency;
-		REnlargeLatency 		= Def.REnlargeLatency;
+		REnlargeLatency 	= Def.REnlargeLatency;
 		RShrinkCycles 		= 3*(RBlockDim*RBlockDim + RBlockDim + Def.RShrinkLatency) + Def.FetchLatency + 1;
 
 
                 ////////////////////////// Types /////////////////////////
 
-		DFEsmValueType BoolType 		= dfeUInt(1);
+		DFEsmValueType BoolType 	= dfeUInt(1);
 		DFEsmValueType BaseAddrType 	= dfeUInt(MathUtils.bitsToAddress(numBlocks));
-		DFEsmValueType OffsetAddrType = dfeUInt(MathUtils.bitsToAddress(blockDim));
+		DFEsmValueType OffsetAddrType 	= dfeUInt(MathUtils.bitsToAddress(blockDim));
 		DFEsmValueType QBufAddrType 	= dfeUInt(MathUtils.bitsToAddress(RBlockDim));
 		DFEsmValueType PosType 		= dfeUInt(MathUtils.bitsToAddress(WinSize));
 		DFEsmValueType CurSizeType 	= dfeUInt(MathUtils.bitsToRepresent(WinSize));
-		DFEsmValueType TickType 		= dfeUInt(20);
 		DFEsmValueType SelType 		= dfeUInt(3);
 		DFEsmValueType GroupType 	= dfeUInt(3);
 
@@ -246,87 +246,88 @@ class SVMStateMachine extends KernelStateMachine {
                 ////////////////////////// Inputs /////////////////////////
 
 		// Finish Trigger
-		hasFinished 				= io.input("hasFinished", BoolType);
-		hasBetaCalcFinished 		= io.input("hasBetaCalcFinished", BoolType);
+		hasFinished 		= io.input("hasFinished", BoolType);
+		hasBetaCalcFinished 	= io.input("hasBetaCalcFinished", BoolType);
 		hasGammaVCalcFinished 	= io.input("hasGammaVCalcFinished", BoolType);
 	
 		// BookKeeping
-		BKFlag 					= io.input("BookKeepingFlag", dfeUInt(3));
-		BookKeepingIndex 		= io.input("BookKeepingIndex", PosType);
+		BKFlag 			= io.input("BookKeepingFlag", dfeUInt(3));
+		BookKeepingIndex 	= io.input("BookKeepingIndex", PosType);
 		
 
                 ////////////////////////// Outputs /////////////////////////
 
                 // Control for input stream Xc
-                EnInput 					= io.output("EnInput", BoolType);
+                EnInput 		= io.output("EnInput", BoolType);
                 
                 // INC or DEC
-                isInc 					= io.output("isInc", BoolType);
+                isInc 			= io.output("isInc", BoolType);
                 
 		// Size
-                SSize 					= io.output("SSize", CurSizeType);
+                SSize 			= io.output("SSize", CurSizeType);
                 
 		// Control for Q fetch
-		beginFetchQ 				= io.output("beginFetchQ", BoolType);
-                isFetchingQ 				= io.output("isFetchingQ", BoolType);
-                QBufWriteOffsetAddr 		= io.output("QBufWriteOffsetAddr", QBufAddrType);
+		beginFetchQ 		= io.output("beginFetchQ", BoolType);
+                isFetchingQ 		= io.output("isFetchingQ", BoolType);
+                QBufWriteOffsetAddr 	= io.output("QBufWriteOffsetAddr", QBufAddrType);
 
 		// Base, Offset, Group and Mask Addresses
-		BaseAddrXc 				= io.output("BaseAddrXc", BaseAddrType);
-		OffsetAddrXc 			= io.output("OffsetAddrXc", OffsetAddrType);
-		GroupIndexXc 			= io.output("GroupIndexXc", PosType);
-		BaseAddrSMask 			= io.output("BaseAddrSMask", BaseAddrType);
-		OffsetAddrSMask 			= io.output("OffsetAddrSMask", OffsetAddrType);
-		IndexSMask 				= io.output("IndexSMask", PosType);
-		GroupIndexSMask 		= io.output("GroupIndexSMask", PosType);
-		SMaskValid 				= io.output("SMaskValid", BoolType);
-		BaseAddrNMask 			= io.output("BaseAddrNMask", BaseAddrType);
-		OffsetAddrNMask 			= io.output("OffsetAddrNMask", OffsetAddrType);
-                IndexNMask 				= io.output("IndexNMask", PosType);
-                GroupIndexNMask 		= io.output("GroupIndexNMask", PosType);
-                NMaskValid 				= io.output("NMaskValid", BoolType);
+		BaseAddrXc 		= io.output("BaseAddrXc", BaseAddrType);
+		OffsetAddrXc 		= io.output("OffsetAddrXc", OffsetAddrType);
+		GroupIndexXc 		= io.output("GroupIndexXc", PosType);
+		BaseAddrSMask 		= io.output("BaseAddrSMask", BaseAddrType);
+		OffsetAddrSMask 	= io.output("OffsetAddrSMask", OffsetAddrType);
+		IndexSMask 		= io.output("IndexSMask", PosType);
+		GroupIndexSMask 	= io.output("GroupIndexSMask", PosType);
+		SMaskValid 		= io.output("SMaskValid", BoolType);
+		BaseAddrNMask 		= io.output("BaseAddrNMask", BaseAddrType);
+		OffsetAddrNMask 	= io.output("OffsetAddrNMask", OffsetAddrType);
+                IndexNMask 		= io.output("IndexNMask", PosType);
+                GroupIndexNMask 	= io.output("GroupIndexNMask", PosType);
+                NMaskValid 		= io.output("NMaskValid", BoolType);
 		
 		// Bookkeeping
-		beginBookKeeping 		= io.output("beginBookKeeping", BoolType);
-		BookKeepingSel 			= io.output("BookKeepingSel", SelType);
-		BookKeepingValid 			= io.output("BookKeepingValid", BoolType);
-		beginBetaCalc 			= io.output("beginBetaCalc", BoolType);
-		beginBookKeeping_S 		= io.output("beginBookKeeping_S", BoolType);
-		isBookKeeping_N 			= io.output("isBookKeeping_N", BoolType);
+		beginBookKeeping 	= io.output("beginBookKeeping", BoolType);
+		BookKeepingSel 		= io.output("BookKeepingSel", SelType);
+		BookKeepingValid 	= io.output("BookKeepingValid", BoolType);
+		beginBetaCalc 		= io.output("beginBetaCalc", BoolType);
+		beginBookKeeping_S 	= io.output("beginBookKeeping_S", BoolType);
+		isBookKeeping_N 	= io.output("isBookKeeping_N", BoolType);
 		
 		// GammaCalc
-		beginGammaCCalc 		= io.output("beginGammaCCalc", BoolType);
-		isGammaCCalculating 		= io.output("isGammaCCalculating", BoolType);
-		isGammaVCalculating 		= io.output("isGammaVCalculating", BoolType);
+		beginGammaCCalc 	= io.output("beginGammaCCalc", BoolType);
+		isGammaCCalculating 	= io.output("isGammaCCalculating", BoolType);
+		isGammaVCalculating 	= io.output("isGammaVCalculating", BoolType);
 		
 		// Updating
-		beginUpdate 				= io.output("beginUpdate", BoolType);
-		isUpdating 				= io.output("isUpdating", BoolType);
+		beginUpdate 		= io.output("beginUpdate", BoolType);
+		isUpdating 		= io.output("isUpdating", BoolType);
 		
 		// Moving Items
-		beginMoveFetchQ 		= io.output("beginMoveFetchQ", BoolType);
-		isMoveFetchingQ 			= io.output("isMoveFetchingQ", BoolType);
-		beginGammaKCalc 		= io.output("beginGammaKCalc", BoolType);
-		isGammaKCalculating 		= io.output("isGammaKCalculating", BoolType);
-		beginRInit 				= io.output("beginRInit", BoolType);
+		beginMoveFetchQ 	= io.output("beginMoveFetchQ", BoolType);
+		isMoveFetchingQ 	= io.output("isMoveFetchingQ", BoolType);
+		beginGammaKCalc 	= io.output("beginGammaKCalc", BoolType);
+		isGammaKCalculating 	= io.output("isGammaKCalculating", BoolType);
+		beginRInit 		= io.output("beginRInit", BoolType);
 		beginGammaCREnlarge 	= io.output("beginGammaCREnlarge", BoolType); 
-		beginRShrink 			= io.output("beginRShrink", BoolType);
-		isRShrinking 				= io.output("isRShrinking", BoolType);
+		beginRShrink 		= io.output("beginRShrink", BoolType);
+		isRShrinking 		= io.output("isRShrinking", BoolType);
 
 		// Decremental Training
-		beginRShrinkForXcRemove 	= io.output("beginRShrinkForXcRemove", BoolType);
+		beginRShrinkForXcRemove = io.output("beginRShrinkForXcRemove", BoolType);
 		
 
                 ////////////////////////// Init State Variables /////////////////////////
                 
 		// Tick
-		subTick 				= state.value(TickType, 0);
+		Tick 			= state.value(dfeUInt(32), 0);
+		subTick 		= state.value(dfeUInt(32), 0);
 		
 		// Mode
-		Mode 				= state.enumerated(Modes.class, Modes.SUBIDLE);
+		Mode 			= state.enumerated(Modes.class, Modes.INIT);
 		
 		// CurSize
-		CurSize 				= state.value(CurSizeType, 2);
+		CurSize 		= state.value(CurSizeType, 2);
 		
 		// Xc Address
 		BaseAddrXcCount 	= state.value(BaseAddrType, 0);
@@ -334,21 +335,21 @@ class SVMStateMachine extends KernelStateMachine {
 		GroupIndexXcCount	= state.value(PosType, 2);
 		
 		// SMask
-		SMaskBase 			= new SMArrayList(this, BaseAddrType, WinSize);
-		SMaskOffset 			= new SMArrayList(this, OffsetAddrType, WinSize);
+		SMaskBase 		= new SMArrayList(this, BaseAddrType, WinSize);
+		SMaskOffset 		= new SMArrayList(this, OffsetAddrType, WinSize);
 		SMaskGroupIndex 	= new SMArrayList(this, PosType, WinSize);
-		SMaskPos 			= state.value(PosType, 0);
-		SMaskMode 			= state.enumerated(maskModes.class, maskModes.MASKIDLE);
+		SMaskPos 		= state.value(PosType, 0);
+		SMaskMode 		= state.enumerated(maskModes.class, maskModes.MASKIDLE);
 
 		// NMask - the first two elements belong to E
-		NMaskBase 			= new SMArrayList(this, BaseAddrType, WinSize, 2, 0, 0);
-		NMaskOffset 			= new SMArrayList(this, OffsetAddrType, WinSize, 2, 0, 1);
+		NMaskBase 		= new SMArrayList(this, BaseAddrType, WinSize, 2, 0, 0);
+		NMaskOffset 		= new SMArrayList(this, OffsetAddrType, WinSize, 2, 0, 1);
 		NMaskGroupIndex 	= new SMArrayList(this, PosType, WinSize, 2, 0, 1);
-		NMaskPos 			= state.value(PosType, 0);
-		NMaskMode 			= state.enumerated(maskModes.class, maskModes.MASKIDLE);
+		NMaskPos 		= state.value(PosType, 0);
+		NMaskMode 		= state.enumerated(maskModes.class, maskModes.MASKIDLE);
 
 		// Write Address for QBuffer
-		QBufWriteOffsetAddrCount 	= state.value(QBufAddrType, 0);
+		QBufWriteOffsetAddrCount = state.value(QBufAddrType, 0);
 		
 		// Group
 		Group = mem.ramMappedDualPort("Group", GroupType, WinSize, DualPortRAMMode.READ_ONLY, DualPortRAMMode.WRITE_ONLY, Latency.ONE_CYCLE);
@@ -357,33 +358,29 @@ class SVMStateMachine extends KernelStateMachine {
 		////////////////////////// Pipeline Variables /////////////////////////
 
 		// Pipelining Bookkeeping Flag and Index
-		BKFlag_1 			= state.value(dfeUInt(3));
-		BKFlag_2 			= state.value(dfeUInt(3));
-		BKIndex_S1 			= state.value(PosType);
-		BKIndex_S2 			= state.value(PosType);
-		BKIndex_S3 			= state.value(PosType);
-		BKIndex_N1 			= state.value(PosType);
-		BKIndex_N2 			= state.value(PosType);
-		BKIndex_N3 			= state.value(PosType);		
+		BKFlag_1 		= state.value(dfeUInt(3));
+		BKFlag_2 		= state.value(dfeUInt(3));
+		BKIndex_S1 		= state.value(PosType);
+		BKIndex_S2 		= state.value(PosType);
+		BKIndex_S3 		= state.value(PosType);
+		BKIndex_N1 		= state.value(PosType);
+		BKIndex_N2 		= state.value(PosType);
+		BKIndex_N3 		= state.value(PosType);		
 
 		// Pipelining SMask and NMask
-		SMaskPos_1 				= state.value(PosType);
-		SMaskPos_2 				= state.value(PosType);
-		SMaskPos_3 				= state.value(PosType);
-		NMaskPos_1 				= state.value(PosType);
-		NMaskPos_2 				= state.value(PosType);
-		NMaskPos_3 				= state.value(PosType);
-		SMaskBaseBKIndex 		= state.value(BaseAddrType);
-		SMaskOffsetBKIndex 		= state.value(OffsetAddrType);
+		SMaskPos_1 		= state.value(PosType);
+		SMaskPos_2 		= state.value(PosType);
+		SMaskPos_3 		= state.value(PosType);
+		NMaskPos_1 		= state.value(PosType);
+		NMaskPos_2 		= state.value(PosType);
+		NMaskPos_3 		= state.value(PosType);
+		SMaskBaseBKIndex 	= state.value(BaseAddrType);
+		SMaskOffsetBKIndex 	= state.value(OffsetAddrType);
 		SMaskGroupIndexBKIndex 	= state.value(PosType);
-		NMaskBaseBKIndex 		= state.value(BaseAddrType);
-		NMaskOffsetBKIndex 		= state.value(OffsetAddrType);
+		NMaskBaseBKIndex 	= state.value(BaseAddrType);
+		NMaskOffsetBKIndex 	= state.value(OffsetAddrType);
 		NMaskGroupIndexBKIndex 	= state.value(PosType);
 		
-		
-		////////////////////////// Debug /////////////////////////
-		
-		Tick 				= state.value(dfeUInt(32), 0);
 
         }
         
@@ -392,7 +389,7 @@ class SVMStateMachine extends KernelStateMachine {
 	
 		////////////////////////// Debug /////////////////////////
 		
-		Tick.next <== Tick + 1;
+		
 //		IF (subTick===0) debug.simPrintf("[%4d] Mode[%d] = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d \n", Tick, subTick, Mode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos);
 //		IF (Mode === Modes.BOOKKEEPING_PRE | Mode === Modes.BOOKKEEPING_C | Mode === Modes.BOOKKEEPING_N | Mode === Modes.BOOKKEEPING_S) debug.simPrintf("[%4d] Mode[%4d] = %16s | SSize=%d, NSize=%d | SMaskPos = %d, NMaskPos = %d | Group[prev]=%d \n", Tick, subTick, Mode, SMaskBase.size(), NMaskBase.size(), SMaskPos, NMaskPos, Group.dataOutA);
 		
@@ -400,7 +397,8 @@ class SVMStateMachine extends KernelStateMachine {
 		////////////////////////// Default /////////////////////////
 
 		Group.writeEnableB <== false;
-		subTick.next <== subTick + 1;
+		Tick.next 	   <== Tick + 1;
+		subTick.next       <== subTick + 1;
 		
 		
 		////////////////////////// Pipelining /////////////////////////
@@ -433,6 +431,13 @@ class SVMStateMachine extends KernelStateMachine {
 		////////////////////////// Mode Control /////////////////////////
 		
 		SWITCH(Mode) {
+			// INIT
+			CASE(Modes.INIT) {
+				IF (Tick === Def.initCycles) {
+					Mode.next <== Modes.SUBIDLE;
+					subTick.next <== 0;
+				}
+			}
 			// IDLE
 			CASE(Modes.SUBIDLE) {
 				IF (CurSize<WinSize) {
@@ -550,7 +555,7 @@ class SVMStateMachine extends KernelStateMachine {
 			// Calculating gamma_c
                         CASE(Modes.GAMMACCALC) {
 				IF (subTick === 0) {SMaskMode.next <== maskModes.ITERATE; SMaskPos.next <== 0;}
-				IF (subTick === SMaskBase.size().cast(dfeUInt(20))) {
+				IF (subTick === SMaskBase.size().cast(dfeUInt(32))) {
 					IF (~NMaskBase.isEmpty()) {
 						Mode.next <== Modes.GAMMAVCALC;
 						SMaskPos.next <== 0;
@@ -563,7 +568,7 @@ class SVMStateMachine extends KernelStateMachine {
 			// Calculating gamma vector
 			CASE(Modes.GAMMAVCALC) {
 				IF (subTick === 0) {SMaskMode.next <== maskModes.ITERATE; SMaskPos.next <== 0;}
-				IF (subTick === SMaskBase.size().cast(dfeUInt(20))) {
+				IF (subTick === SMaskBase.size().cast(dfeUInt(32))) {
 					subTick.next <== 0; 
 				}
 				IF (hasGammaVCalcFinished === true) gotoBookKeeping_C();
@@ -692,7 +697,7 @@ class SVMStateMachine extends KernelStateMachine {
 			// Calculating gamma_k
 			CASE(Modes.GAMMAKCALC) {
 				IF (subTick === 0) {SMaskMode.next <== maskModes.ITERATE; SMaskPos.next <== 0;}
-                        	IF (subTick === SMaskBase.size().cast(dfeUInt(20))) {
+                        	IF (subTick === SMaskBase.size().cast(dfeUInt(32))) {
                         		subTick.next <== 0; 
                         		Mode.next <== Modes.RENLARGEWAIT;
                         	}

@@ -134,7 +134,7 @@ class SVMKernel extends Kernel {
 		////////////////////////// Tick /////////////////////////		
 		
 		DFEVar Tick      = control.count.simpleCounter(32);
-		DFEVar beginInit = (Tick === 0);
+		DFEVar beginInit = (Tick === 1);
 
 		////////////////////////// Input /////////////////////////
 		

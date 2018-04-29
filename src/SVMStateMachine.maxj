@@ -46,7 +46,8 @@ class SVMStateMachine extends KernelStateMachine {
 		REMOVEXCFROMS, 		// Remove Xc from SMask
 		REMOVEXCFROMN, 		// Remove Xc from NMask
                 XCREMOVEWAIT, 		// Waiting for Xc Removal Finish
-                DECFINISH 		// Decremental Training has Finished
+                DECFINISH, 		// Decremental Training has Finished
+                TERMINATE       	// Termination of whole training process - read back final results
 	}
 	
 	enum maskModes {
@@ -57,6 +58,10 @@ class SVMStateMachine extends KernelStateMachine {
 
 
         ////////////////////////// Inputs /////////////////////////
+
+	// Number of Training Samples
+	private final DFEsmInput numTrainingSamples;
+
 
 	// Finish Trigger
 	private final DFEsmInput hasFinished;
@@ -128,9 +133,15 @@ class SVMStateMachine extends KernelStateMachine {
 	
 	// Decremental Training
 	private final DFEsmOutput beginRShrinkForXcRemove;
-	
+
+	// Termination - begin read back theta to CPU from kernel
+	private final DFEsmOutput beginReadBackThetaToCPU;
+
 
         ////////////////////////// State Variables /////////////////////////
+
+	// Counting number of samples trained
+	private final DFEsmStateValue numSamplesTrained;
 
         // Counting internal ticks
         private final DFEsmStateValue subTick;
@@ -245,6 +256,9 @@ class SVMStateMachine extends KernelStateMachine {
 
                 ////////////////////////// Inputs /////////////////////////
 
+        	// Number of Training Samples
+        	numTrainingSamples  = io.input("numTrainingSamples", dfeUInt(32));
+
 		// Finish Trigger
 		hasFinished 		= io.input("hasFinished", BoolType);
 		hasBetaCalcFinished 	= io.input("hasBetaCalcFinished", BoolType);
@@ -315,9 +329,15 @@ class SVMStateMachine extends KernelStateMachine {
 
 		// Decremental Training
 		beginRShrinkForXcRemove = io.output("beginRShrinkForXcRemove", BoolType);
+
+        	// Termination - begin Read Theta to CPU from Kernel
+        	beginReadBackThetaToCPU = io.output("beginReadBackThetaToCPU", BoolType);
 		
 
                 ////////////////////////// Init State Variables /////////////////////////
+                
+        	// Number of Samples Trained
+        	numSamplesTrained = state.value(dfeUInt(32), 2);
                 
 		// Tick
 		Tick 			= state.value(dfeUInt(32), 0);
@@ -440,22 +460,28 @@ class SVMStateMachine extends KernelStateMachine {
 			}
 			// IDLE
 			CASE(Modes.SUBIDLE) {
-				IF (CurSize<WinSize) {
-					// INC - begin Update Q Matrix
-					Mode.next <== Modes.QUPDATE;
-				}
-				ELSE {
-					// DEC - begin Search Xc in SMask and NMask
-					Mode.next <== Modes.XCSEARCH;
-					Group.addressA <== GroupIndexXcCount;
-					// Search Xc in SMask and NMask - may also set MaskMode to IDLE for extra safety
-					SMaskPos.next <== 0;
-					NMaskPos.next <== 0;
+				IF (numSamplesTrained < numTrainingSamples) {
+					IF (CurSize<WinSize) {
+						// INC - begin Update Q Matrix
+						Mode.next <== Modes.QUPDATE;
+						numSamplesTrained.next <== numSamplesTrained + 1;
+					}
+					ELSE {
+						// DEC - begin Search Xc in SMask and NMask
+						Mode.next <== Modes.XCSEARCH;
+						Group.addressA <== GroupIndexXcCount;
+						// Search Xc in SMask and NMask - may also set MaskMode to IDLE for extra safety
+						SMaskPos.next <== 0;
+						NMaskPos.next <== 0;
 					
-					debug.simPrintf("\n[%4d]----------[Decremental Training]-----------------Remove Item[%d][%d]-------------------- \n", Tick, BaseAddrXcCount, OffsetAddrXcCount);
-				}
-				subTick.next <== 0;
-                        }
+						debug.simPrintf("\n[%4d]----------[Decremental Training]-----------------Remove Item[%d][%d]-------------------- \n", Tick, BaseAddrXcCount, OffsetAddrXcCount);
+					}
+                        	}
+            			ELSE {
+                			Mode.next <== Modes.TERMINATE;
+            			}
+                		subTick.next <== 0;
+			}
 			// Updating Matrix Q - INC only
 			CASE(Modes.QUPDATE) {
 				IF (hasFinished === true) {
@@ -789,6 +815,9 @@ class SVMStateMachine extends KernelStateMachine {
 				Mode.next <== Modes.SUBIDLE;
 				CurSize.next <== CurSize - 1;
 			}
+			CASE(Modes.TERMINATE) {
+				Mode.next <== Modes.TERMINATE;
+			}
 			// Illegal Mode
 			OTHERWISE {
 				debug.simPrintf("[%4d] [ERROR] Invalid Mode (Mode=%s).\n", Tick, Mode);
@@ -838,33 +867,33 @@ class SVMStateMachine extends KernelStateMachine {
         protected void outputFunction() {
 		
         	// Control Signal for Input Stream Xc
-        	EnInput <== (Mode === Modes.QUPDATE) & (subTick === 0);
+        	EnInput 	<== (Mode === Modes.QUPDATE) & (subTick === 0);
         	
 		// INC or DEC
-		isInc <== (CurSize<WinSize);
+		isInc 		<== (CurSize<WinSize);
         	
         	// Size
-        	SSize <== SMaskBase.size();
+        	SSize 		<== SMaskBase.size();
         	
   		// FetchQ
-		beginFetchQ 			<== (Mode === Modes.FETCHQ) & (subTick === 0);
-		isFetchingQ 			<== (Mode === Modes.FETCHQ);
+		beginFetchQ 		<== (Mode === Modes.FETCHQ) & (subTick === 0);
+		isFetchingQ 		<== (Mode === Modes.FETCHQ);
 		QBufWriteOffsetAddr 	<== QBufWriteOffsetAddrCount;
         	
         	// Base and Offset Addresses of Xc, SMask, NMask. Index of SMask and NMask
-		BaseAddrXc 		<== BaseAddrXcCount;
+		BaseAddrXc 	<== BaseAddrXcCount;
 		OffsetAddrXc 	<== OffsetAddrXcCount;
 		GroupIndexXc 	<== GroupIndexXcCount;
 		BaseAddrSMask 	<== SMaskBase.get(SMaskPos);
-		OffsetAddrSMask 	<== SMaskOffset.get(SMaskPos);
-		IndexSMask 		<== SMaskPos;
+		OffsetAddrSMask <== SMaskOffset.get(SMaskPos);
+		IndexSMask 	<== SMaskPos;
 		GroupIndexSMask	<== SMaskGroupIndex.get(SMaskPos);
-		SMaskValid 		<== (SMaskMode !== maskModes.MASKIDLE);
+		SMaskValid 	<== (SMaskMode !== maskModes.MASKIDLE);
 		BaseAddrNMask 	<== NMaskBase.get(NMaskPos);
-		OffsetAddrNMask 	<== NMaskOffset.get(NMaskPos);
-		IndexNMask 		<== NMaskPos;
+		OffsetAddrNMask <== NMaskOffset.get(NMaskPos);
+		IndexNMask 	<== NMaskPos;
 		GroupIndexNMask	<== NMaskGroupIndex.get(NMaskPos);
-		NMaskValid 		<== (NMaskMode !== maskModes.MASKIDLE);
+		NMaskValid 	<== (NMaskMode !== maskModes.MASKIDLE);
 		
 		
 		////////////////////////// BookKeeping /////////////////////////
@@ -872,7 +901,7 @@ class SVMStateMachine extends KernelStateMachine {
 		// beginBookKeeping
 		beginBookKeeping 	<== (Mode === Modes.BOOKKEEPING_C);
 		beginBookKeeping_S 	<== (Mode === Modes.BOOKKEEPING_S) & (subTick === 0);
-		isBookKeeping_N 		<== (Mode === Modes.BOOKKEEPING_N);
+		isBookKeeping_N 	<== (Mode === Modes.BOOKKEEPING_N);
 		
 		// BookKeepingSel
 		SWITCH (Mode) {
@@ -914,27 +943,31 @@ class SVMStateMachine extends KernelStateMachine {
 
 
 		// BetaCalc
-		beginBetaCalc 			<== ((Mode === Modes.BETACALC) | (Mode === Modes.MOVEBETACALC)) & (subTick === 0);		
+		beginBetaCalc 		<== ((Mode === Modes.BETACALC) | (Mode === Modes.MOVEBETACALC)) & (subTick === 0);		
 		
 		// GammaCalc
-		beginGammaCCalc 		<== (Mode === Modes.GAMMACCALC) & (subTick === 0);
-		isGammaCCalculating 		<== (Mode === Modes.GAMMACCALC);
-		isGammaVCalculating 		<== (Mode === Modes.GAMMAVCALC);
+		beginGammaCCalc 	<== (Mode === Modes.GAMMACCALC) & (subTick === 0);
+		isGammaCCalculating 	<== (Mode === Modes.GAMMACCALC);
+		isGammaVCalculating 	<== (Mode === Modes.GAMMAVCALC);
 		
 		// Updating
-		beginUpdate 				<== (Mode === Modes.UPDATE) & (subTick === 0);
-		isUpdating 				<== (Mode === Modes.UPDATE);
+		beginUpdate 		<== (Mode === Modes.UPDATE) & (subTick === 0);
+		isUpdating 		<== (Mode === Modes.UPDATE);
 		
 		// Moving Items
-		beginMoveFetchQ 		<== (Mode === Modes.MOVEFETCHQ) & (subTick === 0);
-		isMoveFetchingQ 			<== (Mode === Modes.MOVEFETCHQ);
-		beginGammaKCalc 		<== (Mode === Modes.GAMMAKCALC) & (subTick === 0);
-		isGammaKCalculating 		<== (Mode === Modes.GAMMAKCALC);
+		beginMoveFetchQ 	<== (Mode === Modes.MOVEFETCHQ) & (subTick === 0);
+		isMoveFetchingQ 	<== (Mode === Modes.MOVEFETCHQ);
+		beginGammaKCalc 	<== (Mode === Modes.GAMMAKCALC) & (subTick === 0);
+		isGammaKCalculating 	<== (Mode === Modes.GAMMAKCALC);
 		beginGammaCREnlarge 	<== (Mode === Modes.INCFLAG) & (BKFlag_2 === 2) & (subTick === 0);
-		beginRInit 				<== (Mode === Modes.INCFLAG) & (BKFlag_2 === 1) & (subTick === 0);
-		beginRShrink 			<== (Mode === Modes.INCFLAG) & ((BKFlag_2 === 4) | (BKFlag_2 === 7)) & (subTick === 1);
-		isRShrinking 				<== (Mode === Modes.INCFLAG) & ((BKFlag_2 === 4) | (BKFlag_2 === 7)) & (subTick > 0);
-		beginRShrinkForXcRemove 	<== (Mode === Modes.REMOVEXCFROMS);
+		beginRInit 		<== (Mode === Modes.INCFLAG) & (BKFlag_2 === 1) & (subTick === 0);
+		beginRShrink 		<== (Mode === Modes.INCFLAG) & ((BKFlag_2 === 4) | (BKFlag_2 === 7)) & (subTick === 1);
+		isRShrinking 		<== (Mode === Modes.INCFLAG) & ((BKFlag_2 === 4) | (BKFlag_2 === 7)) & (subTick > 0);
+		beginRShrinkForXcRemove <== (Mode === Modes.REMOVEXCFROMS);
+		
+		// Termination - Reading back theta to CPU
+		beginReadBackThetaToCPU <== (Mode === Modes.TERMINATE) & (subTick === 0);
+		
 		
         }
         

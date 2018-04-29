@@ -1900,17 +1900,17 @@ int main(){
 	///////////// Simple Data Set /////////////
 
 	Param ParamSimple40;
-	ParamSimple40.InFile 		= "SimpleData42.txt";
+	ParamSimple40.InFile 	= "SimpleData42.txt";
 	ParamSimple40.OutFile  	= "SimpleResult42.txt";
-	ParamSimple40.LogFile		= "SimpleLog42.txt";
-	ParamSimple40.DataSize  	= 42;
+	ParamSimple40.LogFile	= "SimpleLog42.txt";
+	ParamSimple40.DataSize  = 42;
 	ParamSimple40.DataDim  	= 1;
 	ParamSimple40.WinSize  	= 16;
-	ParamSimple40.RSize 		= 10;
-	ParamSimple40.ep 		= 0.01;
-	ParamSimple40.C 			= 1000;
-	ParamSimple40.sigma_sq  	= 50;
-	ParamSimple40.eps  		= 1e-6;
+	ParamSimple40.RSize 	= 10;
+	ParamSimple40.ep 	= 0.01;
+	ParamSimple40.C 	= 1000;
+	ParamSimple40.sigma_sq  = 50;
+	ParamSimple40.eps  	= 1e-6;
 
 //	LIBSVMData(ParamSimple40);
 
@@ -1918,16 +1918,16 @@ int main(){
 
 	Param ParamOrderBook;
 	ParamOrderBook.InFile 	= "data9970.txt";
-	ParamOrderBook.OutFile  	= "data9970result.txt";
+	ParamOrderBook.OutFile  = "data9970result.txt";
 	ParamOrderBook.LogFile	= "data9970log.txt";
-	ParamOrderBook.DataSize  	= 1902;
-	ParamOrderBook.DataDim  	= 16;
-	ParamOrderBook.WinSize  	= 420;
+	ParamOrderBook.DataSize = 1902;
+	ParamOrderBook.DataDim  = 16;
+	ParamOrderBook.WinSize  = 420;
 	ParamOrderBook.RSize 	= ParamOrderBook.WinSize;
-	ParamOrderBook.ep 		= 1500*0.0001;
-	ParamOrderBook.C 		= 5000;
-	ParamOrderBook.sigma_sq  	= 0.0625;
-	ParamOrderBook.eps  		= 1e-8;
+	ParamOrderBook.ep 	= 1500*0.0001;
+	ParamOrderBook.C 	= 5000;
+	ParamOrderBook.sigma_sq = 0.0625;
+	ParamOrderBook.eps  	= 1e-8;
 
 //	LIBSVMData(ParamOrderBook);
 

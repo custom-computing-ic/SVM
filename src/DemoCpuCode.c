@@ -38,6 +38,8 @@ typedef struct {
 	CalcType C; 				// SVR: C
 	CalcType sigma_sq; 		// SVR: sigma^2 (RBF Kernel)
 	CalcType eps; 			// SVR: eps (detect ties)
+	bool recordTheta;       // Whether we store theta for accuracy check
+	CalcType* theta;        // Storage of theta for accuracy check
 } Param;
 
 #ifdef EN_STAT
@@ -1690,10 +1692,18 @@ int LIBSVMData(Param param){
 	fprintf(param.LogFileHandle,"--------------------------------------------------------------\n");
 #endif
 
+
+	/////////////////////////// Read Theta if requested ///////////////////////////
+
+    if(param.recordTheta) {
+        CalcType * theta_result = param.theta;
+        for (size_t i=0; i<WinSize; ++i) theta_result[i] = theta[i];
+    }
+
 	/////////////////////////// Clean up ///////////////////////////
 
 	free(X_IN); free(Y_IN); free(dataX); free(dataY); free(Ypredict);
-	free(Group); free(SMask); free(NMask); free(hXi);  free(val); free(flag);
+	free(Group); free(SMask); free(NMask); free(hXi); free(val); free(flag);
 	free(Q); free(R);free(beta); free(gamma); free(theta);
 	fclose(outfp);
 	fclose(param.LogFileHandle);
@@ -1714,6 +1724,13 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 	const CalcType C  = param.C;
 	const CalcType sigma_sq = param.sigma_sq;
 	size_t numBlocks = WinSize/blockDim;
+
+
+	/////////////////////////// Run in CPU ///////////////////////////
+
+    param.recordTheta = true;
+    param.theta = calloc(WinSize, sizeof(CalcType));
+    LIBSVMData(param);
 
 
 	/////////////////////////// Initialise SVM ///////////////////////////
@@ -1848,7 +1865,7 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 
 	// Clean Up
 	free(X_IN); free(Y_IN); free(dataX); free(dataY);
-	free(Q); free(R); free(theta); free(hXi);
+	free(Q); free(R); free(hXi);
 	free(Group); free(SMask); free(NMask);
 
 
@@ -1884,12 +1901,39 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
 	}
 	
 
+	/////////////////////////// Retrieve Theta ///////////////////////////
+
+    max_actions_t *readBackThetaAction = max_actions_init(maxfile, "default");
+    for (size_t i=0; i<numBlocks; ++i) {
+        // TODO: Add Support for more than 10 blocks
+        char mem_name[6] = "theta0";
+        mem_name[5] = i + '0';
+        max_get_mem_range_double(readBackThetaAction, "SVMKernel", mem_name, 0, blockDim, theta + blockDim*i);
+    }
+    max_disable_validation(readBackThetaAction);
+    max_run(engine, readBackThetaAction);
+    max_actions_free(readBackThetaAction);
+    // Print theta
+    printf("--------------------- Theta Values ---------------------\n");
+    for (size_t i=0; i<WinSize; ++i) {
+        printf("%lf %lf\n", param.theta[i], theta[i]);
+    }
+    // Calculate MAE
+    double absoluteError = 0;
+    for (size_t i=0; i<WinSize; ++i) {
+        absoluteError += fabs(theta[i] - param.theta[i]);
+    }
+	printf("-------------------- Accuracy Check --------------------\n");
+	printf("MAE = %lf\n", absoluteError/(double)WinSize);
+	printf("--------------------------------------------------------\n");    
+    
+
 	/////////////////////////// Clean up ///////////////////////////
 	
 	fprintf(stderr, "[INFO] Cleaning up...");
 	max_unload(engine);
 	SVM_free();
-	free(Xc); free(Yc); free(outValue);
+	free(Xc); free(Yc); free(outValue); free(param.theta); free(theta);
 	fprintf(stderr, " Done.\n");
 	
 	return 0;
@@ -1911,6 +1955,7 @@ int main(){
 	ParamSimple40.C 	= 1000;
 	ParamSimple40.sigma_sq  = 50;
 	ParamSimple40.eps  	= 1e-6;
+	ParamSimple40.recordTheta = false;
 
 //	LIBSVMData(ParamSimple40);
 
@@ -1928,6 +1973,7 @@ int main(){
 	ParamOrderBook.C 	= 5000;
 	ParamOrderBook.sigma_sq = 0.0625;
 	ParamOrderBook.eps  	= 1e-8;
+	ParamOrderBook.recordTheta = false;
 
 //	LIBSVMData(ParamOrderBook);
 
@@ -1946,32 +1992,17 @@ int main(){
 	ParamCPUSmall.C 		= 32;
 	ParamCPUSmall.sigma_sq 	= 0.25;
 	ParamCPUSmall.eps  		= 1e-10;
+	ParamCPUSmall.recordTheta = false;	
 
 //	LIBSVMData(ParamCPUSmall);
 
-	///////////// Mackey-Glass Equation DATASET /////////////
-
-	Param ParamMG;
-	ParamMG.InFile 	= "mg_scale.txt";
-	ParamMG.OutFile = "mg_scale_result.txt";
-	ParamMG.LogFile	= "mg_scale_log.txt";
-	ParamMG.DataSize = 1385;
-	ParamMG.DataDim  = 6;
-	ParamMG.WinSize  = 480;
-	ParamMG.RSize 	= 480;
-	ParamMG.ep 		= 0.2;
-	ParamMG.C 		= 32;
-	ParamMG.sigma_sq = 0.25;
-	ParamMG.eps  	= 1e-10;
-
-//	LIBSVMData(ParamMG);
 
 	///////////// DFE /////////////
 	
 	// NOTE: The settings in Def.maxj should also be changed
 	// NOTE: Cycles must be a multiple of 40000
 	runDFE(ParamSimple40, 360000, 4);
-//	runDFE(ParamOrderBook, 4880000, 70);
+//	runDFE(ParamOrderBook, 4920000, 70);
 
 	printf("[INFO] Job Finished.\n");
 

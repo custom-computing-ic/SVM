@@ -73,7 +73,7 @@ class Def {
 	///////////////////////// Types /////////////////////////
 	
 	// Precision - Number of Fractional Bits
-	public static final int FractionalBits 		= 40;  // FPT:50
+	public static final int FractionalBits 		= 50;  // FPT:50
 	
 	// Basic Fix-Point Type
 	public static final DFEType BaseFixType 	= KernelLib.dfeFixOffset(FractionalBits+14, -FractionalBits, SignMode.TWOSCOMPLEMENT);

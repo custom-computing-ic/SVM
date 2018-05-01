@@ -22,9 +22,9 @@ public class SVMManager extends CustomManager{
 		
 		if (ep.getDFEModel().getDFEArchitecture() == DFEArchitecture.MAX4_Maia) {
 			BuildConfig Config = new BuildConfig(BuildConfig.Level.FULL_BUILD);
-                	Config.setBuildEffort(BuildConfig.Effort.HIGH);
-                	Config.setMPPRCostTableSearchRange(1, 4);
-                	Config.setMPPRParallelism(4);
+                	Config.setBuildEffort(BuildConfig.Effort.VERY_HIGH);
+                	Config.setMPPRCostTableSearchRange(1, 16);
+                	Config.setMPPRParallelism(9);
                 	Config.setEnableTimingAnalysis(true);
                 	setBuildConfig(Config);
                 	config.setDefaultStreamClockFrequency(Def.KernelFrequencyMAX4);

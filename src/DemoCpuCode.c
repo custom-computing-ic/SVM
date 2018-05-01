@@ -1924,7 +1924,7 @@ int runDFE(Param param, int Ticks, size_t blockDim) {
         absoluteError += fabs(theta[i] - param.theta[i]);
     }
 	printf("-------------------- Accuracy Check --------------------\n");
-	printf("MAE = %lf\n", absoluteError/(double)WinSize);
+	printf("MAE = %.10lf\n", absoluteError/(double)WinSize);
 	printf("--------------------------------------------------------\n");    
     
 
@@ -1962,16 +1962,16 @@ int main(){
 	///////////// Order Book Data /////////////
 
 	Param ParamOrderBook;
-	ParamOrderBook.InFile 	= "data9970.txt";
-	ParamOrderBook.OutFile  = "data9970result.txt";
-	ParamOrderBook.LogFile	= "data9970log.txt";
+	ParamOrderBook.InFile 	= "data4096.txt";
+	ParamOrderBook.OutFile  = "data4096result.txt";
+	ParamOrderBook.LogFile	= "data4096log.txt";
 	ParamOrderBook.DataSize = 1902;
 	ParamOrderBook.DataDim  = 16;
 	ParamOrderBook.WinSize  = 420;
 	ParamOrderBook.RSize 	= ParamOrderBook.WinSize;
-	ParamOrderBook.ep 	= 1500*0.0001;
-	ParamOrderBook.C 	= 5000;
-	ParamOrderBook.sigma_sq = 0.0625;
+	ParamOrderBook.ep 	= 0.015;
+	ParamOrderBook.C 	= 32;
+	ParamOrderBook.sigma_sq = 5000;
 	ParamOrderBook.eps  	= 1e-8;
 	ParamOrderBook.recordTheta = false;
 
@@ -2001,8 +2001,9 @@ int main(){
 	
 	// NOTE: The settings in Def.maxj should also be changed
 	// NOTE: Cycles must be a multiple of 40000
-	runDFE(ParamSimple40, 360000, 4);
+//	runDFE(ParamSimple40, 360000, 4);
 //	runDFE(ParamOrderBook, 4920000, 70);
+	runDFE(ParamOrderBook, 1200000, 70);
 
 	printf("[INFO] Job Finished.\n");
 

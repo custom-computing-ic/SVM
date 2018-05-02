@@ -42,8 +42,6 @@ class Def {
 */
 
 
-    public static final double RBFgamma = 0.5 / sigma_sq;
-
 	///////////////////////// FPGA Configuration /////////////////////////
 
 	// FPGA Frequency

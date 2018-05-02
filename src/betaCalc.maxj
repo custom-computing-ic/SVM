@@ -130,16 +130,16 @@ class betaCalc extends KernelLib{
                 
  		/////////////////////// Memory ///////////////////////
                 
-		portVec = (new DFEVectorType<DFEVar>(Def.RType, numBlocks)).newInstance(this);
-		readVec = (new DFEVectorType<DFEVar>(Def.RType, numBlocks)).newInstance(this);
+		portVec = (new DFEVectorType<DFEVar>(Def.betaType, numBlocks)).newInstance(this);
+		readVec = (new DFEVectorType<DFEVar>(Def.betaType, numBlocks)).newInstance(this);
 		for(int i=0; i<numBlocks; ++i) {
 			// Write on the last cycle of processing a row
 			DFEVar WrEn   = isInit | isCalculating & XAddrCounter.getWrap();
 			DFEVar WrAddr = isInit ? initAddr : (isCalculating ? YAddr : portAddr);
 			DFEVar RdAddr = isSeqReading ? XAddr : readAddr;
 			Memory<DFEVar> block = mem.alloc(Def.betaType, RBlockDim);
-			portVec[i] <== block.port(WrAddr, WrData[i], WrEn, RamWriteMode.WRITE_FIRST).cast(Def.RType);
-			readVec[i] <== block.read(RdAddr).cast(Def.RType);
+			portVec[i] <== block.port(WrAddr, WrData[i], WrEn, RamWriteMode.WRITE_FIRST);
+			readVec[i] <== block.read(RdAddr);
 		}
 		// For sequential read
 		seqRead = control.mux(muxSelect, readVec.getElementsAsList());

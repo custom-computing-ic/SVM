@@ -10,6 +10,7 @@ import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Stream.OffsetExpr;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Mem.RamWriteMode;
 import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.Reductions;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;
 import com.maxeler.maxcompiler.v2.utils.MathUtils;
 
 import maxpower.ConstDenominator;
@@ -110,12 +111,13 @@ class RMem extends KernelLib{
 		DFEVar isEnlarging = REnlargeCounter.isValid();
 		
 		// betaX * gammaInv, betaY * gammaInv
-		FanoutLimiter<DFEVar> gammaInvFanout = new FanoutLimiter<DFEVar>(gammaInv, Def.MaxFanout);
+		DFEVar gammaInv_cast = gammaInv.cast(Def.RCalcType);
+		FanoutLimiter<DFEVar> gammaInvFanout = new FanoutLimiter<DFEVar>(gammaInv_cast, Def.MaxFanout);
 		DFEVector<DFEVar> betaXgammaInv = numBlocksVec.newInstance(this);
 		DFEVector<DFEVar> betaYgammaInv = numBlocksVec.newInstance(this);
 		for (int i=0; i<numBlocks; ++i) {
-			betaXgammaInv[i] <== betaX[i] * gammaInvFanout.get();
-			betaYgammaInv[i] <== betaY[i] * gammaInvFanout.get();
+			betaXgammaInv[i] <== betaX[i].cast(Def.RCalcType) * gammaInvFanout.get();
+			betaYgammaInv[i] <== betaY[i].cast(Def.RCalcType) * gammaInvFanout.get();
 		}
 
 
@@ -442,6 +444,42 @@ class RMem extends KernelLib{
 			DFEVar RShrinkPortData = isShrinking ? ShrinkPortData : (isUpShifting ? UpShiftPortData : LeftShiftPortData);
 			DFEVar RShrinkPortEn = ShrinkPortEn | UpShiftPortEn | LeftShiftPortEn;
 
+
+            /////////////////////// Precision Optimisation ///////////////////////
+/*
+            DFEVar Tick  = control.count.simpleCounter(32);
+            DFEVar Stream_reset = (Tick === 1);
+
+            // Check REnlarge Data
+            DFEVar betaX_    = KernelMath.abs(betaX);        
+            DFEVar betaX_max = Reductions.streamMax(betaX_, Stream_reset, REnlargePortEn);
+            
+            DFEVar betaYgammaInv_    = KernelMath.abs(betaYgammaInv);
+            DFEVar betaYgammaInv_max = Reductions.streamMax(betaYgammaInv_, Stream_reset, REnlargePortEn);
+
+            DFEVar betaXbetaYgammaInv_    = KernelMath.abs(betaX.cast(Def.RCalcType) * betaYgammaInv.cast(Def.RCalcType));
+            DFEVar betaXbetaYgammaInv_max = Reductions.streamMax(betaXbetaYgammaInv_, Stream_reset, REnlargePortEn);            
+            
+            DFEVar toREnlargeInnerData_    = KernelMath.abs(toREnlargeInnerData);
+            DFEVar toREnlargeInnerData_max = Reductions.streamMax(toREnlargeInnerData_, Stream_reset, REnlargePortEn);                
+            
+            // Check RShrinkData
+            DFEVar XElem_    = KernelMath.abs(XElem);
+            DFEVar XElem_max = Reductions.streamMax(XElem_, Stream_reset, RShrinkPortEn);
+            
+            DFEVar YElemKElemInv_    = KernelMath.abs(YElemKElemInv);
+            DFEVar YElemKElemInv_max = Reductions.streamMax(YElemKElemInv_, Stream_reset, RShrinkPortEn);
+            
+            DFEVar XElemYElemKElemInv_    = KernelMath.abs(XElem.cast(Def.RCalcType) * YElemKElemInv);
+            DFEVar XElemYElemKElemInv_max = Reductions.streamMax(XElemYElemKElemInv_, Stream_reset, RShrinkPortEn);
+            
+            DFEVar toShrinkPortData_    = KernelMath.abs(toShrinkPortData);          
+            DFEVar toShrinkPortData_max = Reductions.streamMax(toShrinkPortData_, Stream_reset, RShrinkPortEn);
+            
+            // Report
+            DFEVar Stream_report = (Tick === 1198000);   // 358000 for SimpleDataset, 1198000 for OrderBookData
+            debug.simPrintf(Stream_report, "[REnlarge] X=%.2f, YgammaInv=%.2f, XYgammaInv=%.2f, result=%.2f | [RShrink] X=%.2f, YKElemInv=%.2f, XYKElemInv=%.2f, result=%.2f\n", betaX_max, betaYgammaInv_max,  betaXbetaYgammaInv_max, toREnlargeInnerData_max, XElem_max, YElemKElemInv_max, XElemYElemKElemInv_max, toShrinkPortData_max);
+*/
 
 			/////////////////////// Memory ///////////////////////
 			

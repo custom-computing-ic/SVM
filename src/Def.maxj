@@ -23,7 +23,7 @@ class Def {
 	public static final double ep 			= 0.015;
 	public static final double C 			= 32;
 	public static final double sigma_sq 		= 5000;
-	public static final double BookKeepingTH 	= 999999999.0;
+	public static final double BookKeepingTH 	= 9999999;
 
 /*
 	// Settings for SimpleDataSet
@@ -38,9 +38,11 @@ class Def {
 	public static final double ep 			= 0.01;
 	public static final double C 			= 1000;
 	public static final double sigma_sq 		= 50;
-	public static final double BookKeepingTH 	= 999999.0;
+	public static final double BookKeepingTH 	= 99999.0;
 */
 
+
+    public static final double RBFgamma = 0.5 / sigma_sq;
 
 	///////////////////////// FPGA Configuration /////////////////////////
 
@@ -76,29 +78,31 @@ class Def {
 	public static final int FractionalBits 		= 50;
 	
 	// Basic Fix-Point Type
-	public static final DFEType BaseFixType 	= KernelLib.dfeFixOffset(FractionalBits+14, -FractionalBits, SignMode.TWOSCOMPLEMENT);
-	public static final DFEType KernelSumType 	= BaseFixType;
+	public static final DFEType BaseFixType 	= KernelLib.dfeFix(14, FractionalBits, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType DataYType 		= KernelLib.dfeFix(14, FractionalBits, SignMode.TWOSCOMPLEMENT);
 	public static final DFEType hXiType 		= BaseFixType;
 	public static final DFEType thetaType 		= BaseFixType;
 
 	// High Range Fix-Point Type
-	public static final DFEType HighFixType 	= KernelLib.dfeFixOffset(FractionalBits+25, -FractionalBits, SignMode.TWOSCOMPLEMENT);
-	public static final DFEType RType 		= HighFixType;
+	public static final DFEType HighFixType 	= KernelLib.dfeFix(21, FractionalBits, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType RType 		    = HighFixType;
 	public static final DFEType RCalcType 		= HighFixType;
 	public static final DFEType betaType 		= HighFixType;
 	public static final DFEType gammaType 		= HighFixType;
 	
 	// Very High Range Fix-Point Type
-	public static final DFEType VeryHighFixType 	= KernelLib.dfeFixOffset(FractionalBits+40, -FractionalBits, SignMode.TWOSCOMPLEMENT);  // FPT 40
-	public static final DFEType BookKeepingType 	= VeryHighFixType;
+	public static final DFEType BookKeepingType = KernelLib.dfeFix(25, FractionalBits, SignMode.TWOSCOMPLEMENT);  // FPT 40
 	
-	// Input Data Types
+	// Input Data and RBF Types
+	public static final int RBFFractionalBits 	= 50;
 	public static final DFEType InputType 		= KernelLib.dfeFloat(11, 53);
-	public static final DFEType DataType 		= KernelLib.dfeFixOffset(60, -50, SignMode.TWOSCOMPLEMENT);
-	public static final DFEType DataYType 		= KernelLib.dfeFixOffset(64, -50, SignMode.TWOSCOMPLEMENT);
+	public static final DFEType DataType 		= KernelLib.dfeFix(12,  RBFFractionalBits, SignMode.TWOSCOMPLEMENT);   // SVM32: 8 OK
+	public static final DFEType KernelSumType 	= KernelLib.dfeFix(12, RBFFractionalBits, SignMode.TWOSCOMPLEMENT);    // SVM32: 10 OK
+    public static final DFEType ExpType         = KernelLib.dfeFix(6,  RBFFractionalBits, SignMode.TWOSCOMPLEMENT);    // SVM32: 2 OK
+
 
 	// Q Type
-	public static final DFEType QType = KernelLib.dfeFixOffset(FractionalBits+1, -FractionalBits, SignMode.UNSIGNED);
+	public static final DFEType QType = KernelLib.dfeFix(1, FractionalBits, SignMode.UNSIGNED);
 
 
 	///////////////////////// Software Utility Functions /////////////////////////

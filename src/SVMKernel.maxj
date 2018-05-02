@@ -303,7 +303,9 @@ class SVMKernel extends Kernel {
 
 		
 		////////////////////////// Bookkeeping /////////////////////////
-		
+
+		// BookKeeping - must offset BookKeepingSel by 1 when iterating over NMask, as Group RAM in StateMachine has latency 1
+		DFEVar BKSel = isBookKeeping_N ? stream.offset(BookKeepingSel, 1) : BookKeepingSel;
 		DFEVar BKINF = constant.var(Def.BookKeepingType, Def.BookKeepingTH);
 		
 		// Empty S - Incremental Training - NEED q and hXi
@@ -326,9 +328,15 @@ class SVMKernel extends Kernel {
 		DFEVar BKthetaSeq 	= thetaSeq.cast(Def.BookKeepingType);
 		DFEVar BKbetaSeq 	= betaSeq.cast(Def.BookKeepingType);
 		DFEVar BKgammaSeq 	= gammaSeq.cast(Def.BookKeepingType);
-		// LC1		
+		
+		// Resource Sharing: gamma_c and gammaSeq
+		DFEVar BKgamma      = (BKSel === 3) ? BKgamma_c : BKgammaSeq;
+		DFEVar AbshXiPlusEpGammaInv  = KernelMath.abs((hXi+Def.ep)/BKgamma);
+		DFEVar AbshXiMinusEpGammaInv = KernelMath.abs((hXi-Def.ep)/BKgamma);
+		
+		// LC1
 		DFEVar qrc = (q>0) ? BKgamma_c : -BKgamma_c;
-		DFEVar LC1_INC = ((qrc>0)&(hXi<-Def.ep)) ? KernelMath.abs((hXi+Def.ep)/BKgamma_c) : (((qrc<0)&(hXi>Def.ep)) ? KernelMath.abs((hXi-Def.ep)/BKgamma_c) : BKINF);		
+		DFEVar LC1_INC = ((qrc>0)&(hXi<-Def.ep)) ? AbshXiPlusEpGammaInv : (((qrc<0)&(hXi>Def.ep)) ? AbshXiMinusEpGammaInv : BKINF);
 		// LC2
 		DFEVar qC = (q>0) ? constant.var(Def.BookKeepingType, Def.C) : constant.var(Def.BookKeepingType, -Def.C);
 		DFEVar LC2_INC = KernelMath.abs(qC-BKthetaSeq);
@@ -345,15 +353,14 @@ class SVMKernel extends Kernel {
 		DFEVar FlagLSPos 	= (BKthetaSeq>=0) ? constant.var(FlagType, 4) : constant.var(FlagType, 7);
 		DFEVar FlagLSNeg 	= (BKthetaSeq<=0) ? constant.var(FlagType, 4) : constant.var(FlagType, 7);
 		DFEVar FlagLS 		= (qbi>0) ? FlagLSPos : FlagLSNeg;
+
 		// LiE and LiR shared resources
-		DFEVar qri = (q>0) ? BKgammaSeq : -BKgammaSeq;
-		DFEVar hXiPlusEpDivGammaSeq = KernelMath.abs((hXi+Def.ep)/BKgammaSeq);
-		DFEVar hXiMinusEpDivGammaSeq = KernelMath.abs((hXi-Def.ep)/BKgammaSeq);		
+		DFEVar qri = (q>0) ? BKgamma : -BKgamma;
 		// LiE
-		DFEVar LE = ((qri>0)&(hXi<=-Def.ep)) ? hXiPlusEpDivGammaSeq : (((qri<0)&(hXi>=Def.ep)) ? hXiMinusEpDivGammaSeq : BKINF);
+		DFEVar LE = ((qri>0)&(hXi<=-Def.ep)) ? AbshXiPlusEpGammaInv : (((qri<0)&(hXi>=Def.ep)) ? AbshXiMinusEpGammaInv : BKINF);
 		DFEVar FlagLE = constant.var(FlagType, 5);
 		// LiR
-		DFEVar LR = (KernelMath.abs(BKgammaSeq)<Eps.cast(Def.BookKeepingType)) ? BKINF : ((qri>0) ? hXiMinusEpDivGammaSeq : hXiPlusEpDivGammaSeq);
+		DFEVar LR = (KernelMath.abs(BKgamma)<Eps.cast(Def.BookKeepingType)) ? BKINF : ((qri>0) ? AbshXiMinusEpGammaInv : AbshXiPlusEpGammaInv);
 		DFEVar FlagLR = constant.var(FlagType, 5);
 
 		// Non-Empty S - Decremental Training - LiS, LiE, LiR same as INC, but LC2 is different, and no LC1
@@ -365,34 +372,32 @@ class SVMKernel extends Kernel {
 		DFEVar LC = isInc ? LC_INC : LC_DEC;
 		DFEVar FlagLC = isInc ? FlagLC_INC : FlagLC_DEC;
 		
-		
-		// BookKeeping - must offset BookKeepingSel by 1 when iterating over NMask, as Group RAM in StateMachine has latency 1
-		DFEVar BKSel 	= isBookKeeping_N ? stream.offset(BookKeepingSel, 1) : BookKeepingSel;
+        // Bookkeeping Value and Index
 		DFEVar BKVal 	= control.mux(BKSel, bC, bE, bR, LC, LS, LE, LR);
 		DFEVar BKFlag 	= control.mux(BKSel, FlagbC, FlagbE, FlagbR, FlagLC, FlagLS, FlagLE, FlagLR);
 		DFEVar BKIndex 	= control.mux(BKSel, GroupIndexXc, IndexNMask, IndexNMask, GroupIndexXc, IndexSMask, IndexNMask, IndexNMask);
-		
+/*		
 		// A Preliminary solution that handles ties
-		DFEVar BKVal_cutoff = (BKVal > BKINF) ? BKINF : BKVal;
-		DFEVar minC = Reductions.streamHold(BKVal_cutoff, beginBookKeeping);
+		DFEVar BKVal_cutoff = ((BKVal>BKINF)|(BKVal<0)) ? BKINF : BKVal;
+		DFEVar minC  = Reductions.streamHold(BKVal_cutoff, beginBookKeeping);
 		DFEVar FlagC = Reductions.streamHold(BKFlag, beginBookKeeping);
 		Reductions.StreamMinInfo BookKeep1 = Reductions.streamMinWithMetadata(BKVal_cutoff, BKFlag, stream.offset(beginBookKeeping, -1), BookKeepingValid);
 		Reductions.StreamMinInfo BookKeep2 = Reductions.streamMinWithMetadata(BKVal_cutoff, BKIndex, stream.offset(beginBookKeeping, -1), BookKeepingValid);
 //		DFEVar isCSmaller = ((minC + Eps.cast(Def.BookKeepingType)) < BookKeep1.getMin());
-		DFEVar Eps10 = 10*Eps.cast(Def.BookKeepingType);
+		DFEVar Eps10      = 10*Eps.cast(Def.BookKeepingType);
 		DFEVar isCSmaller = ((minC>Eps10)&(BookKeep1.getMin()>Eps10)) ? ((minC + Eps.cast(Def.BookKeepingType)) < BookKeep1.getMin()) : (minC<BookKeep1.getMin());
 		DFEVar BookKeepingFlag 	= isCSmaller ? FlagC : BookKeep1.getMetaData();
 		DFEVar BookKeepingIndex = isCSmaller ? GroupIndexXc : BookKeep2.getMetaData();
 		DFEVar minL = isCSmaller ? minC : BookKeep1.getMin();
-		
-/*
-		DFEVar BKVal_cutoff = (BKVal > BKINF) ? BKINF : BKVal;
+*/	
+
+		DFEVar BKVal_cutoff = ((BKVal>BKINF)|(BKVal<0)) ? BKINF : BKVal;
 		Reductions.StreamMinInfo BookKeep1 = Reductions.streamMinWithMetadata(BKVal_cutoff, BKFlag, beginBookKeeping, BookKeepingValid);
 		Reductions.StreamMinInfo BookKeep2 = Reductions.streamMinWithMetadata(BKVal_cutoff, BKIndex, beginBookKeeping, BookKeepingValid);
 		DFEVar BookKeepingFlag 	= BookKeep1.getMetaData();
 		DFEVar BookKeepingIndex 	= BookKeep2.getMetaData();
 		DFEVar minL	= BookKeep1.getMin();
-*/
+
 		
 		////////////////////////// Update /////////////////////////
 		
@@ -552,8 +557,9 @@ class SVMKernel extends Kernel {
 		DFEVector<DFEVar> temp = X1 - X2;
 		DFEVector<DFEVar> summands = (new DFEVectorType<DFEVar>(Def.KernelSumType, dataDim)).newInstance(this);
 		for (int i=0; i<dataDim; ++i) summands[i] <== (temp[i]*temp[i]).cast(Def.KernelSumType);
-		DFEVar sum = TreeReduce.reduce(new Add<DFEVar>(), summands.getElementsAsList());
-		DFEVar result = KernelMath.exp(sum*(-0.5/Def.sigma_sq));
+		DFEVar sum    = TreeReduce.reduce(new Add<DFEVar>(), summands.getElementsAsList());
+		DFEVar toExp  = (-sum * Def.RBFgamma).cast(Def.ExpType);
+		DFEVar result = KernelMath.exp(toExp);
 		optimization.popPipeliningFactor();
 		
 		return result.cast(Def.QType);
